@@ -11,7 +11,7 @@ from tau_agent.session import (
     SessionInfoEntry,
 )
 from tau_ai import FakeProvider, ProviderResponseEndEvent, ProviderResponseStartEvent
-from tau_coding import CodingSession, CodingSessionConfig
+from tau_coding import CodingSession, CodingSessionConfig, TauResourcePaths
 
 
 async def _collect_session_events(session_stream: object) -> list[object]:
@@ -169,6 +169,39 @@ async def test_tool_results_are_persisted(tmp_path: Path) -> None:
 
     messages = [entry.message for entry in await storage.read_all() if entry.type == "message"]
     assert any(isinstance(message, ToolResultMessage) for message in messages)
+
+
+@pytest.mark.anyio
+async def test_session_loads_and_expands_skills(tmp_path: Path) -> None:
+    resource_root = tmp_path / "resources"
+    skills_dir = resource_root / "skills"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "testing.md").write_text("# Testing\nRun pytest.", encoding="utf-8")
+    storage = JsonlSessionStorage(tmp_path / "session.jsonl")
+    provider = FakeProvider(
+        [
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Done")),
+            ]
+        ]
+    )
+    config = CodingSessionConfig(
+        provider=provider,
+        model="fake",
+        system="You are Tau.",
+        storage=storage,
+        cwd=tmp_path,
+        resource_paths=TauResourcePaths(root=resource_root),
+    )
+    session = await CodingSession.load(config)
+
+    _events = await _collect_session_events(session.prompt("/skill:testing add tests"))
+
+    assert [skill.name for skill in session.skills] == ["testing"]
+    assert '<skill name="testing">' in provider.calls[0][2][0].content
+    assert "User request:\nadd tests" in provider.calls[0][2][0].content
+    assert session.handle_command("/skill:testing").handled is False
 
 
 def test_minimal_commands_are_handled(tmp_path: Path) -> None:

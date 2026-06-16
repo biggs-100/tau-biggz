@@ -17,6 +17,9 @@ from tau_agent.session import (
 )
 from tau_agent.tools import AgentTool
 from tau_ai import ModelProvider
+from tau_coding.prompt_templates import PromptTemplate, load_prompt_templates
+from tau_coding.resources import ResourceError, TauResourcePaths
+from tau_coding.skills import Skill, expand_skill_command, load_skills
 from tau_coding.tools import create_coding_tools
 
 
@@ -30,6 +33,7 @@ class CodingSessionConfig:
     storage: SessionStorage
     cwd: Path
     tools: list[AgentTool] | None = None
+    resource_paths: TauResourcePaths | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,11 +60,15 @@ class CodingSession:
         state: SessionState,
         harness: AgentHarness,
         last_parent_id: str | None,
+        skills: tuple[Skill, ...] = (),
+        prompt_templates: tuple[PromptTemplate, ...] = (),
     ) -> None:
         self._config = config
         self._state = state
         self._harness = harness
         self._last_parent_id = last_parent_id
+        self._skills = skills
+        self._prompt_templates = prompt_templates
 
     @classmethod
     async def load(cls, config: CodingSessionConfig) -> CodingSession:
@@ -80,6 +88,9 @@ class CodingSession:
             else linear_state
         )
         tools = config.tools if config.tools is not None else create_coding_tools(cwd=config.cwd)
+        resource_paths = config.resource_paths or TauResourcePaths()
+        skills = tuple(load_skills(resource_paths))
+        prompt_templates = tuple(load_prompt_templates(resource_paths))
         harness = AgentHarness(
             AgentHarnessConfig(
                 provider=config.provider,
@@ -94,6 +105,8 @@ class CodingSession:
             state=state,
             harness=harness,
             last_parent_id=_last_parent_id_from_state(state),
+            skills=skills,
+            prompt_templates=prompt_templates,
         )
 
     @property
@@ -111,6 +124,16 @@ class CodingSession:
         """Return the backing session storage."""
         return self._config.storage
 
+    @property
+    def skills(self) -> tuple[Skill, ...]:
+        """Return loaded skills."""
+        return self._skills
+
+    @property
+    def prompt_templates(self) -> tuple[PromptTemplate, ...]:
+        """Return loaded prompt templates."""
+        return self._prompt_templates
+
     def cancel(self) -> None:
         """Cancel the currently running agent turn, if any."""
         self._harness.cancel()
@@ -124,6 +147,8 @@ class CodingSession:
         stripped = text.strip()
         if not stripped.startswith("/"):
             return CommandResult(handled=False)
+        if stripped.startswith("/skill:"):
+            return CommandResult(handled=False)
         if stripped == "/exit":
             return CommandResult(handled=True, exit_requested=True, message="Exiting session.")
         if stripped == "/help":
@@ -133,10 +158,19 @@ class CodingSession:
             )
         return CommandResult(handled=True, message=f"Unknown command: {stripped}")
 
+    def expand_prompt_text(self, text: str) -> str:
+        """Expand prompt text using loaded markdown resources."""
+        expanded_skill = expand_skill_command(text, self._skills)
+        return expanded_skill if expanded_skill is not None else text
+
     async def prompt(self, content: str) -> AsyncIterator[AgentEvent]:
         """Append a user prompt, run the agent, and persist new messages."""
+        try:
+            expanded_content = self.expand_prompt_text(content)
+        except ResourceError:
+            raise
         before_count = len(self._harness.messages)
-        async for event in self._harness.prompt(content):
+        async for event in self._harness.prompt(expanded_content):
             yield event
         await self._persist_new_messages(before_count)
 

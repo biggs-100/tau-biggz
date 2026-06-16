@@ -1,0 +1,172 @@
+"""Persistent coding-session wrapper built on AgentHarness."""
+
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
+from pathlib import Path
+
+from tau_agent import AgentEvent, AgentHarness, AgentHarnessConfig
+from tau_agent.messages import AgentMessage
+from tau_agent.session import (
+    JsonlSessionStorage,
+    LeafEntry,
+    MessageEntry,
+    ModelChangeEntry,
+    SessionInfoEntry,
+    SessionState,
+    SessionStorage,
+)
+from tau_agent.tools import AgentTool
+from tau_ai import ModelProvider
+from tau_coding.tools import create_coding_tools
+
+
+@dataclass(frozen=True, slots=True)
+class CodingSessionConfig:
+    """Configuration for a persistent coding session."""
+
+    provider: ModelProvider
+    model: str
+    system: str
+    storage: SessionStorage
+    cwd: Path
+    tools: list[AgentTool] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CommandResult:
+    """Result of handling a coding-session slash command."""
+
+    handled: bool
+    exit_requested: bool = False
+    message: str | None = None
+
+
+class CodingSession:
+    """Tau's coding-agent environment wrapper.
+
+    `AgentHarness` owns the in-memory agent brain. `CodingSession` owns the
+    coding-session environment around it: durable session entries, default coding
+    tools, and a small command seam for later phases.
+    """
+
+    def __init__(
+        self,
+        config: CodingSessionConfig,
+        *,
+        state: SessionState,
+        harness: AgentHarness,
+        last_parent_id: str | None,
+    ) -> None:
+        self._config = config
+        self._state = state
+        self._harness = harness
+        self._last_parent_id = last_parent_id
+
+    @classmethod
+    async def load(cls, config: CodingSessionConfig) -> CodingSession:
+        """Load a coding session from append-only storage."""
+        entries = await config.storage.read_all()
+        if not entries:
+            info = SessionInfoEntry(cwd=str(config.cwd))
+            model = ModelChangeEntry(parent_id=info.id, model=config.model)
+            await config.storage.append(info)
+            await config.storage.append(model)
+            entries = [info, model]
+
+        state = SessionState.from_entries(entries)
+        tools = config.tools if config.tools is not None else create_coding_tools(cwd=config.cwd)
+        harness = AgentHarness(
+            AgentHarnessConfig(
+                provider=config.provider,
+                model=state.model or config.model,
+                system=config.system,
+                tools=tools,
+            ),
+            messages=state.messages,
+        )
+        return cls(
+            config,
+            state=state,
+            harness=harness,
+            last_parent_id=_last_parent_id_from_state(state),
+        )
+
+    @property
+    def messages(self) -> tuple[AgentMessage, ...]:
+        """Return the restored/current transcript."""
+        return self._harness.messages
+
+    @property
+    def state(self) -> SessionState:
+        """Return the last replayed durable session state."""
+        return self._state
+
+    @property
+    def storage(self) -> SessionStorage:
+        """Return the backing session storage."""
+        return self._config.storage
+
+    def cancel(self) -> None:
+        """Cancel the currently running agent turn, if any."""
+        self._harness.cancel()
+
+    def handle_command(self, text: str) -> CommandResult:
+        """Handle minimal coding-session slash commands.
+
+        This is intentionally tiny. Later phases can replace it with a full Pi-like
+        command registry without changing the persistence boundary.
+        """
+        stripped = text.strip()
+        if not stripped.startswith("/"):
+            return CommandResult(handled=False)
+        if stripped == "/exit":
+            return CommandResult(handled=True, exit_requested=True, message="Exiting session.")
+        if stripped == "/help":
+            return CommandResult(
+                handled=True,
+                message="Available commands: /help, /exit",
+            )
+        return CommandResult(handled=True, message=f"Unknown command: {stripped}")
+
+    async def prompt(self, content: str) -> AsyncIterator[AgentEvent]:
+        """Append a user prompt, run the agent, and persist new messages."""
+        before_count = len(self._harness.messages)
+        async for event in self._harness.prompt(content):
+            yield event
+        await self._persist_new_messages(before_count)
+
+    async def continue_(self) -> AsyncIterator[AgentEvent]:
+        """Continue the agent from restored state and persist new messages."""
+        before_count = len(self._harness.messages)
+        async for event in self._harness.continue_():
+            yield event
+        await self._persist_new_messages(before_count)
+
+    async def _persist_new_messages(self, before_count: int) -> None:
+        new_messages = self._harness.messages[before_count:]
+        last_message_entry_id: str | None = None
+        for message in new_messages:
+            entry = MessageEntry(parent_id=self._last_parent_id, message=message)
+            await self._config.storage.append(entry)
+            self._last_parent_id = entry.id
+            last_message_entry_id = entry.id
+
+        if last_message_entry_id is not None:
+            leaf = LeafEntry(parent_id=last_message_entry_id, entry_id=last_message_entry_id)
+            await self._config.storage.append(leaf)
+
+        entries = await self._config.storage.read_all()
+        self._state = SessionState.from_entries(entries)
+
+
+def _last_parent_id_from_state(state: SessionState) -> str | None:
+    if state.active_leaf_id is not None:
+        return state.active_leaf_id
+    if state.entries:
+        return state.entries[-1].id
+    return None
+
+
+def jsonl_session_storage(path: str | Path) -> JsonlSessionStorage:
+    """Convenience factory for local JSONL coding-session storage."""
+    return JsonlSessionStorage(path)

@@ -13,6 +13,7 @@ from tau_ai import (
 )
 from tau_coding import cli
 from tau_coding.cli import app, run_print_mode
+from tau_coding.rendering import PrintOutputMode
 from tau_coding.system_prompt import BuildSystemPromptOptions, build_system_prompt
 from tau_coding.tools import create_coding_tools
 
@@ -32,7 +33,7 @@ def test_cli_without_prompt_prints_print_mode_hint() -> None:
 
 
 @pytest.mark.anyio
-async def test_run_print_mode_streams_assistant_text(
+async def test_run_print_mode_prints_final_assistant_text(
     capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     provider = FakeProvider(
@@ -80,8 +81,68 @@ async def test_run_print_mode_fails_on_non_recoverable_error(
     assert "Error: provider failed" in captured.err
 
 
+@pytest.mark.anyio
+async def test_run_print_mode_can_emit_json_events(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    provider = FakeProvider(
+        [
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderTextDeltaEvent(delta="Hello"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Hello")),
+            ]
+        ]
+    )
+
+    ok = await run_print_mode(
+        prompt="Say hello",
+        model="fake",
+        cwd=tmp_path,
+        provider=provider,
+        output=PrintOutputMode.json,
+    )
+
+    captured = capsys.readouterr()
+    assert ok is True
+    assert '"type":"agent_start"' in captured.out
+    assert '"type":"message_delta"' in captured.out
+    assert captured.err == ""
+
+
+@pytest.mark.anyio
+async def test_run_print_mode_can_emit_live_transcript(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    provider = FakeProvider(
+        [
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderTextDeltaEvent(delta="Hel"),
+                ProviderTextDeltaEvent(delta="lo"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Hello")),
+            ]
+        ]
+    )
+
+    ok = await run_print_mode(
+        prompt="Say hello",
+        model="fake",
+        cwd=tmp_path,
+        provider=provider,
+        output=PrintOutputMode.transcript,
+    )
+
+    captured = capsys.readouterr()
+    assert ok is True
+    assert captured.out == "Hello\n"
+    assert captured.err == ""
+
+
 def test_cli_exits_nonzero_when_print_mode_fails(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def fake_run_openai_print_mode(prompt: str, model: str, cwd: Path) -> bool:
+    async def fake_run_openai_print_mode(
+        prompt: str, model: str, cwd: Path, output: PrintOutputMode
+    ) -> bool:
         return False
 
     monkeypatch.setattr(cli, "run_openai_print_mode", fake_run_openai_print_mode)

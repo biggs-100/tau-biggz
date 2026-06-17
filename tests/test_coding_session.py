@@ -172,6 +172,31 @@ async def test_tool_results_are_persisted(tmp_path: Path) -> None:
 
 
 @pytest.mark.anyio
+async def test_session_preserves_explicit_empty_system_prompt(tmp_path: Path) -> None:
+    storage = JsonlSessionStorage(tmp_path / "session.jsonl")
+    provider = FakeProvider(
+        [
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Done")),
+            ]
+        ]
+    )
+    config = CodingSessionConfig(
+        provider=provider,
+        model="fake",
+        system="",
+        storage=storage,
+        cwd=tmp_path,
+    )
+    session = await CodingSession.load(config)
+
+    _events = await _collect_session_events(session.prompt("Hello"))
+
+    assert provider.calls[0][1] == ""
+
+
+@pytest.mark.anyio
 async def test_session_builds_system_prompt_when_system_is_omitted(tmp_path: Path) -> None:
     resource_root = tmp_path / "resources"
     skills_dir = resource_root / "skills"

@@ -99,14 +99,18 @@ class CodingSession:
         resource_paths = config.resource_paths or TauResourcePaths()
         skills = tuple(load_skills(resource_paths))
         prompt_templates = tuple(load_prompt_templates(resource_paths))
-        system = config.system or build_system_prompt(
-            BuildSystemPromptOptions(
-                cwd=config.cwd,
-                tools=tools,
-                skills=skills,
-                custom_prompt=config.custom_system_prompt,
-                append_system_prompt=config.append_system_prompt,
-                context_files=config.context_files,
+        system = (
+            config.system
+            if config.system is not None
+            else build_system_prompt(
+                BuildSystemPromptOptions(
+                    cwd=config.cwd,
+                    tools=tools,
+                    skills=skills,
+                    custom_prompt=config.custom_system_prompt,
+                    append_system_prompt=config.append_system_prompt,
+                    context_files=config.context_files,
+                )
             )
         )
         harness = AgentHarness(

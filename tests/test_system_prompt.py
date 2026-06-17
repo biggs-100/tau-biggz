@@ -75,6 +75,22 @@ def test_custom_prompt_replaces_default_but_keeps_append_context_and_date(tmp_pa
     assert "Current date: 2026-06-17" in prompt
 
 
+def test_empty_custom_prompt_is_still_custom(tmp_path: Path) -> None:
+    prompt = build_system_prompt(
+        BuildSystemPromptOptions(
+            cwd=tmp_path,
+            tools=create_coding_tools(cwd=tmp_path),
+            custom_prompt="",
+            append_system_prompt="Extra rules.",
+            current_date=date(2026, 6, 17),
+        )
+    )
+
+    assert prompt.startswith("\n\nExtra rules.")
+    assert "Available tools:" not in prompt
+    assert "Current date: 2026-06-17" in prompt
+
+
 def test_skills_are_formatted_as_xml_and_escaped(tmp_path: Path) -> None:
     skill_path = tmp_path / "skills" / "review" / "SKILL.md"
     skill = Skill(

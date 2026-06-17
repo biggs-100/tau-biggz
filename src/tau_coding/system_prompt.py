@@ -38,7 +38,7 @@ def build_system_prompt(options: BuildSystemPromptOptions) -> str:
     cwd = _format_path(options.cwd)
     append_section = f"\n\n{options.append_system_prompt}" if options.append_system_prompt else ""
 
-    if options.custom_prompt:
+    if options.custom_prompt is not None:
         prompt = options.custom_prompt
         prompt += append_section
         prompt += format_project_context(options.context_files)

@@ -88,6 +88,38 @@ def test_tui_adapter_records_tool_updates_and_results() -> None:
     ]
 
 
+def test_tui_adapter_renders_live_edit_patch() -> None:
+    state = TuiState()
+    adapter = TuiEventAdapter(state)
+
+    adapter.apply(
+        ToolExecutionEndEvent(
+            result=AgentToolResult(
+                tool_call_id="call-1",
+                name="edit",
+                ok=True,
+                content="Successfully replaced 1 block.",
+                data={"patch": "--- a.py\n+++ a.py\n@@\n-old\n+new"},
+            )
+        )
+    )
+
+    assert [(item.role, item.text) for item in state.items] == [
+        (
+            "tool",
+            "✓ edit\n"
+            "Successfully replaced 1 block.\n"
+            "\n"
+            "Patch:\n"
+            "--- a.py\n"
+            "+++ a.py\n"
+            "@@\n"
+            "-old\n"
+            "+new",
+        )
+    ]
+
+
 def test_tui_adapter_records_errors_and_stops_on_non_recoverable_error() -> None:
     state = TuiState(running=True, assistant_buffer="partial")
     adapter = TuiEventAdapter(state)

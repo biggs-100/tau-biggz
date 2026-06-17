@@ -19,6 +19,12 @@ Live tool results now render successful output in the transcript, matching
 restored session history. This keeps tool-call blocks useful during an active
 run instead of hiding successful command output until the session is reloaded.
 
+Live `edit` tool results now include their unified patch in the tool block. This
+provides an inline diff view for file edits while keeping the event adapter and
+Textual widgets decoupled. Restored session history does not yet include
+structured tool-result data, so restored edit blocks still show the persisted
+tool message text.
+
 The TUI also has a command-palette entry point. Pressing `Ctrl+K` focuses the
 prompt, inserts `/`, and shows all slash-command completions using the existing
 completion engine. Selection still uses the same `Tab`, `Up`, and `Down`
@@ -46,9 +52,9 @@ commands, and rendering.
 
 ## Still deferred
 
-The larger Phase 23 roadmap still includes a richer modal session picker, a
-diff viewer, configurable keybindings, and deeper theme polish. Those should
-remain separate atomic slices.
+The larger Phase 23 roadmap still includes a richer modal session picker,
+persisted diff metadata for restored history, configurable keybindings, and
+deeper theme polish. Those should remain separate atomic slices.
 
 ## Tests
 

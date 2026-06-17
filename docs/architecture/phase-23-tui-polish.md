@@ -41,8 +41,10 @@ provider switching without adding a separate modal UI.
 
 The prompt also suggests indexed session ids for `/resume <session-id>`, giving
 the TUI a lightweight session picker path through the same completion UI.
-Submitting the command reloads the selected session through `CodingSession` and
-rebuilds the visible transcript in place.
+Those rows now include session metadata such as title, model, and working
+directory while preserving newest-first order from `SessionManager`. Submitting
+the command reloads the selected session through `CodingSession` and rebuilds
+the visible transcript in place.
 
 The built-in Textual frontend now reads optional keybinding settings from
 `~/.tau/tui.json`. This lets users remap the command palette, completion
@@ -68,9 +70,9 @@ commands, and rendering.
 
 ## Still deferred
 
-The larger Phase 23 roadmap still includes a richer modal session picker,
-broader markdown transcript rendering, and more advanced picker UI. Those should
-remain separate atomic slices.
+The larger Phase 23 roadmap still includes a richer modal session picker and
+broader markdown transcript rendering. Those should remain separate atomic
+slices.
 
 ## Tests
 

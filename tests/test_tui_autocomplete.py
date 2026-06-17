@@ -2,7 +2,7 @@ from pathlib import Path
 
 from tau_coding.commands import create_default_command_registry
 from tau_coding.skills import Skill
-from tau_coding.tui.autocomplete import build_completion_state
+from tau_coding.tui.autocomplete import CompletionOption, build_completion_state
 
 
 def test_command_completion_suggests_registered_commands() -> None:
@@ -100,3 +100,22 @@ def test_resume_argument_completion_uses_session_ids() -> None:
     assert [item.display for item in state.items] == ["session-1"]
     assert state.selected is not None
     assert state.selected.apply("/resume sess") == "/resume session-1"
+
+
+def test_resume_argument_completion_uses_session_options_with_descriptions() -> None:
+    state = build_completion_state(
+        "/resume sess",
+        command_registry=create_default_command_registry(),
+        skills=(),
+        prompt_templates=(),
+        session_options=(
+            CompletionOption(value="session-2", description="Newer - qwen - /repo"),
+            CompletionOption(value="session-1", description="Older - gpt - /repo"),
+        ),
+    )
+
+    assert [item.display for item in state.items] == ["session-2", "session-1"]
+    assert [item.description for item in state.items] == [
+        "Newer - qwen - /repo",
+        "Older - gpt - /repo",
+    ]

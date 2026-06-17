@@ -325,6 +325,11 @@ async def test_tui_app_completes_resume_session_argument() -> None:
         app._completion_state = app._build_completion_state(prompt.value)
         app._refresh_completions()
 
+        assert app._completion_state.selected is not None
+        assert app._completion_state.selected.description == (
+            "Session - fake-model - /workspace/project"
+        )
+
         await pilot.press("tab")
 
         assert prompt.value == "/resume session-1"

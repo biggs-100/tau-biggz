@@ -9,6 +9,14 @@ from tau_coding.skills import Skill
 
 
 @dataclass(frozen=True, slots=True)
+class CompletionOption:
+    """A possible argument completion value with optional picker metadata."""
+
+    value: str
+    description: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class CompletionItem:
     """One selectable prompt completion."""
 
@@ -65,6 +73,7 @@ def build_completion_state(
     model_names: Sequence[str] = (),
     provider_names: Sequence[str] = (),
     session_ids: Sequence[str] = (),
+    session_options: Sequence[CompletionOption] = (),
 ) -> CompletionState:
     """Build autocomplete suggestions for the current prompt text."""
     del prompt_templates
@@ -85,6 +94,7 @@ def build_completion_state(
         model_names=model_names,
         provider_names=provider_names,
         session_ids=session_ids,
+        session_options=session_options,
     )
     if argument_completions is not None:
         return CompletionState(argument_completions)
@@ -154,6 +164,7 @@ def _command_argument_completions(
     model_names: Sequence[str],
     provider_names: Sequence[str],
     session_ids: Sequence[str],
+    session_options: Sequence[CompletionOption],
 ) -> tuple[CompletionItem, ...] | None:
     if token_end >= len(text):
         return None
@@ -163,42 +174,59 @@ def _command_argument_completions(
         return _value_completions(
             text=text,
             start=token_end + 1,
-            values=model_names,
-            description="Switch model",
+            options=_completion_options(model_names, description="Switch model"),
+            sort=True,
         )
     if command_name == "provider":
         return _value_completions(
             text=text,
             start=token_end + 1,
-            values=provider_names,
-            description="Switch provider",
+            options=_completion_options(provider_names, description="Switch provider"),
+            sort=True,
         )
     if command_name == "resume":
         return _value_completions(
             text=text,
             start=token_end + 1,
-            values=session_ids,
-            description="Resume session",
+            options=(
+                session_options
+                if session_options
+                else _completion_options(session_ids, description="Resume session")
+            ),
+            sort=False,
         )
     return None
 
 
 def _value_completions(
-    *, text: str, start: int, values: Sequence[str], description: str
+    *,
+    text: str,
+    start: int,
+    options: Sequence[CompletionOption],
+    sort: bool,
 ) -> tuple[CompletionItem, ...]:
     end = _argument_token_end(text, start)
     prefix = text[start:end].lower()
+    ordered_options = sorted(options, key=lambda item: item.value) if sort else options
     return tuple(
         CompletionItem(
-            display=value,
-            replacement=value,
+            display=option.value,
+            replacement=option.value,
             start=start,
             end=end,
-            description=description,
+            description=option.description,
         )
-        for value in sorted(values)
-        if value.lower().startswith(prefix)
+        for option in ordered_options
+        if option.value.lower().startswith(prefix)
     )
+
+
+def _completion_options(
+    values: Sequence[str],
+    *,
+    description: str,
+) -> tuple[CompletionOption, ...]:
+    return tuple(CompletionOption(value=value, description=description) for value in values)
 
 
 def _first_token_end(text: str) -> int:

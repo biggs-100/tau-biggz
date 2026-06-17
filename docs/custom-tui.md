@@ -124,6 +124,8 @@ update its running state.
 The built-in Textual app uses:
 
 ```python
+from tau_coding.tui import CompletionOption
+
 build_completion_state(
     text,
     command_registry=session.command_registry,
@@ -131,7 +133,13 @@ build_completion_state(
     prompt_templates=session.prompt_templates,
     model_names=session.available_models,
     provider_names=session.available_providers,
-    session_ids=[record.id for record in session.session_manager.list_sessions()]
+    session_options=[
+        CompletionOption(
+            value=record.id,
+            description=f"{record.title or 'Untitled session'} - {record.model} - {record.cwd}",
+        )
+        for record in session.session_manager.list_sessions()
+    ]
     if session.session_manager
     else (),
 )
@@ -139,6 +147,8 @@ build_completion_state(
 
 Custom TUIs can reuse this helper for Pi-style slash-command completion,
 `/skill:` completion, and lightweight model/provider/session argument pickers.
+Use `CompletionOption` when a picker row should apply one value but show richer
+metadata such as a session title, model, or working directory.
 
 A custom picker UI can also read the same data directly:
 

@@ -2,6 +2,7 @@
 
 from tau_coding.tui.adapter import TuiEventAdapter
 from tau_coding.tui.app import TauTuiApp, run_tui_app
+from tau_coding.tui.autocomplete import CompletionOption
 from tau_coding.tui.config import (
     HIGH_CONTRAST_THEME,
     TAU_DARK_THEME,
@@ -25,6 +26,7 @@ from tau_coding.tui.widgets import (
 
 __all__ = [
     "ChatItem",
+    "CompletionOption",
     "TauTuiApp",
     "SessionSidebar",
     "TAU_DARK_THEME",

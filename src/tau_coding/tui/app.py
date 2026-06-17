@@ -20,7 +20,7 @@ from tau_coding.provider_config import (
 from tau_coding.session import CodingSession, CodingSessionConfig, jsonl_session_storage
 from tau_coding.session_manager import SessionManager
 from tau_coding.tui.adapter import TuiEventAdapter
-from tau_coding.tui.autocomplete import CompletionState, build_completion_state
+from tau_coding.tui.autocomplete import CompletionOption, CompletionState, build_completion_state
 from tau_coding.tui.config import TuiKeybindings, TuiSettings, TuiTheme, load_tui_settings
 from tau_coding.tui.state import TuiState
 from tau_coding.tui.widgets import SessionSidebar, TranscriptView, render_completion_suggestions
@@ -38,6 +38,15 @@ class CompletionActionTarget(Protocol):
     def action_completion_previous(self) -> None: ...
 
     def action_open_command_palette(self) -> None: ...
+
+
+class SessionCompletionRecord(Protocol):
+    """Session metadata needed to render resume picker completions."""
+
+    id: str
+    title: str | None
+    model: str
+    cwd: Path
 
 
 class PromptInput(Input):
@@ -355,7 +364,7 @@ class TauTuiApp(App[None]):
             prompt_templates=self.session.prompt_templates,
             model_names=self.session.available_models,
             provider_names=self.session.available_providers,
-            session_ids=_session_ids(self.session),
+            session_options=_session_options(self.session),
         )
 
 
@@ -366,11 +375,27 @@ def _session_command_registry(session: CodingSession) -> CommandRegistry:
     return create_default_command_registry()
 
 
-def _session_ids(session: CodingSession) -> tuple[str, ...]:
+def _session_options(session: CodingSession) -> tuple[CompletionOption, ...]:
     manager = getattr(session, "session_manager", None)
     if manager is None:
         return ()
-    return tuple(record.id for record in manager.list_sessions())
+    return tuple(_session_option(record) for record in manager.list_sessions())
+
+
+def _session_option(record: SessionCompletionRecord) -> CompletionOption:
+    description_parts = [record.title if record.title else "Untitled session"]
+    if record.model:
+        description_parts.append(record.model)
+    description_parts.append(_short_path(record.cwd))
+    return CompletionOption(value=record.id, description=" - ".join(description_parts))
+
+
+def _short_path(path: Path) -> str:
+    home = Path.home()
+    try:
+        return f"~/{path.relative_to(home)}"
+    except ValueError:
+        return str(path)
 
 
 def _theme_css_variables(theme: TuiTheme) -> dict[str, str]:

@@ -128,6 +128,15 @@ def test_chat_items_use_left_accent_instead_of_box_border() -> None:
     assert "└" not in output
 
 
+def test_chat_items_have_bottom_padding() -> None:
+    console = Console(record=True, width=40)
+
+    console.print(render_chat_item(ChatItem(role="user", text="Read the file")))
+    output = console.export_text().splitlines()
+
+    assert output[-1].strip() == ""
+
+
 def test_chat_items_fold_long_unbroken_text_to_console_width() -> None:
     console = Console(record=True, width=36)
     long_text = "supercalifragilisticexpialidocious" * 2

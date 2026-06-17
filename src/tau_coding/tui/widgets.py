@@ -197,7 +197,7 @@ def render_chat_item(
         Align.left(Text("▌", style=role_style.border)),
         Padding(body, (0, 1, 0, 1), style=role_style.body),
     )
-    return Padding(table, (1, 1, 0, 0), style=role_style.body)
+    return Padding(table, (1, 1, 1, 0), style=role_style.body)
 
 
 def _render_chat_body(

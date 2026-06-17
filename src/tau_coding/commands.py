@@ -69,6 +69,7 @@ class CommandResult:
     handled: bool
     exit_requested: bool = False
     clear_requested: bool = False
+    compact_summary: str | None = None
     message: str | None = None
 
 
@@ -179,6 +180,14 @@ def create_default_command_registry() -> CommandRegistry:
     )
     registry.register(
         SlashCommand(
+            name="compact",
+            usage="/compact <summary>",
+            description="Replace active context with a manual summary.",
+            handler=_compact_command,
+        )
+    )
+    registry.register(
+        SlashCommand(
             name="status",
             usage="/status",
             description="Show current session status.",
@@ -273,6 +282,18 @@ def _exit_command(context: CommandContext) -> CommandResult:
 
 def _clear_command(context: CommandContext) -> CommandResult:
     return CommandResult(handled=True, clear_requested=True, message="Transcript cleared.")
+
+
+def _compact_command(context: CommandContext) -> CommandResult:
+    if not context.args:
+        return CommandResult(
+            handled=True,
+            message="Usage: /compact <summary>",
+        )
+    return CommandResult(
+        handled=True,
+        compact_summary=context.args.strip(),
+    )
 
 
 def _status_command(context: CommandContext) -> CommandResult:

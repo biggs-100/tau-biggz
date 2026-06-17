@@ -4,6 +4,7 @@ import pytest
 
 from tau_agent import AssistantMessage, ToolCall, ToolResultMessage, UserMessage
 from tau_agent.session import (
+    CompactionEntry,
     JsonlSessionStorage,
     LeafEntry,
     MessageEntry,
@@ -389,6 +390,52 @@ async def test_session_reload_refreshes_resources_and_system_prompt(tmp_path: Pa
     assert [Path(context_file.path).name for context_file in session.context_files] == ["AGENTS.md"]
     assert "Reloaded project rules." in provider.calls[0][1]
     assert "<name>testing</name>" in provider.calls[0][1]
+
+
+@pytest.mark.anyio
+async def test_session_compact_persists_summary_and_rebuilds_context(tmp_path: Path) -> None:
+    storage = JsonlSessionStorage(tmp_path / "session.jsonl")
+    provider = FakeProvider(
+        [
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Session answer")),
+            ],
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Next answer")),
+            ]
+        ]
+    )
+    session = await CodingSession.load(_config(tmp_path, provider, storage))
+    _events = await _collect_session_events(session.prompt("Explain sessions."))
+
+    message_count_before = len(session.messages)
+    message_entries_before = [
+        entry.id for entry in await storage.read_all() if entry.type == "message"
+    ]
+
+    result = await session.compact("The user asked about sessions and got an explanation.")
+    entries_after_compact = await storage.read_all()
+    compactions = [entry for entry in entries_after_compact if entry.type == "compaction"]
+    leaves = [entry for entry in entries_after_compact if entry.type == "leaf"]
+
+    _next_events = await _collect_session_events(session.prompt("Continue."))
+
+    assert result == f"Compacted {message_count_before} context entries."
+    assert len(compactions) == 1
+    assert isinstance(compactions[0], CompactionEntry)
+    assert compactions[0].replaces_entry_ids == message_entries_before
+    assert leaves[-1].entry_id == compactions[0].id
+    assert provider.calls[1][2] == [
+        UserMessage(
+            content=(
+                "Previous conversation summary:\n"
+                "The user asked about sessions and got an explanation."
+            )
+        ),
+        UserMessage(content="Continue."),
+    ]
 
 
 @pytest.mark.anyio

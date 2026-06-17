@@ -24,6 +24,7 @@ class SessionState:
     session_info: SessionInfoEntry | None
     custom_entries: tuple[CustomEntry, ...]
     compaction_entries: tuple[CompactionEntry, ...]
+    context_entry_ids: tuple[str, ...]
     entries: tuple[SessionEntry, ...]
 
     @classmethod
@@ -80,6 +81,7 @@ class SessionState:
             session_info=session_info,
             custom_entries=tuple(custom_entries),
             compaction_entries=tuple(compaction_entries),
+            context_entry_ids=tuple(entry_id for entry_id, _message in message_rows),
             entries=tuple(replay_entries),
         )
 

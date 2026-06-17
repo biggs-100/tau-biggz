@@ -73,6 +73,10 @@ class AgentHarness:
         """Append an existing message, useful for restoring session state."""
         self._messages.append(message)
 
+    def replace_messages(self, messages: Sequence[AgentMessage]) -> None:
+        """Replace the transcript, useful after durable context reconstruction."""
+        self._messages = list(messages)
+
     def subscribe(self, listener: EventListener) -> Callable[[], None]:
         """Subscribe to streamed events and return an unsubscribe callback."""
         self._listeners.append(listener)

@@ -211,6 +211,12 @@ class TauTuiApp(App[None]):
         if command.handled:
             if command.clear_requested:
                 self.state.clear()
+            if command.compact_summary is not None:
+                try:
+                    compact_message = await self.session.compact(command.compact_summary)
+                    self.state.add_item("status", compact_message)
+                except Exception as exc:  # noqa: BLE001 - surface command failures in the TUI
+                    self.state.add_item("error", f"Error: {exc}")
             if command.message:
                 self.state.add_item("status", command.message)
             self._refresh()

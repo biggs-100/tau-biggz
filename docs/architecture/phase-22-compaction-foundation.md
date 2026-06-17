@@ -40,7 +40,7 @@ session file = durable history
 SessionState.messages = reconstructed active context
 ```
 
-Future `/compact` work can append `CompactionEntry` values without editing or
+Manual `/compact` work can append `CompactionEntry` values without editing or
 deleting old entries.
 
 ## Context Size Estimation
@@ -64,6 +64,21 @@ Estimated context tokens: <count>
 This gives future automatic compaction thresholds a stable application-layer
 primitive without adding tokenizer policy to `tau_agent`.
 
+## Manual Compaction
+
+Tau now supports explicit-summary manual compaction in the TUI:
+
+```text
+/compact <summary>
+```
+
+The command appends a `CompactionEntry`, appends a new leaf pointer, replays the
+session to rebuild active context, and replaces the in-memory harness transcript
+for future turns.
+
+The command deliberately requires a user-provided summary. Model-generated
+summaries and automatic compaction thresholds are separate future steps.
+
 ## Boundary
 
 This foundation is in `tau_agent` because replaying session entries is a
@@ -81,6 +96,8 @@ The phase is covered by:
 tests/test_session.py
 tests/test_context_window.py
 tests/test_commands.py
+tests/test_coding_session.py
+tests/test_tui_app.py
 ```
 
 The tests verify:
@@ -90,3 +107,5 @@ The tests verify:
 - branch replay applies compaction only on the active branch path
 - context-size estimation is deterministic
 - `/status` includes an estimated context token count
+- `/compact <summary>` requests compaction
+- manual compaction persists entries and rebuilds future-turn context

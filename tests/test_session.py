@@ -83,6 +83,7 @@ def test_session_state_replays_linear_entries() -> None:
     assert state.label == "Greeting"
     assert state.active_leaf_id == "assistant"
     assert state.custom_entries == (entries[4],)
+    assert state.context_entry_ids == ("user", "assistant")
 
 
 def test_session_state_replays_compaction_as_context_summary() -> None:
@@ -116,6 +117,7 @@ def test_session_state_replays_compaction_as_context_summary() -> None:
         UserMessage(content="Continue."),
     )
     assert state.compaction_entries == (compaction,)
+    assert state.context_entry_ids == ("compact", "followup")
 
 
 def test_path_to_entry_returns_root_to_leaf_branch() -> None:

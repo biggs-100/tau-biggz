@@ -74,6 +74,17 @@ def test_exit_and_clear_return_control_flags(tmp_path: Path) -> None:
     assert registry.execute(session, "/clear").clear_requested is True
 
 
+def test_compact_command_requires_and_returns_summary(tmp_path: Path) -> None:
+    registry = create_default_command_registry()
+    session = FakeSession(tmp_path)
+
+    missing = registry.execute(session, "/compact")
+    requested = registry.execute(session, "/compact Summary of prior work.")
+
+    assert missing.message == "Usage: /compact <summary>"
+    assert requested.compact_summary == "Summary of prior work."
+
+
 def test_status_includes_session_details(tmp_path: Path) -> None:
     result = create_default_command_registry().execute(FakeSession(tmp_path), "/status")
 

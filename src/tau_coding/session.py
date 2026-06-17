@@ -7,6 +7,7 @@ from pathlib import Path
 from tau_agent import AgentEvent, AgentHarness, AgentHarnessConfig
 from tau_agent.messages import AgentMessage
 from tau_agent.session import (
+    CompactionEntry,
     JsonlSessionStorage,
     LeafEntry,
     MessageEntry,
@@ -316,6 +317,32 @@ class CodingSession:
                     context_files=self._context_files,
                 )
             )
+
+    async def compact(self, summary: str) -> str:
+        """Append a manual compaction summary and rebuild active context."""
+        normalized_summary = summary.strip()
+        if not normalized_summary:
+            raise ValueError("Compaction summary cannot be empty")
+        if not self._state.context_entry_ids:
+            raise ValueError("No active context messages to compact")
+
+        compaction = CompactionEntry(
+            parent_id=self._last_parent_id,
+            summary=normalized_summary,
+            replaces_entry_ids=list(self._state.context_entry_ids),
+        )
+        await self._config.storage.append(compaction)
+        leaf = LeafEntry(parent_id=compaction.id, entry_id=compaction.id)
+        await self._config.storage.append(leaf)
+        self._last_parent_id = compaction.id
+
+        entries = await self._config.storage.read_all()
+        self._state = SessionState.from_entries(entries, leaf_id=compaction.id)
+        self._harness.replace_messages(self._state.messages)
+        if self._config.session_id is not None and self._config.session_manager is not None:
+            self._config.session_manager.touch_session(self._config.session_id, model=self.model)
+
+        return f"Compacted {len(compaction.replaces_entry_ids)} context entries."
 
     async def aclose(self) -> None:
         """Close runtime providers created by this coding session."""

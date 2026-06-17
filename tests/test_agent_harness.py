@@ -67,6 +67,17 @@ def test_messages_property_returns_immutable_snapshot() -> None:
     assert harness.messages == (UserMessage(content="Hello"), AssistantMessage(content="Hi"))
 
 
+def test_harness_can_replace_messages() -> None:
+    harness = AgentHarness(
+        AgentHarnessConfig(provider=FakeProvider([]), model="fake", system="You are Tau."),
+        messages=[UserMessage(content="Old")],
+    )
+
+    harness.replace_messages([UserMessage(content="Summary")])
+
+    assert harness.messages == (UserMessage(content="Summary"),)
+
+
 @pytest.mark.anyio
 async def test_subscribed_listeners_receive_events_and_can_unsubscribe() -> None:
     assistant = AssistantMessage(content="Hello")

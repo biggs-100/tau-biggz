@@ -1,12 +1,33 @@
 # Getting Started
 
-This page explains how to run Tau locally and work on the project.
+This page explains how to install Tau, run the TUI, and work on the project.
 
 ## Requirements
 
-Tau currently targets the Python version declared in `pyproject.toml` and uses `uv` for dependency management.
+Tau targets the Python version declared in `pyproject.toml` and uses `uv` for
+dependency management.
 
-## Install dependencies
+## Install As a Tool
+
+From GitHub:
+
+```bash
+uv tool install git+https://github.com/alejandro-ao/tau.git
+```
+
+From a local checkout:
+
+```bash
+uv tool install --editable .
+```
+
+Verify the installed command:
+
+```bash
+tau --version
+```
+
+## Local Development Setup
 
 ```bash
 uv sync --dev --group docs
@@ -22,6 +43,47 @@ Expected output:
 
 ```text
 tau 0.1.0
+```
+
+## Configure a Provider
+
+The default provider reads `OPENAI_API_KEY`:
+
+```bash
+export OPENAI_API_KEY="..."
+```
+
+To add an OpenAI-compatible provider:
+
+```bash
+uv run tau --provider local \
+  --base-url http://localhost:11434/v1 \
+  --api-key-env LOCAL_API_KEY \
+  --model qwen \
+  setup
+```
+
+Provider metadata is written to `~/.tau/providers.json`. API keys stay in
+environment variables.
+
+## Open the TUI
+
+```bash
+uv run tau
+```
+
+Installed as a tool:
+
+```bash
+tau
+```
+
+Tau stores indexed sessions under `~/.tau/sessions/`.
+
+## Run One Prompt
+
+```bash
+uv run tau "explain this repository"
 ```
 
 ## Run tests and checks

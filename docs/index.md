@@ -26,18 +26,25 @@ Tau currently has:
 
 - project/package foundation
 - development tooling
-- a basic `tau --version` CLI
+- a `tau` console command that opens the Textual TUI by default
+- non-interactive print-mode prompts
 - provider-neutral message, tool, result, and event models
 - a provider-neutral model streaming interface
 - deterministic fake model provider for tests
 - OpenAI-compatible streaming provider
 - a pure agent loop that streams events, executes tools, and grows the transcript
 - a reusable `AgentHarness` that owns transcript state and streams events
+- append-only home-directory sessions
+- skills, prompt templates, and project instruction discovery
+- slash commands with TUI autocomplete
+- provider setup and switching
 - beginner-friendly design documentation
 
 ## Where to start
 
 - New to the project? Read [Getting Started](getting-started.md).
+- Installing Tau as a command? Read [Installation](installation.md).
+- Looking for file formats and paths? Read [Configuration and Files](configuration.md).
 - Want the full plan? Read the [Roadmap](00-roadmap.md).
 - Want the big-picture boundaries? Read [Architecture](01-architecture.md).
 - Want the current core model? Read [Core Types and Events](05-core-types-and-events.md).

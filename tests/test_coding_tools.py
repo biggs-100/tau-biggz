@@ -57,6 +57,18 @@ async def test_read_tool_reads_file_with_offset_and_limit(tmp_path: Path) -> Non
 
 
 @pytest.mark.anyio
+async def test_read_tool_treats_zero_offset_as_start_of_file(tmp_path: Path) -> None:
+    path = tmp_path / "notes.txt"
+    path.write_text("one\ntwo\nthree\n")
+    tool = create_read_tool(cwd=tmp_path)
+
+    result = await tool.execute({"path": "notes.txt", "offset": 0, "limit": 1})
+
+    assert result.ok is True
+    assert result.content == "one\n\n[3 more lines in file. Use offset=2 to continue.]"
+
+
+@pytest.mark.anyio
 async def test_write_tool_creates_parent_directories(tmp_path: Path) -> None:
     tool = create_write_tool(cwd=tmp_path)
 

@@ -84,10 +84,10 @@ Factory functions:
 | Argument | Required | Type | Description |
 | --- | --- | --- | --- |
 | `path` | yes | string | File path to read. Relative paths are resolved against `cwd`. |
-| `offset` | no | integer | 1-indexed line number to start reading from. |
+| `offset` | no | integer | 1-indexed line number to start reading from. `0` is accepted as an alias for the start of the file. |
 | `limit` | no | integer | Maximum number of lines to return. |
 
-`offset` and `limit` must be positive integers when supplied.
+`offset` must be a non-negative integer when supplied. `limit` must be a positive integer.
 
 ### Text behavior
 
@@ -125,7 +125,7 @@ For supported images, `read` returns a short text message and stores image metad
 `read` fails when:
 
 - `path` is missing or is not a string
-- `offset` or `limit` is not a positive integer
+- `offset` is negative, or `limit` is not a positive integer
 - the file does not exist
 - the path is a directory
 - `offset` is beyond the end of the file

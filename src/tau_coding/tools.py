@@ -131,8 +131,8 @@ def create_read_tool_definition(*, cwd: str | Path | None = None) -> ToolDefinit
         offset = _optional_int_arg(arguments, "offset")
         limit = _optional_int_arg(arguments, "limit")
 
-        if offset is not None and offset < 1:
-            raise ToolInputError("offset must be at least 1")
+        if offset is not None and offset < 0:
+            raise ToolInputError("offset must be at least 0")
         if limit is not None and limit < 1:
             raise ToolInputError("limit must be at least 1")
         if not path.exists():
@@ -158,7 +158,7 @@ def create_read_tool_definition(*, cwd: str | Path | None = None) -> ToolDefinit
 
         text = path.read_text(encoding="utf-8")
         all_lines = text.split("\n")
-        start_line = 0 if offset is None else offset - 1
+        start_line = 0 if offset in (None, 0) else offset - 1
         if start_line >= len(all_lines):
             raise ToolInputError(
                 f"Offset {offset} is beyond end of file ({len(all_lines)} lines total)"

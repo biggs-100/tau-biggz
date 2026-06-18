@@ -45,7 +45,7 @@ Reads a UTF-8 text file.
 Arguments:
 
 - `path`: file path
-- `offset`: optional 1-indexed starting line
+- `offset`: optional 1-indexed starting line; `0` is accepted as an alias for the start of the file
 - `limit`: optional number of lines to return
 
 Large output is truncated with Pi-style truncation metadata and continuation hints. Supported image files (`jpg`, `png`, `gif`, `webp`) are detected and returned as base64 metadata for later UI/provider integration.

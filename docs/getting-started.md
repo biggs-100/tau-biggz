@@ -47,15 +47,17 @@ tau 0.1.0
 
 ## Configure a Provider
 
-Tau includes built-in provider entries for OpenAI, Anthropic, OpenRouter, and
-Hugging Face Inference Providers. In the TUI, run `/login` to see the list and
-`/login openai` to save an API key for a provider.
+Tau includes built-in provider entries for OpenAI, OpenAI Codex subscription,
+Anthropic, OpenRouter, and Hugging Face Inference Providers. In the TUI, run
+`/login` to see the list, `/login openai` to save an API key, or
+`/login openai-codex` to authenticate with a Codex subscription account.
 
-Provider metadata is written to `~/.tau/providers.json`. API keys saved with
-`/login` are written to `~/.tau/credentials.json` with private file permissions.
-For built-in providers added with `/login`, Tau uses the key saved in
-`credentials.json`. The `api_key_env` field in `providers.json` is metadata for
-custom/env-based providers and does not override a saved Tau login.
+Provider metadata is written to `~/.tau/providers.json`. API keys and OAuth
+refresh credentials saved with `/login` are written to `~/.tau/credentials.json`
+with private file permissions. For built-in providers added with `/login`, Tau
+uses the credential saved in `credentials.json`. The `api_key_env` field in
+`providers.json` is metadata for custom/env-based providers and does not
+override a saved Tau login.
 
 To add a custom OpenAI-compatible provider:
 

@@ -26,7 +26,8 @@ uv run tau --version
 tau
 ```
 
-Inside the TUI, run `/login` to save a provider API key.
+Inside the TUI, run `/login` to save a provider API key, or
+`/login openai-codex` to authenticate with a Codex subscription account.
 
 Run one prompt without opening the TUI:
 

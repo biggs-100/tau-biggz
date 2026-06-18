@@ -35,6 +35,26 @@ export OPENAI_MAX_RETRY_DELAY_SECONDS="0.5"
 
 The provider uses `/chat/completions` with streaming enabled.
 
+## OpenAI Codex Subscription Provider
+
+Tau also includes an `openai-codex` provider for Codex / ChatGPT subscription
+accounts. This is separate from the `openai` API-key provider.
+
+In the TUI, run:
+
+```text
+/login openai-codex
+```
+
+Tau opens the OpenAI OAuth URL, listens for the local callback at
+`http://localhost:1455/auth/callback`, and also accepts a pasted redirect URL or
+authorization code as a fallback. Refreshable OAuth credentials are saved in
+`~/.tau/credentials.json` with private file permissions.
+
+The provider sends requests to the ChatGPT backend Codex Responses endpoint and
+uses the OAuth access token plus the ChatGPT account id required by that API.
+Expired access tokens are refreshed automatically before a model request.
+
 ## Durable Provider Config
 
 Tau stores provider metadata in:
@@ -106,8 +126,9 @@ Inside the TUI:
 
 `/model` opens the interactive model picker. The picker includes models from
 configured providers, so selecting a model can also switch the active runtime
-provider. `/login` adds or refreshes a built-in provider, and `/reload`
-refreshes provider settings for future command use.
+provider. `/login` adds or refreshes a built-in provider, including
+OAuth-backed providers such as `openai-codex`, and `/reload` refreshes provider
+settings for future command use.
 
 When Tau loads `~/.tau/providers.json`, it merges the current built-in model
 catalog into built-in provider entries such as Hugging Face. Custom models and

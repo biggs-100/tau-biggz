@@ -62,15 +62,21 @@ Example:
 }
 ```
 
-API keys are not written to this file. Built-in providers added through
-`/login` read their key from `~/.tau/credentials.json` using `credential_name`.
-Providers without a `credential_name`, such as custom local providers, read the
-environment variable named by `api_key_env`. `timeout_seconds` is optional and
-defaults to `60`; when present, it must be greater than zero. `max_retries`
-defaults to `0`, and `max_retry_delay_seconds` defaults to `1`; both must be
-zero or greater. `headers` is optional and must be an object with string keys
-and string values. Tau sends these headers with provider requests, while keeping
-its own authentication headers under runtime control.
+API keys and OAuth refresh credentials are not written to this file. Built-in
+providers added through `/login` read their credential from
+`~/.tau/credentials.json` using `credential_name`. Providers without a
+`credential_name`, such as custom local providers, read the environment variable
+named by `api_key_env`. `timeout_seconds` is optional and defaults to `60`; when
+present, it must be greater than zero. `max_retries` defaults to `0`, and
+`max_retry_delay_seconds` defaults to `1`; both must be zero or greater.
+`headers` is optional and must be an object with string keys and string values.
+Tau sends these headers with provider requests, while keeping its own
+authentication headers under runtime control.
+
+OAuth-backed providers, such as `openai-codex`, store a structured credential
+object in `~/.tau/credentials.json` and refresh expired access tokens before a
+model request. Use `/login openai-codex` to authenticate with a Codex
+subscription account.
 
 For example, Hugging Face organization billing can be configured with:
 

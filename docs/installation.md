@@ -52,14 +52,16 @@ tau -p "explain this repository"
 Print-mode prompts create indexed session entries under `~/.tau/sessions/` while
 keeping stdout/stderr script-friendly.
 
-Tau includes built-in provider entries for OpenAI, Anthropic, OpenRouter, and
-Hugging Face Inference Providers. In the TUI, run `/login` to see them and
-`/login openai` to save an API key.
+Tau includes built-in provider entries for OpenAI, OpenAI Codex subscription,
+Anthropic, OpenRouter, and Hugging Face Inference Providers. In the TUI, run
+`/login` to see them, `/login openai` to save an API key, or
+`/login openai-codex` to authenticate with a Codex subscription account.
 
-Saved API keys live in `~/.tau/credentials.json` with private file permissions.
-For built-in providers added with `/login`, Tau uses the key saved in
-`credentials.json`. The `api_key_env` field in `providers.json` is metadata for
-custom/env-based providers and does not override a saved Tau login.
+Saved API keys and OAuth refresh credentials live in `~/.tau/credentials.json`
+with private file permissions. For built-in providers added with `/login`, Tau
+uses the credential saved in `credentials.json`. The `api_key_env` field in
+`providers.json` is metadata for custom/env-based providers and does not
+override a saved Tau login.
 
 Optionally configure a custom provider:
 

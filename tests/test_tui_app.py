@@ -306,6 +306,25 @@ def test_tool_chat_items_hide_and_show_result_text() -> None:
     assert "full file contents" in expanded
 
 
+def test_tool_chat_items_color_success_and_error_status() -> None:
+    success_console = Console(record=True, width=80)
+    success_console.print(
+        render_chat_item(
+            ChatItem(role="tool", text="→ read README.md", tool_result_text="✓ read\ncontents")
+        )
+    )
+    success_output = success_console.export_text(styles=True)
+
+    error_console = Console(record=True, width=80)
+    error_console.print(
+        render_chat_item(ChatItem(role="tool", text="$ false", tool_result_text="✗ bash\nfailed"))
+    )
+    error_output = error_console.export_text(styles=True)
+
+    assert "38;2;156;255;177" in success_output
+    assert "38;2;255;79;79" in error_output
+
+
 def test_assistant_chat_items_render_markdown_lists() -> None:
     console = Console(record=True, width=60)
     item = ChatItem(role="assistant", text="Plan:\n\n- inspect\n- patch")
@@ -497,6 +516,15 @@ def test_tui_app_uses_configured_theme_css_variables() -> None:
 
     assert variables["tau-screen-background"] == "#000000"
     assert variables["tau-prompt-border"] == "#00ff66"
+
+
+def test_tau_dark_theme_uses_black_chat_backgrounds() -> None:
+    theme = TuiSettings().resolved_theme
+
+    assert theme.screen_background == "#000000"
+    assert theme.transcript_background == "#000000"
+    assert theme.role_styles["user"].body.endswith("on #000000")
+    assert theme.role_styles["assistant"].body.endswith("on #000000")
 
 
 def test_tui_app_loads_restored_messages_into_display_state() -> None:

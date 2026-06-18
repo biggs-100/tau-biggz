@@ -70,17 +70,26 @@ class SessionManager:
 
     @property
     def index_path(self) -> Path:
-        """Return the session metadata index path."""
+        """Return the legacy global session metadata index path."""
         return self.paths.sessions_dir / "index.jsonl"
 
-    def list_sessions(self) -> list[CodingSessionRecord]:
-        """Return all indexed sessions, newest updated first."""
-        records = self._read_index()
+    def project_index_path(self, cwd: Path) -> Path:
+        """Return the session metadata index path for a project cwd."""
+        return self.paths.project_session_dir(cwd) / "index.jsonl"
+
+    def list_sessions(self, cwd: Path | None = None) -> list[CodingSessionRecord]:
+        """Return indexed sessions, newest updated first.
+
+        When `cwd` is provided, only sessions for that resolved working directory
+        are returned. Without `cwd`, records are aggregated across project
+        indexes and the legacy global index.
+        """
+        records = self._read_project_records(cwd) if cwd is not None else self._read_all_records()
         return sorted(records, key=lambda record: record.updated_at, reverse=True)
 
     def get_session(self, session_id: str) -> CodingSessionRecord | None:
         """Return a session record by id, if present."""
-        for record in self._read_index():
+        for record in self._read_all_records():
             if record.id == session_id:
                 return record
         return None
@@ -157,12 +166,12 @@ class SessionManager:
         self._upsert(updated)
         return updated
 
-    def _read_index(self) -> list[CodingSessionRecord]:
-        if not self.index_path.exists():
+    def _read_index(self, path: Path) -> list[CodingSessionRecord]:
+        if not path.exists():
             return []
 
         records: list[CodingSessionRecord] = []
-        for line in self.index_path.read_text(encoding="utf-8").splitlines():
+        for line in path.read_text(encoding="utf-8").splitlines():
             stripped = line.strip()
             if not stripped:
                 continue
@@ -170,14 +179,38 @@ class SessionManager:
             records.append(CodingSessionRecord.from_model(model))
         return records
 
-    def _write_index(self, records: list[CodingSessionRecord]) -> None:
-        self.index_path.parent.mkdir(parents=True, exist_ok=True)
+    def _read_project_records(self, cwd: Path) -> list[CodingSessionRecord]:
+        resolved_cwd = cwd.resolve()
+        records = self._read_index(self.project_index_path(resolved_cwd))
+        records.extend(
+            record for record in self._read_index(self.index_path) if record.cwd == resolved_cwd
+        )
+        return _deduplicate_records(records)
+
+    def _read_all_records(self) -> list[CodingSessionRecord]:
+        records = self._read_index(self.index_path)
+        for index_path in self.paths.sessions_dir.glob("*/index.jsonl"):
+            records.extend(self._read_index(index_path))
+        return _deduplicate_records(records)
+
+    def _write_index(self, path: Path, records: list[CodingSessionRecord]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
         content = "\n".join(record.to_model().model_dump_json() for record in records)
         if content:
             content += "\n"
-        self.index_path.write_text(content, encoding="utf-8")
+        path.write_text(content, encoding="utf-8")
 
     def _upsert(self, record: CodingSessionRecord) -> None:
-        records = [item for item in self._read_index() if item.id != record.id]
+        path = self.project_index_path(record.cwd)
+        records = [item for item in self._read_index(path) if item.id != record.id]
         records.append(record)
-        self._write_index(records)
+        self._write_index(path, records)
+
+
+def _deduplicate_records(records: list[CodingSessionRecord]) -> list[CodingSessionRecord]:
+    by_id: dict[str, CodingSessionRecord] = {}
+    for record in records:
+        existing = by_id.get(record.id)
+        if existing is None or record.updated_at >= existing.updated_at:
+            by_id[record.id] = record
+    return list(by_id.values())

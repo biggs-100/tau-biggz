@@ -138,14 +138,25 @@ mistakes fail early instead of silently changing terminal behavior.
 
 ## Sessions
 
-Tau indexes sessions under:
+Tau stores sessions under:
 
 ```text
 ~/.tau/sessions/
 ```
 
+Each working directory gets a readable, hash-stabilized subdirectory:
+
+```text
+~/.tau/sessions/<cleaned-path-suffix>-<short-hash>/
+```
+
+For example, `/Users/alejandro/repos/exploration/tau` becomes a name like
+`home-repos-exploration-tau-a1b2c3`.
+
 Session transcripts are append-only JSONL files. They preserve messages, model
-changes, and the active leaf in the session tree.
+changes, and the active leaf in the session tree. Session metadata is indexed in
+the project subdirectory so interactive resume flows can focus on the current
+working directory.
 
 Useful commands:
 

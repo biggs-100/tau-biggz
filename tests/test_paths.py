@@ -25,13 +25,17 @@ def test_tau_paths_project_locations(tmp_path: Path) -> None:
     assert paths.project_agents_prompts_dir(cwd) == cwd / ".agents" / "prompts"
 
 
-def test_default_session_path_uses_home_sessions_and_project_hash(tmp_path: Path) -> None:
+def test_default_session_path_uses_home_sessions_and_readable_project_path(
+    tmp_path: Path,
+) -> None:
     paths = TauPaths(home=tmp_path / "home", agents_home=tmp_path / "agents")
-    cwd = tmp_path / "project"
-    cwd.mkdir()
+    cwd = tmp_path / "repos" / "exploration" / "tau"
+    cwd.mkdir(parents=True)
 
     session_path = paths.default_session_path(cwd)
 
     assert session_path.name == "default.jsonl"
     assert session_path.parent.parent == tmp_path / "home" / "sessions"
+    assert "repos-exploration-tau-" in session_path.parent.name
+    assert len(session_path.parent.name.rsplit("-", maxsplit=1)[-1]) == 6
     assert session_path.parent.exists()

@@ -12,9 +12,29 @@ def test_session_manager_creates_and_lists_sessions(tmp_path: Path) -> None:
     record = manager.create_session(cwd=cwd, model="fake", title="Test session")
 
     assert record.path.parent.parent == tmp_path / ".tau" / "sessions"
+    assert "project-" in record.path.parent.name
+    assert len(record.path.parent.name.rsplit("-", maxsplit=1)[-1]) == 6
+    assert (record.path.parent / "index.jsonl").exists()
+    assert not (tmp_path / ".tau" / "sessions" / "index.jsonl").exists()
     assert record.path.name == f"{record.id}.jsonl"
     assert manager.get_session(record.id) == record
     assert manager.list_sessions() == [record]
+    assert manager.list_sessions(cwd) == [record]
+
+
+def test_session_manager_filters_sessions_by_project_cwd(tmp_path: Path) -> None:
+    manager = SessionManager(TauPaths(home=tmp_path / ".tau", agents_home=tmp_path / ".agents"))
+    first_cwd = tmp_path / "first"
+    second_cwd = tmp_path / "second"
+    first_cwd.mkdir()
+    second_cwd.mkdir()
+
+    first = manager.create_session(cwd=first_cwd, model="fake", title="First")
+    second = manager.create_session(cwd=second_cwd, model="fake", title="Second")
+
+    assert manager.list_sessions(first_cwd) == [first]
+    assert manager.list_sessions(second_cwd) == [second]
+    assert {record.id for record in manager.list_sessions()} == {first.id, second.id}
 
 
 def test_session_manager_gets_or_creates_default_session(tmp_path: Path) -> None:

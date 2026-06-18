@@ -24,7 +24,13 @@ from tau_coding.skills import Skill
 from tau_coding.system_prompt import ProjectContextFile
 from tau_coding.tools import create_coding_tools
 from tau_coding.tui import app as tui_app
-from tau_coding.tui.app import CommandOutputScreen, LoginScreen, SessionPickerScreen, TauTuiApp
+from tau_coding.tui.app import (
+    CommandOutputScreen,
+    LoginProviderPickerScreen,
+    LoginScreen,
+    SessionPickerScreen,
+    TauTuiApp,
+)
 from tau_coding.tui.config import HIGH_CONTRAST_THEME, TuiKeybindings, TuiSettings
 from tau_coding.tui.state import ChatItem
 from tau_coding.tui.widgets import (
@@ -74,6 +80,8 @@ class FakeSession:
             return CommandResult(handled=True, compact_summary=text.removeprefix("/compact "))
         if text.startswith("/resume "):
             return CommandResult(handled=True, resume_session_id=text.removeprefix("/resume "))
+        if text == "/login":
+            return CommandResult(handled=True, login_picker_requested=True)
         if text == "/login openai":
             return CommandResult(handled=True, login_provider="openai")
         return CommandResult(handled=False)
@@ -772,6 +780,25 @@ async def test_tui_login_saves_provider_key(
     assert session.reload_count == 1
     assert session.provider_name == "openai"
     assert (tmp_path / ".tau" / "credentials.json").read_text(encoding="utf-8")
+
+
+@pytest.mark.anyio
+async def test_tui_login_opens_provider_picker() -> None:
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt")
+        prompt.value = "/login"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert isinstance(app.screen, LoginProviderPickerScreen)
+
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert isinstance(app.screen, LoginScreen)
+        assert app.screen.provider.name == "openai"
 
 
 @pytest.mark.anyio

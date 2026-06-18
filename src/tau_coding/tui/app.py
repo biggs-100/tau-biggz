@@ -18,7 +18,11 @@ from tau_ai import ProviderErrorEvent, ProviderEvent
 from tau_ai.provider import CancellationToken
 from tau_coding.commands import CommandRegistry, create_default_command_registry
 from tau_coding.credentials import FileCredentialStore
-from tau_coding.provider_catalog import ProviderCatalogEntry, builtin_provider_entry
+from tau_coding.provider_catalog import (
+    BUILTIN_PROVIDER_CATALOG,
+    ProviderCatalogEntry,
+    builtin_provider_entry,
+)
 from tau_coding.provider_config import (
     load_provider_settings,
     provider_config_from_catalog_entry,
@@ -236,6 +240,45 @@ class CommandOutputScreen(ModalScreen[None]):
         self.dismiss(None)
 
 
+class LoginProviderPickerScreen(ModalScreen[str | None]):
+    """Provider picker for the TUI login flow."""
+
+    BINDINGS: ClassVar[list[BindingEntry]] = [
+        Binding("escape", "cancel", "Cancel"),
+    ]
+
+    def __init__(
+        self,
+        providers: Sequence[ProviderCatalogEntry],
+        *,
+        theme: TuiTheme,
+    ) -> None:
+        super().__init__()
+        self.providers = tuple(providers)
+        self.theme = theme
+
+    def compose(self) -> ComposeResult:
+        """Compose the provider picker."""
+        with Vertical(id="login-provider-picker"):
+            yield Static("Login", id="login-provider-title")
+            yield ListView(
+                *[
+                    ListItem(Label(_login_provider_label(provider), markup=False))
+                    for provider in self.providers
+                ],
+                id="login-provider-list",
+            )
+            yield Static("Enter selects - Escape closes", id="login-provider-help")
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        """Dismiss with the selected provider name."""
+        self.dismiss(self.providers[event.index].name)
+
+    def action_cancel(self) -> None:
+        """Close without selecting a provider."""
+        self.dismiss(None)
+
+
 class LoginScreen(ModalScreen[str | None]):
     """Password prompt for saving a provider API key."""
 
@@ -436,6 +479,40 @@ class TauTuiApp(App[None]):
         color: $tau-muted-text;
     }
 
+    LoginProviderPickerScreen {
+        align: center middle;
+    }
+
+    #login-provider-picker {
+        width: 76;
+        max-width: 90%;
+        height: auto;
+        max-height: 70%;
+        padding: 1 2;
+        background: $tau-chrome-background;
+        border: tall $tau-border;
+    }
+
+    #login-provider-title {
+        height: 1;
+        color: $tau-chrome-text;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    #login-provider-list {
+        height: auto;
+        max-height: 12;
+        background: $tau-transcript-background;
+        border: tall $tau-border;
+    }
+
+    #login-provider-help {
+        height: 1;
+        margin-top: 1;
+        color: $tau-muted-text;
+    }
+
     LoginScreen {
         align: center middle;
     }
@@ -572,6 +649,8 @@ class TauTuiApp(App[None]):
                     self._notify(f"Error: {exc}", severity="error")
             if command.resume_session_id is not None:
                 await self._resume_session(command.resume_session_id)
+            if command.login_picker_requested:
+                self._open_login_picker()
             if command.login_provider is not None:
                 self._open_login(command.login_provider)
             if command.message:
@@ -690,6 +769,20 @@ class TauTuiApp(App[None]):
             return
         self._notify(message)
 
+    def _open_login_picker(self) -> None:
+        self.push_screen(
+            LoginProviderPickerScreen(
+                BUILTIN_PROVIDER_CATALOG,
+                theme=self.tui_settings.resolved_theme,
+            ),
+            callback=self._handle_login_provider_result,
+        )
+
+    def _handle_login_provider_result(self, provider_name: str | None) -> None:
+        if provider_name is None:
+            return
+        self._open_login(provider_name)
+
     def _open_login(self, provider_name: str) -> None:
         entry = builtin_provider_entry(provider_name)
         if entry is None:
@@ -798,6 +891,10 @@ def _short_path(path: Path) -> str:
 
 def _session_picker_label(record: SessionCompletionRecord) -> str:
     return f"{record.id}\n  {_session_option(record).description}"
+
+
+def _login_provider_label(provider: ProviderCatalogEntry) -> str:
+    return f"{provider.display_name}\n  {provider.name} - {provider.default_model}"
 
 
 def _command_output_title(command_text: str) -> str:

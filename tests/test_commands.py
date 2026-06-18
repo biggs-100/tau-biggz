@@ -156,14 +156,11 @@ def test_provider_command_rejects_unknown_provider(tmp_path: Path) -> None:
     assert session.provider_name == "openai"
 
 
-def test_login_command_lists_builtin_providers(tmp_path: Path) -> None:
+def test_login_command_requests_provider_picker(tmp_path: Path) -> None:
     result = create_default_command_registry().execute(FakeSession(tmp_path), "/login")
 
-    assert result.message is not None
-    assert "openai: OpenAI" in result.message
-    assert "anthropic: Anthropic" in result.message
-    assert "openrouter: OpenRouter" in result.message
-    assert "huggingface: Hugging Face Inference Providers" in result.message
+    assert result.handled is True
+    assert result.login_picker_requested is True
 
 
 def test_login_command_requests_provider_login(tmp_path: Path) -> None:

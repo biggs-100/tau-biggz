@@ -75,6 +75,7 @@ class CommandResult:
     clear_requested: bool = False
     compact_summary: str | None = None
     resume_session_id: str | None = None
+    login_picker_requested: bool = False
     login_provider: str | None = None
     message: str | None = None
 
@@ -506,13 +507,7 @@ def _login_command(context: CommandContext) -> CommandResult:
             )
         return CommandResult(handled=True, login_provider=entry.name)
 
-    lines = ["Built-in providers:"]
-    lines.extend(
-        f"- {entry.name}: {entry.display_name} ({entry.default_model})"
-        for entry in BUILTIN_PROVIDER_CATALOG
-    )
-    lines.append("Run /login <provider> to save an API key.")
-    return CommandResult(handled=True, message="\n".join(lines))
+    return CommandResult(handled=True, login_picker_requested=True)
 
 
 def _format_session_record(record: CodingSessionRecord) -> str:

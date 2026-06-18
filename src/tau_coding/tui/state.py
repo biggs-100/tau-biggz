@@ -33,6 +33,7 @@ class TuiState:
     running: bool = False
     error: str | None = None
     show_tool_results: bool = False
+    selected_item_index: int | None = None
 
     def add_item(
         self,
@@ -51,6 +52,8 @@ class TuiState:
                 tool_result_text=tool_result_text,
             )
         )
+        if self.selected_item_index is not None:
+            self.selected_item_index = min(self.selected_item_index, len(self.items) - 1)
 
     def add_tool_call(self, tool_call: ToolCall) -> None:
         """Append a collapsed tool-call item."""
@@ -89,6 +92,7 @@ class TuiState:
         self.items.clear()
         self.assistant_buffer = ""
         self.error = None
+        self.selected_item_index = None
 
     def load_messages(self, messages: Iterable[AgentMessage]) -> None:
         """Populate the transcript from restored session messages."""
@@ -112,6 +116,37 @@ class TuiState:
                         error=message.error,
                     )
                 )
+
+    def selected_item(self) -> ChatItem | None:
+        """Return the currently selected transcript item."""
+        if self.selected_item_index is None:
+            return None
+        if not 0 <= self.selected_item_index < len(self.items):
+            self.selected_item_index = None
+            return None
+        return self.items[self.selected_item_index]
+
+    def select_next_item(self) -> ChatItem | None:
+        """Move selection toward newer transcript items."""
+        if not self.items:
+            self.selected_item_index = None
+            return None
+        if self.selected_item_index is None:
+            self.selected_item_index = len(self.items) - 1
+        else:
+            self.selected_item_index = min(self.selected_item_index + 1, len(self.items) - 1)
+        return self.items[self.selected_item_index]
+
+    def select_previous_item(self) -> ChatItem | None:
+        """Move selection toward older transcript items."""
+        if not self.items:
+            self.selected_item_index = None
+            return None
+        if self.selected_item_index is None:
+            self.selected_item_index = len(self.items) - 1
+        else:
+            self.selected_item_index = max(self.selected_item_index - 1, 0)
+        return self.items[self.selected_item_index]
 
 
 def format_tool_call_block(tool_call: ToolCall) -> str:

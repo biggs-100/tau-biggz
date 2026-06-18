@@ -301,6 +301,15 @@ def test_chat_items_use_configured_theme_accent() -> None:
     assert "38;2;0;255;102" in output
 
 
+def test_selected_chat_item_uses_accent_border() -> None:
+    console = Console(record=True, width=40)
+
+    console.print(render_chat_item(ChatItem(role="assistant", text="Done."), selected=True))
+
+    output = console.export_text(styles=True)
+    assert "38;2;244;162;97" in output
+
+
 def test_chat_items_render_fenced_code_without_markers() -> None:
     console = Console(record=True, width=60)
     item = ChatItem(
@@ -1289,6 +1298,92 @@ async def test_tui_app_toggles_tool_results_from_keybinding() -> None:
 
     assert app.state.show_tool_results is False
     assert notifications == ["Tool results expanded.", "Tool results collapsed."]
+
+
+@pytest.mark.anyio
+async def test_tui_app_copies_selected_transcript_messages() -> None:
+    tool_call = ToolCall(
+        id="call-1",
+        name="bash",
+        arguments={"command": "printf hello", "timeout": 5},
+    )
+    app = TauTuiApp(
+        FakeSession(
+            messages=(
+                UserMessage(content="User prompt"),
+                AssistantMessage(content="Assistant response", tool_calls=(tool_call,)),
+                ToolResultMessage(
+                    tool_call_id="call-1",
+                    name="bash",
+                    ok=True,
+                    content="tool output",
+                ),
+            )
+        )
+    )
+    copied: list[str] = []
+    notifications: list[str] = []
+
+    def fake_copy(text: str) -> None:
+        copied.append(text)
+
+    def fake_notify(message: str, **kwargs: object) -> None:
+        del kwargs
+        notifications.append(message)
+
+    app.copy_to_clipboard = fake_copy  # type: ignore[method-assign]
+    app._notify = fake_notify  # type: ignore[method-assign]
+
+    async with app.run_test() as pilot:
+        app.state.show_tool_results = True
+        app.state.add_item("error", "Error: failed")
+        app._refresh()
+
+        for _ in range(4):
+            await pilot.press("alt+up")
+            await pilot.press("ctrl+c")
+            await pilot.pause()
+
+    assert copied == [
+        "Error: failed",
+        "$ printf hello (timeout 5s)\n\n✓ bash\ntool output",
+        "Assistant response",
+        "User prompt",
+    ]
+    assert notifications == [
+        "Copied selected message.",
+        "Copied selected message.",
+        "Copied selected message.",
+        "Copied selected message.",
+    ]
+
+
+@pytest.mark.anyio
+async def test_tui_app_copy_selected_message_reports_failures() -> None:
+    app = TauTuiApp(FakeSession(messages=(UserMessage(content="User prompt"),)))
+    notifications: list[tuple[str, str | None]] = []
+
+    def fake_copy(text: str) -> None:
+        del text
+        raise RuntimeError("clipboard unavailable")
+
+    def fake_notify(message: str, **kwargs: object) -> None:
+        severity = kwargs.get("severity")
+        notifications.append((message, severity if isinstance(severity, str) else None))
+
+    app.copy_to_clipboard = fake_copy  # type: ignore[method-assign]
+    app._notify = fake_notify  # type: ignore[method-assign]
+
+    async with app.run_test() as pilot:
+        await pilot.press("ctrl+c")
+        await pilot.press("alt+up")
+        await pilot.press("ctrl+c")
+        await pilot.pause()
+
+    assert notifications == [
+        ("Select a transcript message first.", "warning"),
+        ("Could not copy message: clipboard unavailable", "error"),
+    ]
 
 
 @pytest.mark.anyio

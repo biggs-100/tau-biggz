@@ -112,6 +112,12 @@ class CompletionActionTarget(Protocol):
 
     def action_toggle_tool_results(self) -> None: ...
 
+    def action_select_previous_message(self) -> None: ...
+
+    def action_select_next_message(self) -> None: ...
+
+    def action_copy_selected_message(self) -> None: ...
+
     async def action_submit_prompt(self) -> None: ...
 
 
@@ -198,6 +204,18 @@ class PromptInput(TextArea):
         """Toggle app-level tool result display."""
         self._completion_target().action_toggle_tool_results()
 
+    def action_select_previous_message(self) -> None:
+        """Select the previous transcript message."""
+        self._completion_target().action_select_previous_message()
+
+    def action_select_next_message(self) -> None:
+        """Select the next transcript message."""
+        self._completion_target().action_select_next_message()
+
+    def action_copy_selected_message(self) -> None:
+        """Copy the selected transcript message."""
+        self._completion_target().action_copy_selected_message()
+
     async def action_quit(self) -> None:
         """Quit the app through the app-level action."""
         await self.app.action_quit()
@@ -236,6 +254,17 @@ class PromptInput(TextArea):
         elif event.key == keybindings.toggle_tool_results:
             event.stop()
             self._completion_target().action_toggle_tool_results()
+        elif event.key == keybindings.message_previous:
+            event.stop()
+            self._completion_target().action_select_previous_message()
+        elif event.key == keybindings.message_next:
+            event.stop()
+            self._completion_target().action_select_next_message()
+        elif event.key == keybindings.copy_message:
+            if self.selected_text:
+                return
+            event.stop()
+            self._completion_target().action_copy_selected_message()
         elif event.key == keybindings.completion_next:
             event.stop()
             if self._has_completion_options():
@@ -1207,6 +1236,41 @@ class TauTuiApp(App[None]):
         self._refresh()
         self._notify("Tool results expanded." if expanded else "Tool results collapsed.")
 
+    def action_select_previous_message(self) -> None:
+        """Select the previous transcript message for copy operations."""
+        item = self.state.select_previous_item()
+        self._refresh()
+        if item is None:
+            self._notify("No transcript messages.")
+
+    def action_select_next_message(self) -> None:
+        """Select the next transcript message for copy operations."""
+        item = self.state.select_next_item()
+        self._refresh()
+        if item is None:
+            self._notify("No transcript messages.")
+
+    def action_copy_selected_message(self) -> None:
+        """Copy the selected transcript message to the terminal clipboard."""
+        text = self._selected_message_text()
+        if text is None:
+            self._notify("Select a transcript message first.", severity="warning")
+            return
+        try:
+            self.copy_to_clipboard(text)
+        except Exception as exc:  # noqa: BLE001 - terminal clipboard support varies
+            self._notify(f"Could not copy message: {exc}", severity="error")
+            return
+        self._notify("Copied selected message.")
+
+    def _selected_message_text(self) -> str | None:
+        item = self.state.selected_item()
+        if item is None:
+            return None
+        if item.role == "tool" and self.state.show_tool_results and item.tool_result_text:
+            return f"{item.text}\n\n{item.tool_result_text}"
+        return item.text
+
     def _handle_session_picker_result(self, session_id: str | None) -> None:
         if session_id is None:
             return
@@ -1588,6 +1652,9 @@ def _app_bindings(keybindings: TuiKeybindings) -> list[Binding]:
             priority=True,
         ),
         Binding(keybindings.toggle_tool_results, "toggle_tool_results", "Tool results"),
+        Binding(keybindings.message_previous, "select_previous_message", "Prev msg"),
+        Binding(keybindings.message_next, "select_next_message", "Next msg"),
+        Binding(keybindings.copy_message, "copy_selected_message", "Copy msg"),
         Binding(keybindings.quit, "quit", "Quit"),
     ]
 
@@ -1600,6 +1667,24 @@ def _prompt_bindings(keybindings: TuiKeybindings) -> list[Binding]:
         Binding(
             keybindings.toggle_tool_results,
             "toggle_tool_results",
+            show=False,
+            priority=True,
+        ),
+        Binding(
+            keybindings.message_previous,
+            "select_previous_message",
+            show=False,
+            priority=True,
+        ),
+        Binding(
+            keybindings.message_next,
+            "select_next_message",
+            show=False,
+            priority=True,
+        ),
+        Binding(
+            keybindings.copy_message,
+            "copy_selected_message",
             show=False,
             priority=True,
         ),

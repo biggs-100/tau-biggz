@@ -23,6 +23,16 @@ class TauPaths:
         return self.home / "sessions"
 
     @property
+    def logs_dir(self) -> Path:
+        """Return Tau's user-level diagnostic log directory."""
+        return self.home / "logs"
+
+    @property
+    def agent_calls_log_path(self) -> Path:
+        """Return the JSONL diagnostic log for agent-call failures."""
+        return self.logs_dir / "agent-calls.jsonl"
+
+    @property
     def user_skills_dir(self) -> Path:
         """Return Tau's user-level skills directory."""
         return self.home / "skills"

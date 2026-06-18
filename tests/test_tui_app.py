@@ -984,6 +984,13 @@ async def test_tui_model_opens_interactive_picker() -> None:
 async def test_tui_app_thinking_command_updates_session() -> None:
     session = FakeSession()
     app = TauTuiApp(session)
+    notifications: list[str] = []
+
+    def fake_notify(message: str, **kwargs: object) -> None:
+        del kwargs
+        notifications.append(message)
+
+    app._notify = fake_notify  # type: ignore[method-assign]
 
     async with app.run_test() as pilot:
         prompt = app.query_one("#prompt")
@@ -992,6 +999,7 @@ async def test_tui_app_thinking_command_updates_session() -> None:
         await pilot.pause()
 
     assert session.thinking_level == "high"
+    assert notifications == []
     assert session.prompt_texts == []
 
 
@@ -999,12 +1007,20 @@ async def test_tui_app_thinking_command_updates_session() -> None:
 async def test_tui_app_cycles_thinking_from_keybinding() -> None:
     session = FakeSession()
     app = TauTuiApp(session)
+    notifications: list[str] = []
+
+    def fake_notify(message: str, **kwargs: object) -> None:
+        del kwargs
+        notifications.append(message)
+
+    app._notify = fake_notify  # type: ignore[method-assign]
 
     async with app.run_test() as pilot:
         await pilot.press("shift+tab")
         await pilot.pause()
 
     assert session.thinking_level == "high"
+    assert notifications == []
 
 
 @pytest.mark.anyio
@@ -1040,6 +1056,36 @@ async def test_tui_prompt_worker_refreshes_directly() -> None:
     await app._run_prompt("hello")
 
     assert refreshes == 2
+    assert app.state.running is False
+
+
+@pytest.mark.anyio
+async def test_tui_prompt_worker_shows_diagnostic_log_path_on_failure(tmp_path: Path) -> None:
+    class EmptyMessageError(Exception):
+        def __str__(self) -> str:
+            return ""
+
+    class FailingSession(FakeSession):
+        def __init__(self) -> None:
+            super().__init__()
+            self.last_diagnostic_log_path = tmp_path / "tau-home" / "logs" / "agent-calls.jsonl"
+
+        async def prompt(self, text: str) -> AsyncIterator[AgentEvent]:
+            self.prompt_texts.append(text)
+            raise EmptyMessageError()
+            yield  # pragma: no cover
+
+    session = FailingSession()
+    app = TauTuiApp(session)
+    app._refresh = lambda: None  # type: ignore[method-assign]
+
+    await app._run_prompt("break")
+
+    assert app.state.error == (
+        f"Error: EmptyMessageError\nLog: {session.last_diagnostic_log_path}"
+    )
+    assert app.state.items[-1].role == "error"
+    assert app.state.items[-1].text == app.state.error
     assert app.state.running is False
 
 

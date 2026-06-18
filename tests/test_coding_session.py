@@ -1,8 +1,17 @@
+import json
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
 
-from tau_agent import AssistantMessage, ToolCall, ToolResultMessage, UserMessage
+from tau_agent import (
+    AgentMessage,
+    AgentTool,
+    AssistantMessage,
+    ToolCall,
+    ToolResultMessage,
+    UserMessage,
+)
 from tau_agent.session import (
     CompactionEntry,
     JsonlSessionStorage,
@@ -12,7 +21,13 @@ from tau_agent.session import (
     SessionInfoEntry,
     ThinkingLevelChangeEntry,
 )
-from tau_ai import FakeProvider, ProviderResponseEndEvent, ProviderResponseStartEvent
+from tau_ai import (
+    CancellationToken,
+    FakeProvider,
+    ProviderEvent,
+    ProviderResponseEndEvent,
+    ProviderResponseStartEvent,
+)
 from tau_coding import (
     CodingSession,
     CodingSessionConfig,
@@ -50,6 +65,25 @@ class SwitchableFakeProvider:
         self.closed = True
 
 
+class RaisingProvider:
+    def stream_response(
+        self,
+        *,
+        model: str,
+        system: str,
+        messages: list[AgentMessage],
+        tools: list[AgentTool],
+        signal: CancellationToken | None = None,
+    ) -> AsyncIterator[ProviderEvent]:
+        del model, system, messages, tools, signal
+
+        async def iterator() -> AsyncIterator[ProviderEvent]:
+            raise RuntimeError("provider exploded")
+            yield  # pragma: no cover
+
+        return iterator()
+
+
 @pytest.mark.anyio
 async def test_load_empty_session_appends_metadata(tmp_path: Path) -> None:
     storage = JsonlSessionStorage(tmp_path / "session.jsonl")
@@ -75,6 +109,41 @@ async def test_load_empty_session_appends_metadata(tmp_path: Path) -> None:
     assert session.cwd == tmp_path
     assert session.model == "fake"
     assert [tool.name for tool in session.tools] == ["read", "write", "edit", "bash"]
+
+
+@pytest.mark.anyio
+async def test_prompt_logs_unexpected_agent_call_exception(tmp_path: Path) -> None:
+    storage = JsonlSessionStorage(tmp_path / "session.jsonl")
+    tau_paths = TauPaths(home=tmp_path / "tau-home", agents_home=tmp_path / "agents-home")
+    session = await CodingSession.load(
+        CodingSessionConfig(
+            provider=RaisingProvider(),
+            model="fake",
+            system="You are Tau.",
+            storage=storage,
+            cwd=tmp_path,
+            provider_name="fake-provider",
+            session_id="session-1",
+            resource_paths=TauResourcePaths(root=tau_paths.home, paths=tau_paths),
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="provider exploded"):
+        await _collect_session_events(session.prompt("Hello"))
+
+    log_path = tau_paths.agent_calls_log_path
+    assert session.last_diagnostic_log_path == log_path
+    entry = json.loads(log_path.read_text(encoding="utf-8").splitlines()[-1])
+    assert entry["kind"] == "exception"
+    assert entry["phase"] == "agent_loop"
+    assert entry["provider_name"] == "fake-provider"
+    assert entry["model"] == "fake"
+    assert entry["session_id"] == "session-1"
+    assert entry["cwd"] == str(tmp_path)
+    assert entry["exception"]["type"] == "RuntimeError"
+    assert entry["exception"]["message"] == "provider exploded"
+    assert "provider exploded" in entry["exception"]["traceback"]
+    assert "Hello" not in log_path.read_text(encoding="utf-8")
 
 
 @pytest.mark.anyio

@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from tau_agent import AgentEvent, AgentHarness, AgentHarnessConfig
+from tau_agent import AgentEvent, AgentHarness, AgentHarnessConfig, ErrorEvent
 from tau_agent.messages import AgentMessage
 from tau_agent.session import (
     CompactionEntry,
@@ -25,6 +25,11 @@ from tau_coding.context_window import (
     ContextUsageEstimate,
     estimate_context_usage,
     summarize_messages_for_compaction,
+)
+from tau_coding.diagnostics import (
+    AgentCallDiagnosticContext,
+    AgentCallDiagnosticLogger,
+    new_agent_call_run_id,
 )
 from tau_coding.paths import TauPaths
 from tau_coding.prompt_templates import (
@@ -137,6 +142,8 @@ class CodingSession:
         self._auto_compact_token_threshold = config.auto_compact_token_threshold
         self._thinking_level = _state_thinking_level(state, config.thinking_level)
         self._owned_providers: list[ClosableModelProvider] = []
+        self._diagnostic_logger = AgentCallDiagnosticLogger.from_paths(self._resource_paths.paths)
+        self._last_diagnostic_log_path: Path | None = None
 
     @classmethod
     async def load(cls, config: CodingSessionConfig) -> CodingSession:
@@ -326,6 +333,11 @@ class CodingSession:
         """Return the session manager, if available."""
         return self._config.session_manager
 
+    @property
+    def last_diagnostic_log_path(self) -> Path | None:
+        """Return the last diagnostic log path written by this session."""
+        return self._last_diagnostic_log_path
+
     def cancel(self) -> None:
         """Cancel the currently running agent turn, if any."""
         self._harness.cancel()
@@ -509,22 +521,76 @@ class CodingSession:
 
     async def prompt(self, content: str) -> AsyncIterator[AgentEvent]:
         """Append a user prompt, run the agent, and persist new messages."""
-        await self._maybe_auto_compact()
+        context = self._diagnostic_context()
+        try:
+            await self._maybe_auto_compact()
+        except Exception as exc:
+            self._last_diagnostic_log_path = self._diagnostic_logger.log_exception(
+                context=context,
+                phase="auto_compact",
+                exc=exc,
+            )
+            raise
         try:
             expanded_content = self.expand_prompt_text(content)
         except ResourceError:
             raise
+        except Exception as exc:
+            self._last_diagnostic_log_path = self._diagnostic_logger.log_exception(
+                context=context,
+                phase="expand_prompt",
+                exc=exc,
+            )
+            raise
         before_count = len(self._harness.messages)
-        async for event in self._harness.prompt(expanded_content):
-            yield event
-        await self._persist_new_messages(before_count)
+        try:
+            async for event in self._harness.prompt(expanded_content):
+                if isinstance(event, ErrorEvent) and not event.recoverable:
+                    self._last_diagnostic_log_path = self._diagnostic_logger.log_error_event(
+                        context=context,
+                        phase="agent_loop",
+                        event=event,
+                    )
+                yield event
+            await self._persist_new_messages(before_count)
+        except Exception as exc:
+            self._last_diagnostic_log_path = self._diagnostic_logger.log_exception(
+                context=context,
+                phase="agent_loop",
+                exc=exc,
+            )
+            raise
 
     async def continue_(self) -> AsyncIterator[AgentEvent]:
         """Continue the agent from restored state and persist new messages."""
+        context = self._diagnostic_context()
         before_count = len(self._harness.messages)
-        async for event in self._harness.continue_():
-            yield event
-        await self._persist_new_messages(before_count)
+        try:
+            async for event in self._harness.continue_():
+                if isinstance(event, ErrorEvent) and not event.recoverable:
+                    self._last_diagnostic_log_path = self._diagnostic_logger.log_error_event(
+                        context=context,
+                        phase="agent_loop",
+                        event=event,
+                    )
+                yield event
+            await self._persist_new_messages(before_count)
+        except Exception as exc:
+            self._last_diagnostic_log_path = self._diagnostic_logger.log_exception(
+                context=context,
+                phase="agent_loop",
+                exc=exc,
+            )
+            raise
+
+    def _diagnostic_context(self) -> AgentCallDiagnosticContext:
+        return AgentCallDiagnosticContext(
+            provider_name=self._provider_name,
+            model=self.model,
+            cwd=self.cwd,
+            session_id=self.session_id,
+            run_id=new_agent_call_run_id(),
+        )
 
     async def _persist_new_messages(self, before_count: int) -> None:
         new_messages = self._harness.messages[before_count:]

@@ -979,8 +979,9 @@ class TauTuiApp(App[None]):
                 self.adapter.apply(event)
                 self._refresh()
         except Exception as exc:  # noqa: BLE001 - surface unexpected worker errors in the TUI
-            self.state.error = str(exc)
-            self.state.add_item("error", f"Error: {exc}")
+            message = _format_prompt_error(exc, self.session)
+            self.state.error = message
+            self.state.add_item("error", message)
             self.state.running = False
             self._refresh()
 
@@ -1212,11 +1213,11 @@ class TauTuiApp(App[None]):
             return
         try:
             result = setter(level)
-            message = await result if isawaitable(result) else result
+            if isawaitable(result):
+                await result
         except Exception as exc:  # noqa: BLE001 - surface session state failures in the TUI
             self._notify(f"Could not change thinking mode: {exc}", severity="error")
             return
-        self._notify(str(message) if message else f"Thinking mode: {level}")
         self._refresh()
 
     async def _cycle_thinking_level(self) -> None:
@@ -1226,11 +1227,11 @@ class TauTuiApp(App[None]):
             return
         try:
             result = cycler()
-            message = await result if isawaitable(result) else result
+            if isawaitable(result):
+                await result
         except Exception as exc:  # noqa: BLE001 - surface session state failures in the TUI
             self._notify(f"Could not change thinking mode: {exc}", severity="error")
             return
-        self._notify(str(message) if message else "Thinking mode changed.")
         self._refresh()
 
     def _notify(
@@ -1412,6 +1413,15 @@ def _prompt_bindings(keybindings: TuiKeybindings) -> list[Binding]:
         Binding(keybindings.completion_previous, "completion_previous", show=False, priority=True),
         Binding(keybindings.quit, "quit", "Quit", priority=True),
     ]
+
+
+def _format_prompt_error(exc: BaseException, session: CodingSession) -> str:
+    detail = str(exc) or type(exc).__name__
+    message = f"Error: {detail}"
+    log_path = getattr(session, "last_diagnostic_log_path", None)
+    if isinstance(log_path, Path):
+        return f"{message}\nLog: {log_path}"
+    return message
 
 
 async def run_tui_app(

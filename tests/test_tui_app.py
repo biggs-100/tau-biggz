@@ -7,7 +7,7 @@ import pytest
 from rich.console import Console
 from rich.panel import Panel
 from textual.containers import VerticalScroll
-from textual.widgets import Button, Footer, Input, Label, ListItem, ListView, TextArea
+from textual.widgets import Footer, Input, Label, ListItem, ListView, TextArea
 
 from tau_agent import (
     AgentEndEvent,
@@ -1613,10 +1613,45 @@ async def test_tui_login_opens_method_picker() -> None:
         await pilot.pause()
 
         assert isinstance(app.screen, LoginMethodPickerScreen)
-        assert str(app.screen.query_one("#login-method-subscription", Button).label) == (
-            "Subscription"
-        )
-        assert str(app.screen.query_one("#login-method-api-key", Button).label) == "API key"
+        method_list = app.screen.query_one("#login-method-list", ListView)
+        labels = [str(item.query_one(Label).render()) for item in method_list.children]
+        assert labels == [
+            "Subscription\n  Sign in with an OAuth account.",
+            "API key\n  Save a provider API key.",
+        ]
+        assert app.screen.focused is method_list
+        assert method_list.index == 0
+
+
+@pytest.mark.anyio
+async def test_tui_login_method_picker_supports_arrow_keys() -> None:
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt")
+        prompt.value = "/login"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert isinstance(app.screen, LoginMethodPickerScreen)
+        method_list = app.screen.query_one("#login-method-list", ListView)
+        assert app.screen.focused is method_list
+        assert method_list.index == 0
+
+        app.screen.action_cursor_down()
+        assert method_list.index == 1
+
+        app.screen.action_cursor_up()
+        assert method_list.index == 0
+
+        app.screen.action_cursor_down()
+        app.screen.action_select_cursor()
+        await pilot.pause()
+
+        assert isinstance(app.screen, LoginProviderPickerScreen)
+        provider_list = app.screen.query_one("#login-provider-list", ListView)
+        labels = [str(item.query_one(Label).render()) for item in provider_list.children]
+        assert labels[0] == "OpenAI\n  openai"
 
 
 @pytest.mark.anyio
@@ -1630,7 +1665,7 @@ async def test_tui_login_subscription_opens_oauth_provider_picker() -> None:
         await pilot.pause()
 
         assert isinstance(app.screen, LoginMethodPickerScreen)
-        await pilot.click("#login-method-subscription")
+        await pilot.press("enter")
         await pilot.pause()
 
         assert isinstance(app.screen, LoginProviderPickerScreen)
@@ -1651,7 +1686,8 @@ async def test_tui_login_api_key_opens_api_provider_picker() -> None:
         await pilot.pause()
 
         assert isinstance(app.screen, LoginMethodPickerScreen)
-        await pilot.click("#login-method-api-key")
+        app.screen.action_cursor_down()
+        app.screen.action_select_cursor()
         await pilot.pause()
 
         assert isinstance(app.screen, LoginProviderPickerScreen)

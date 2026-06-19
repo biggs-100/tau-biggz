@@ -1375,6 +1375,16 @@ class TauTuiApp(App[None]):
 
     def action_copy_selected_message(self) -> None:
         """Copy the selected transcript message to the terminal clipboard."""
+        selected_text = self._visible_selection_text()
+        if selected_text is not None:
+            try:
+                self.copy_to_clipboard(selected_text)
+            except Exception as exc:  # noqa: BLE001 - terminal clipboard support varies
+                self._notify(f"Could not copy selection: {exc}", severity="error")
+                return
+            self._notify("Copied selected text.")
+            return
+
         text = self._selected_message_text()
         if text is None:
             self._notify("Select a transcript message first.", severity="warning")
@@ -1393,6 +1403,12 @@ class TauTuiApp(App[None]):
         if item.role == "tool" and self.state.show_tool_results and item.tool_result_text:
             return f"{item.text}\n\n{item.tool_result_text}"
         return item.text
+
+    def _visible_selection_text(self) -> str | None:
+        selected_text = self.screen.get_selected_text()
+        if selected_text is None or not selected_text.strip():
+            return None
+        return selected_text
 
     def _handle_session_picker_result(self, session_id: str | None) -> None:
         if session_id is None:

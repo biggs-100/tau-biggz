@@ -158,8 +158,10 @@ space.
 Transcript text supports Textual selection for visible user, assistant, tool, and
 error output. Copy shortcuts are terminal-emulator dependent, and selecting the
 full visible row can include Tau's left accent marker.
-Use `Alt+Up` / `Alt+Down` to select transcript messages and `Ctrl+C` to copy the
-selected message text through Textual's terminal clipboard integration.
+When visible transcript text is selected, `Ctrl+C` copies that selection through
+Textual's terminal clipboard integration. Without a visible selection, use
+`Alt+Up` / `Alt+Down` to select transcript messages and `Ctrl+C` to copy the
+selected message text.
 
 Assistant Markdown renders fenced code blocks with syntax highlighting when the
 fence language is known. Unknown fence languages fall back to plain code

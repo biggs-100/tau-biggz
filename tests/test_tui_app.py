@@ -1681,6 +1681,42 @@ async def test_tui_app_copies_selected_transcript_messages() -> None:
 
 
 @pytest.mark.anyio
+async def test_tui_app_copies_visible_transcript_selection_first() -> None:
+    app = TauTuiApp(
+        FakeSession(
+            messages=(
+                UserMessage(content="User prompt"),
+                AssistantMessage(content="Assistant response\n\n```python\nprint('hi')\n```"),
+            )
+        )
+    )
+    copied: list[str] = []
+    notifications: list[str] = []
+
+    def fake_copy(text: str) -> None:
+        copied.append(text)
+
+    def fake_notify(message: str, **kwargs: object) -> None:
+        del kwargs
+        notifications.append(message)
+
+    app.copy_to_clipboard = fake_copy  # type: ignore[method-assign]
+    app._notify = fake_notify  # type: ignore[method-assign]
+
+    async with app.run_test() as pilot:
+        transcript = app.query_one("#transcript", TranscriptView)
+        transcript.text_select_all()
+        await pilot.press("ctrl+c")
+        await pilot.pause()
+
+    assert len(copied) == 1
+    assert "User prompt" in copied[0]
+    assert "Assistant response" in copied[0]
+    assert "print('hi')" in copied[0]
+    assert notifications == ["Copied selected text."]
+
+
+@pytest.mark.anyio
 async def test_tui_app_copy_selected_message_reports_failures() -> None:
     app = TauTuiApp(FakeSession(messages=(UserMessage(content="User prompt"),)))
     notifications: list[tuple[str, str | None]] = []

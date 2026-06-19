@@ -290,7 +290,6 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(
         SlashCommand(
             name="scoped-models",
-            aliases=("scopedmodels", "scoped_models"),
             usage="/scoped-models",
             description="Choose models available to quick-cycle with Ctrl+P.",
             handler=_scoped_models_command,

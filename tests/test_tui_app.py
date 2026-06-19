@@ -1352,6 +1352,26 @@ def test_tui_model_picker_guides_setup_when_no_provider_is_usable() -> None:
 
 
 @pytest.mark.anyio
+async def test_tui_app_deduplicates_active_notifications() -> None:
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(notifications=True) as pilot:
+        app._notify("Thinking controls are not available.", severity="warning")
+        app._notify("Thinking controls are not available.", severity="warning")
+        app._notify("Thinking controls are not available.", severity="error")
+        await pilot.pause()
+
+        active_notifications = tuple(app._notifications)
+
+    assert [
+        (notification.message, notification.severity) for notification in active_notifications
+    ] == [
+        ("Thinking controls are not available.", "warning"),
+        ("Thinking controls are not available.", "error"),
+    ]
+
+
+@pytest.mark.anyio
 async def test_tui_app_help_uses_modal_instead_of_transcript() -> None:
     app = TauTuiApp(FakeSession())
 

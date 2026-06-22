@@ -322,8 +322,17 @@ Thinking controls are model-aware. Tau enables them only when the active
 provider configuration declares supported levels for the active model. Custom
 OpenAI-compatible providers can opt in by adding `thinking_levels`,
 `thinking_default`, and `thinking_parameter: "reasoning_effort"` to their
-provider entry. Add `thinking_models` when only some configured models support
-those levels.
+provider entry. Providers that use the nested Responses API shape can use
+`thinking_parameter: "reasoning.effort"`; Anthropic configs use
+`thinking_parameter: "anthropic.thinking"`. Add `thinking_models` when only
+some configured models support those levels. When adding new built-in models,
+validate whether each model supports the chosen thinking parameter before adding
+it to `thinking_models`.
+
+When controls are unavailable, the TUI shows `unavailable` in the session
+summary and failed thinking-cycle attempts include the reason. `/session` also
+prints the reason, for example when the active provider does not declare
+`thinking_levels` or when the active model is not listed in `thinking_models`.
 
 Typing `@` in the TUI prompt opens file-reference suggestions for the current
 session working directory. Suggestions include matching files and directories

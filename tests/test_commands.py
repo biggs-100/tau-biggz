@@ -39,6 +39,7 @@ class FakeSession:
         self.auto_compact_token_threshold = 200
         self.thinking_level = "medium"
         self.available_thinking_levels = ("off", "minimal", "low", "medium", "high", "xhigh")
+        self.thinking_unavailable_reason: str | None = None
         self.tui_theme = "tau-dark"
         self.resource_diagnostics = ()
         self.session_id = "session-1"
@@ -155,6 +156,22 @@ def test_session_command_includes_session_details(tmp_path: Path) -> None:
     assert "Resource diagnostics: 0" in result.message
     assert "Session: session-1" in result.message
     assert create_default_command_registry().execute(FakeSession(tmp_path), "/status").message == "Unknown command: /status"
+
+
+def test_session_command_explains_unavailable_thinking_controls(tmp_path: Path) -> None:
+    session = FakeSession(tmp_path)
+    session.available_thinking_levels = ()
+    session.thinking_unavailable_reason = "Provider local does not declare thinking_levels"
+
+    result = create_default_command_registry().execute(session, "/session")
+
+    assert result.message is not None
+    assert "Thinking mode: unavailable" in result.message
+    assert (
+        "Thinking unavailable: Provider local does not declare thinking_levels"
+        in result.message
+    )
+    assert "Thinking mode: medium" not in result.message
 
 
 def test_hotkeys_command_lists_common_tui_shortcuts(tmp_path: Path) -> None:

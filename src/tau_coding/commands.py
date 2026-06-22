@@ -356,17 +356,16 @@ def _status_command(context: CommandContext) -> CommandResult:
         f"Prompt templates: {len(session.prompt_templates)}",
         f"Context files: {len(session.context_files)}",
         f"Estimated context tokens: {session.context_token_estimate}",
-        f"Thinking mode: {session.thinking_level}",
-        f"Resource diagnostics: {len(session.resource_diagnostics)}",
     ]
     if context_usage is not None:
-        lines.insert(
-            -1,
+        lines.append(
             "Context token breakdown: "
             f"system={context_usage.system_tokens}, "
             f"messages={context_usage.message_tokens}, "
             f"tools={context_usage.tool_tokens}",
         )
+    lines.extend(_thinking_status_lines(session))
+    lines.append(f"Resource diagnostics: {len(session.resource_diagnostics)}")
     if session.auto_compact_token_threshold is not None:
         lines.append(f"Auto compact threshold: {session.auto_compact_token_threshold}")
     if session.session_id is not None:
@@ -561,26 +560,21 @@ def _thinking_command(context: CommandContext) -> CommandResult:
     session = context.session
     available = tuple(session.available_thinking_levels)
     if not context.args:
-        if not available:
-            return CommandResult(
-                handled=True,
-                message=(
-                    "Thinking controls: unavailable\n"
-                    f"Current model: {session.provider_name}:{session.model}"
-                ),
-            )
-        lines = [
-            f"Thinking mode: {session.thinking_level}",
-            f"Available modes: {', '.join(available)}",
-        ]
+        lines = _thinking_status_lines(session)
+        if available:
+            lines.append(f"Available modes: {', '.join(available)}")
+        else:
+            lines.insert(1, f"Current model: {session.provider_name}:{session.model}")
         return CommandResult(handled=True, message="\n".join(lines))
 
     if not available:
+        message = f"Thinking controls are unavailable for {session.provider_name}:{session.model}"
+        reason = _thinking_unavailable_reason(session)
+        if reason:
+            message = f"{message}: {reason}"
         return CommandResult(
             handled=True,
-            message=(
-                f"Thinking controls are unavailable for {session.provider_name}:{session.model}"
-            ),
+            message=message,
         )
     try:
         level = normalize_thinking_level(context.args)
@@ -597,6 +591,21 @@ def _thinking_command(context: CommandContext) -> CommandResult:
             ),
         )
     return CommandResult(handled=True, thinking_level=level)
+
+
+def _thinking_status_lines(session: CommandSession) -> list[str]:
+    if tuple(session.available_thinking_levels):
+        return [f"Thinking mode: {session.thinking_level}"]
+    lines = ["Thinking mode: unavailable"]
+    reason = _thinking_unavailable_reason(session)
+    if reason:
+        lines.append(f"Thinking unavailable: {reason}")
+    return lines
+
+
+def _thinking_unavailable_reason(session: CommandSession) -> str | None:
+    reason = getattr(session, "thinking_unavailable_reason", None)
+    return reason if isinstance(reason, str) and reason else None
 
 
 def _theme_command(context: CommandContext) -> CommandResult:

@@ -57,6 +57,7 @@ from tau_coding.provider_config import (
     provider_default_thinking_level,
     provider_has_usable_credentials,
     provider_thinking_levels,
+    provider_thinking_unavailable_reason,
     save_provider_settings,
 )
 from tau_coding.provider_runtime import ClosableModelProvider, create_model_provider
@@ -416,6 +417,16 @@ class CodingSession:
         return provider_thinking_levels(provider, model=self.model)
 
     @property
+    def thinking_unavailable_reason(self) -> str | None:
+        """Return why thinking controls are unavailable for the active model."""
+        if self.available_thinking_levels:
+            return None
+        provider = self._active_provider_config()
+        if provider is None:
+            return "Active provider settings are not available"
+        return provider_thinking_unavailable_reason(provider, model=self.model)
+
+    @property
     def storage(self) -> SessionStorage:
         """Return the backing session storage."""
         return self._config.storage
@@ -630,9 +641,7 @@ class CodingSession:
         normalized = normalize_thinking_level(level)
         available = self.available_thinking_levels
         if not available:
-            raise ValueError(
-                f"Thinking controls are unavailable for {self._provider_name}:{self.model}"
-            )
+            raise ValueError(_unavailable_thinking_message(self))
         if normalized not in available:
             modes = ", ".join(available)
             raise ValueError(
@@ -1230,6 +1239,14 @@ def _coerced_thinking_level(
         return current
     default = provider_default_thinking_level(provider, model=model)
     return default or levels[0]
+
+
+def _unavailable_thinking_message(session: CodingSession) -> str:
+    message = f"Thinking controls are unavailable for {session.provider_name}:{session.model}"
+    reason = session.thinking_unavailable_reason
+    if reason:
+        return f"{message}: {reason}"
+    return message
 
 
 def _terminal_command_context_message(command: str, output: str) -> str:

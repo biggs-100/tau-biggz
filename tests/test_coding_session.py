@@ -36,6 +36,7 @@ from tau_coding import (
     CodingSessionConfig,
     FileCredentialStore,
     ModelChoice,
+    OpenAICodexProviderConfig,
     OpenAICompatibleProviderConfig,
     ProviderSettings,
     ScopedModelConfig,
@@ -417,6 +418,7 @@ async def test_session_uses_active_model_thinking_capabilities(tmp_path: Path) -
 
     assert session.available_thinking_levels == ("off", "low", "high")
     assert session.thinking_level == "low"
+    assert session.thinking_unavailable_reason is None
     assert await session.set_thinking_level("high") == "Thinking mode: high"
 
     with pytest.raises(ValueError, match="not available"):
@@ -425,8 +427,52 @@ async def test_session_uses_active_model_thinking_capabilities(tmp_path: Path) -
     session.set_model("plain")
 
     assert session.available_thinking_levels == ()
-    with pytest.raises(ValueError, match="unavailable"):
+    assert (
+        session.thinking_unavailable_reason
+        == "openai:plain is not declared in thinking_models"
+    )
+    with pytest.raises(ValueError, match="openai:plain is not declared in thinking_models"):
         await session.cycle_thinking_level()
+
+    session.set_model("reasoner")
+
+    assert session.available_thinking_levels == ("off", "low", "high")
+    assert session.thinking_level == "high"
+    assert session.thinking_unavailable_reason is None
+
+
+@pytest.mark.anyio
+async def test_session_uses_codex_subscription_thinking_capabilities(
+    tmp_path: Path,
+) -> None:
+    provider_config = OpenAICodexProviderConfig(
+        thinking_levels=("off", "minimal", "low", "medium", "high", "xhigh"),
+        thinking_models=("gpt-5.5",),
+        thinking_default="medium",
+        thinking_parameter="reasoning.effort",
+    )
+    session = await CodingSession.load(
+        CodingSessionConfig(
+            provider=FakeProvider([]),
+            model="gpt-5.5",
+            system="You are Tau.",
+            storage=JsonlSessionStorage(tmp_path / "codex-session.jsonl"),
+            cwd=tmp_path,
+            provider_name="openai-codex",
+            provider_settings=ProviderSettings(providers=(provider_config,)),
+        )
+    )
+
+    assert session.available_thinking_levels == (
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+    )
+    assert session.thinking_unavailable_reason is None
+    assert await session.set_thinking_level("high") == "Thinking mode: high"
 
 
 @pytest.mark.anyio

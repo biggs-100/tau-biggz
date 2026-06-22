@@ -131,7 +131,7 @@ class TranscriptView(RichLog):
         self._last_render_width = self.scrollable_content_region.width
         self.clear()
         hidden_thinking_placeholder = False
-        for index, item in enumerate(state.items):
+        for item in state.items:
             if item.role == "thinking" and not state.show_thinking:
                 if not hidden_thinking_placeholder:
                     self.write(
@@ -393,7 +393,7 @@ def _render_chat_body(
     )
     if patch_body is not None:
         return patch_body
-    if role in {"assistant", "thinking"}:
+    if role in {"assistant", "thinking", "status"}:
         if _has_unclosed_fence(text):
             return _plain_text(text, body_style=body_style)
         return ThemedMarkdown(

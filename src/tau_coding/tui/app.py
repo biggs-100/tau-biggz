@@ -6,10 +6,11 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
 from inspect import isawaitable
+from io import StringIO
 from pathlib import Path
 from typing import Any, ClassVar, Literal, Protocol, cast
 
-from rich.console import Group
+from rich.console import Console, Group
 from rich.text import Text
 from textual import events, on
 from textual.app import App, ComposeResult
@@ -80,9 +81,15 @@ from tau_coding.session import (
 from tau_coding.session_manager import CodingSessionRecord, SessionManager
 from tau_coding.thinking import DEFAULT_THINKING_LEVEL
 from tau_coding.tui.adapter import TuiEventAdapter
-from tau_coding.tui.autocomplete import CompletionOption, CompletionState, build_completion_state
+from tau_coding.tui.autocomplete import (
+    CompletionItem,
+    CompletionOption,
+    CompletionState,
+    build_completion_state,
+)
 from tau_coding.tui.config import (
     BUILTIN_TUI_THEME_NAMES,
+    TAU_DARK_THEME,
     TuiKeybindings,
     TuiSettings,
     TuiTheme,
@@ -104,6 +111,7 @@ SIDEBAR_MIN_HEIGHT = 24
 ACTIVITY_TICK_SECONDS = 0.15
 ACTIVITY_COLOR_FADE_STEPS = 24
 ACTIVITY_INDICATOR_HEIGHT = 3
+COMPLETION_MAX_VISIBLE_LINES = 16
 NO_STORED_CREDENTIALS_MESSAGE = (
     "No stored credentials to remove. /logout only removes credentials saved by /login; "
     "environment variables and providers.json config are unchanged."
@@ -1526,6 +1534,7 @@ class TauTuiApp(App[None]):
         background: $tau-autocomplete-background;
         color: $tau-screen-text;
         border: tall $tau-border;
+        overflow-y: auto;
     }
 
     SessionPickerScreen,
@@ -2768,7 +2777,11 @@ class TauTuiApp(App[None]):
         suggestions.display = bool(self._completion_state.items)
         suggestions.update(
             render_completion_suggestions(
-                self._completion_state,
+                _visible_completion_state(
+                    self._completion_state,
+                    max_lines=COMPLETION_MAX_VISIBLE_LINES,
+                    width=max(suggestions.content_size.width or suggestions.size.width, 1),
+                ),
                 theme=self.tui_settings.resolved_theme,
             )
         )
@@ -2890,6 +2903,118 @@ def _hex_to_rgb(color: str) -> tuple[int, int, int]:
     if len(value) != 6:
         raise ValueError(f"Expected #rrggbb color, got {color!r}")
     return (int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16))
+
+
+def _visible_completion_state(
+    state: CompletionState,
+    *,
+    max_lines: int,
+    width: int | None = None,
+) -> CompletionState:
+    """Return a completion-state window with the selected item visible."""
+    if not state.items or max_lines <= 0:
+        return CompletionState()
+
+    selected_line_limit = max(max_lines - 1, 1)
+    start = 0
+    while start < state.selected_index:
+        candidate = CompletionState(
+            items=state.items[start:],
+            selected_index=state.selected_index - start,
+        )
+        if _completion_selected_render_line(candidate, width=width) < selected_line_limit:
+            break
+        start += 1
+
+    end = len(state.items)
+    while end > state.selected_index + 1:
+        candidate = CompletionState(
+            items=state.items[start:end],
+            selected_index=state.selected_index - start,
+        )
+        if _completion_render_line_count(candidate, width=width) <= max_lines:
+            break
+        end -= 1
+
+    while start < state.selected_index:
+        candidate = CompletionState(
+            items=state.items[start:end],
+            selected_index=state.selected_index - start,
+        )
+        if _completion_render_line_count(candidate, width=width) <= max_lines:
+            break
+        start += 1
+
+    return CompletionState(
+        items=state.items[start:end],
+        selected_index=state.selected_index - start,
+    )
+
+
+def _completion_selected_render_line(state: CompletionState, *, width: int | None = None) -> int:
+    """Return the rendered line number for the selected completion item."""
+    line = 0
+    has_rendered_text = False
+    previous_category: str | None = None
+    for index, item in enumerate(state.items):
+        if item.category != previous_category:
+            if has_rendered_text:
+                line += 1
+            if item.category:
+                line += 1
+                has_rendered_text = True
+            previous_category = item.category
+        elif has_rendered_text:
+            line += 1
+        if index == state.selected_index:
+            return line
+        line += _completion_item_extra_wrapped_lines(item, width=width)
+        has_rendered_text = True
+    return line
+
+
+def _completion_render_line_count(state: CompletionState, *, width: int | None = None) -> int:
+    """Return how many lines the completion state renders into."""
+    if not state.items:
+        return 0
+    line_count = 0
+    previous_category: str | None = None
+    for index, item in enumerate(state.items):
+        if item.category != previous_category:
+            if index:
+                line_count += 1
+            if item.category:
+                line_count += 1
+            previous_category = item.category
+        line_count += 1 + _completion_item_extra_wrapped_lines(item, width=width)
+    return line_count
+
+
+def _completion_item_extra_wrapped_lines(
+    item: CompletionItem,
+    *,
+    width: int | None,
+) -> int:
+    """Return extra rendered lines used when a completion description wraps."""
+    if width is None or width <= 0 or not item.description:
+        return 0
+    output = StringIO()
+    console = Console(
+        file=output,
+        width=width,
+        force_terminal=False,
+        color_system=None,
+        legacy_windows=False,
+    )
+    console.print(
+        render_completion_suggestions(
+            CompletionState(items=(item,), selected_index=0),
+            theme=TAU_DARK_THEME,
+        ),
+        end="",
+    )
+    line_count = len(output.getvalue().splitlines())
+    return max(line_count - 1, 0)
 
 
 def _session_command_registry(session: CodingSession) -> CommandRegistry:

@@ -2259,9 +2259,8 @@ class TauTuiApp(App[None]):
 
     def action_toggle_thinking(self) -> None:
         """Toggle thinking-token display in the transcript."""
-        visible = self.state.toggle_thinking()
+        self.state.toggle_thinking()
         self._refresh()
-        self._notify("Thinking tokens shown." if visible else "Thinking tokens hidden.")
 
     def _handle_session_picker_result(self, session_id: str | None) -> None:
         if session_id is None:

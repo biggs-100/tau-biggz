@@ -2792,7 +2792,7 @@ async def test_tui_app_toggles_thinking_tokens_from_keybinding_while_running() -
         assert "Thinking… Press Ctrl+T to show thinking tokens." in transcript_text()
         assert "internal plan" not in transcript_text()
 
-    assert notifications == ["Thinking tokens shown.", "Thinking tokens hidden."]
+    assert notifications == []
 
 
 @pytest.mark.anyio

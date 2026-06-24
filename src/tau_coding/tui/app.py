@@ -1474,7 +1474,7 @@ class TauTuiApp(App[None]):
         height: 1fr;
         border: none;
         background: $tau-transcript-background;
-        padding: 0 1 0 0;
+        padding: 0 0 0 2;
         scrollbar-size-vertical: 0;
         scrollbar-size-horizontal: 0;
     }

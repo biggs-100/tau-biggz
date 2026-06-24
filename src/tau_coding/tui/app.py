@@ -1514,14 +1514,6 @@ class TauTuiApp(App[None]):
         max-height: 8;
     }
 
-    #activity-indicator {
-        width: 1;
-        height: 3;
-        margin: 0 0 0 1;
-        background: transparent;
-        color: transparent;
-    }
-
     #prompt:focus {
         border: tall $tau-prompt-border;
     }
@@ -1833,7 +1825,6 @@ class TauTuiApp(App[None]):
                         id="prompt",
                         tui_keybindings=self.tui_settings.keybindings,
                     )
-                    yield Static("", id="activity-indicator")
                 yield CompactSessionInfo(id="compact-session-info")
                 yield Static("", id="autocomplete")
         yield Footer()
@@ -2789,7 +2780,7 @@ class TauTuiApp(App[None]):
         theme = self.tui_settings.resolved_theme
         try:
             prompt = self.query_one("#prompt", PromptInput)
-            indicator = self.query_one("#activity-indicator", Static)
+            prompt_prefix = self.query_one("#prompt-prefix", Static)
         except NoMatches:
             return
         prompt.styles.border = (
@@ -2801,7 +2792,7 @@ class TauTuiApp(App[None]):
                 shell_mode=_is_terminal_command_prompt(prompt.text),
             ),
         )
-        indicator.update(
+        prompt_prefix.update(
             _render_activity_indicator(
                 theme,
                 frame=self._activity_frame,
@@ -2870,9 +2861,9 @@ def _activity_prompt_border_color(
 
 
 def _render_activity_indicator(theme: TuiTheme, *, frame: int, running: bool) -> Text:
-    """Render the narrow working indicator that sits to the right of the prompt."""
+    """Render the prompt prefix, turning Tau into a moving square while running."""
     if not running:
-        return Text("\n".join(" " for _ in range(ACTIVITY_INDICATOR_HEIGHT)))
+        return Text("τ", style=f"bold {theme.accent}")
 
     cycle_length = (ACTIVITY_INDICATOR_HEIGHT - 1) * 2
     cycle_position = frame % cycle_length
@@ -2883,14 +2874,14 @@ def _render_activity_indicator(theme: TuiTheme, *, frame: int, running: bool) ->
     )
     direction = 1 if cycle_position < ACTIVITY_INDICATOR_HEIGHT else -1
     trail_rows = {
-        active_row: theme.highlight_background,
+        active_row: theme.accent,
         active_row - direction: _blend_hex_colors(
-            theme.highlight_background,
+            theme.accent,
             theme.screen_background,
             fraction=0.35,
         ),
         active_row - (direction * 2): _blend_hex_colors(
-            theme.highlight_background,
+            theme.accent,
             theme.screen_background,
             fraction=0.65,
         ),

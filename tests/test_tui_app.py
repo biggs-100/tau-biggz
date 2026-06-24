@@ -1588,12 +1588,12 @@ async def test_tui_app_shows_activity_indicator_while_running() -> None:
 
     async with app.run_test():
         prompt = app.query_one("#prompt")
-        indicator = app.query_one("#activity-indicator")
+        indicator = app.query_one("#prompt-prefix")
 
         assert not app.query("#status")
         assert not app.query("#activity-status")
         assert prompt.styles.border.top[1].hex.lower() == "#2d3748"
-        assert indicator.render().plain == " \n \n "
+        assert indicator.render().plain == "τ"
 
         app.adapter.apply(AgentStartEvent())
         app._refresh()
@@ -1613,7 +1613,7 @@ async def test_tui_app_shows_activity_indicator_while_running() -> None:
 
         assert not app.query("#status")
         assert prompt.styles.border.top[1].hex.lower() == "#2d3748"
-        assert indicator.render().plain == " \n \n "
+        assert indicator.render().plain == "τ"
 
 
 @pytest.mark.anyio
@@ -1622,7 +1622,7 @@ async def test_tui_app_clears_activity_status_on_error() -> None:
 
     async with app.run_test():
         prompt = app.query_one("#prompt")
-        indicator = app.query_one("#activity-indicator")
+        indicator = app.query_one("#prompt-prefix")
         app.adapter.apply(AgentStartEvent())
         app._refresh()
         app.adapter.apply(ErrorEvent(message="provider failed", recoverable=False))
@@ -1631,7 +1631,7 @@ async def test_tui_app_clears_activity_status_on_error() -> None:
         assert not app.query("#status")
         assert not app.query("#activity-status")
         assert prompt.styles.border.top[1].hex.lower() == "#2d3748"
-        assert indicator.render().plain == " \n \n "
+        assert indicator.render().plain == "τ"
 
 
 @pytest.mark.anyio

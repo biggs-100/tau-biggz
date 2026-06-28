@@ -405,6 +405,50 @@ async def test_terminal_command_can_run_without_context(tmp_path: Path) -> None:
     assert not any(isinstance(entry, MessageEntry) for entry in entries)
 
 
+@pytest.mark.anyio
+async def test_terminal_command_uses_configured_shell_command_prefix(tmp_path: Path) -> None:
+    storage = JsonlSessionStorage(tmp_path / "session.jsonl")
+    session = await CodingSession.load(
+        CodingSessionConfig(
+            provider=FakeProvider([]),
+            model="fake",
+            system="You are Tau.",
+            storage=storage,
+            cwd=tmp_path,
+            shell_command_prefix="shopt -s expand_aliases\nalias greet='printf terminal-alias'",
+        )
+    )
+
+    result = await session.run_terminal_command("greet", add_to_context=False)
+
+    assert result.ok is True
+    assert result.output == "terminal-alias"
+    assert result.added_to_context is False
+
+
+@pytest.mark.anyio
+async def test_agent_bash_tool_uses_configured_shell_command_prefix(tmp_path: Path) -> None:
+    storage = JsonlSessionStorage(tmp_path / "session.jsonl")
+    session = await CodingSession.load(
+        CodingSessionConfig(
+            provider=FakeProvider([]),
+            model="fake",
+            system="You are Tau.",
+            storage=storage,
+            cwd=tmp_path,
+            shell_command_prefix="shopt -s expand_aliases\nalias greet='printf agent-alias'",
+        )
+    )
+    bash_tool = next(tool for tool in session.tools if tool.name == "bash")
+
+    result = await bash_tool.execute({"command": "greet"})
+
+    assert result.ok is True
+    assert result.content == "agent-alias"
+    assert result.data is not None
+    assert result.data["shell_command_prefix_applied"] is True
+
+
 def test_parse_terminal_command_prefixes() -> None:
     assert parse_terminal_command("! pwd") is not None
     add_request = parse_terminal_command("! pwd")
@@ -2021,6 +2065,38 @@ async def test_session_toggles_and_cycles_scoped_models(
         {"provider": "local", "model": "qwen"},
         {"provider": "local", "model": "llama"},
     ]
+
+
+@pytest.mark.anyio
+async def test_session_resume_preserves_shell_command_prefix(tmp_path: Path) -> None:
+    manager = SessionManager(TauPaths(home=tmp_path / ".tau", agents_home=tmp_path / ".agents"))
+    first_cwd = tmp_path / "first"
+    second_cwd = tmp_path / "second"
+    first_cwd.mkdir()
+    second_cwd.mkdir()
+    first_record = manager.create_session(cwd=first_cwd, model="fake", title="First")
+    second_record = manager.create_session(cwd=second_cwd, model="fake", title="Second")
+    second_storage = JsonlSessionStorage(second_record.path)
+    session = await CodingSession.load(
+        CodingSessionConfig(
+            provider=FakeProvider([]),
+            model="fake",
+            system="You are Tau.",
+            storage=JsonlSessionStorage(first_record.path),
+            cwd=first_record.cwd,
+            session_id=first_record.id,
+            session_manager=manager,
+            shell_command_prefix="shopt -s expand_aliases\nalias greet='printf resumed-alias'",
+        )
+    )
+    await second_storage.append(SessionInfoEntry(cwd=str(second_record.cwd)))
+    await second_storage.append(ModelChangeEntry(model="fake"))
+
+    await session.resume(second_record.id)
+    result = await session.run_terminal_command("greet", add_to_context=False)
+
+    assert result.ok is True
+    assert result.output == "resumed-alias"
 
 
 @pytest.mark.anyio

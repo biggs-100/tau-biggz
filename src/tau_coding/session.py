@@ -191,6 +191,7 @@ class CodingSessionConfig:
     auto_compact_enabled: bool = True
     thinking_level: ThinkingLevel = DEFAULT_THINKING_LEVEL
     index_on_first_persist: bool = False
+    shell_command_prefix: str | None = None
 
 
 class CodingSession:
@@ -263,7 +264,14 @@ class CodingSession:
             if latest_leaf is not None
             else linear_state
         )
-        tools = config.tools if config.tools is not None else create_coding_tools(cwd=config.cwd)
+        tools = (
+            config.tools
+            if config.tools is not None
+            else create_coding_tools(
+                cwd=config.cwd,
+                shell_command_prefix=config.shell_command_prefix,
+            )
+        )
         resource_paths = resource_paths_with_cwd(config.resource_paths, config.cwd)
         resources = _load_session_resources(resource_paths, config.context_files)
         system = (
@@ -932,6 +940,7 @@ class CodingSession:
                 auto_compact_token_threshold=self._auto_compact_token_threshold,
                 auto_compact_enabled=self._auto_compact_enabled,
                 thinking_level=self._thinking_level,
+                shell_command_prefix=self._config.shell_command_prefix,
             )
         )
         self._config = replacement._config
@@ -1059,7 +1068,10 @@ class CodingSession:
         if not normalized_command:
             raise ValueError("Terminal command cannot be empty")
 
-        bash_tool = create_bash_tool(cwd=self.cwd)
+        bash_tool = create_bash_tool(
+            cwd=self.cwd,
+            shell_command_prefix=self._config.shell_command_prefix,
+        )
         result = await bash_tool.execute({"command": normalized_command})
         exit_code = None
         if result.data is not None:

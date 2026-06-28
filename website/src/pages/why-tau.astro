@@ -22,17 +22,18 @@ const body = `
     <header>
       <div class="hero-grid">
         <div>
-          <p class="eyebrow">The circle constant</p>
-          <h1>Why we named it <em>&#964;</em>.</h1>
+          <p class="eyebrow">A small rant about a big circle</p>
+          <h1>&#960; is <em>wrong</em>.</h1>
           <p class="lede">
-            <strong>&#964; (tau)</strong> is a number many mathematicians wish we'd
-            been teaching all along. You don't need to be a "math person" to get it
-            &mdash; making it easy to get is the entire reason &#964; exists.
+            Not <em>incorrect</em> &mdash; the number 3.14159&hellip; is fine. Wrong
+            as in a concept we've politely declined to fix for a few thousand years.
+            If trigonometry ever felt needlessly confusing, that wasn't your fault.
+            It was &#960;'s.
           </p>
           <p class="lede small-lede">
-            <strong>&#964; = 2&#960; &#8776; 6.283.</strong> It's the circle constant
-            measured from the <em>radius</em> instead of the diameter &mdash; and that
-            one small change makes the math line up with how you already think.
+            The fix has a name: <strong>&#964; = 2&#960; &#8776; 6.283</strong> &mdash;
+            the circle constant measured from the <em>radius</em>, the way circles
+            are actually drawn.
           </p>
         </div>
 
@@ -55,55 +56,16 @@ const body = `
   <div class="wrap">
 
     <section>
-      <div class="two">
-        <div>
-          <p class="eyebrow">Start here</p>
-          <h2>What even <em>is</em> &#964;?</h2>
-          <p>Take a circle and grab its <strong>radius</strong> &mdash; the distance from the center to the edge. Now lay that radius along the rim, end to end, and count how many times it fits.</p>
-          <p>The answer is always the same: about <strong>6.28</strong> radii, no matter how big or small the circle. That number is &#964;. It's just <em>"how many radii go around a circle."</em></p>
-          <p class="small-lede">Watch the circle below unroll. Its edge stretches out to exactly &#964; radii long &mdash; one full turn.</p>
-        </div>
-        <figure class="figure wide">
-          <span class="figlabel">one turn unrolled = &#964; &middot; r</span>
-          <canvas id="rollCanvas" width="520" height="240" role="img"
-            aria-label="A circle rolling along a line for one full turn, leaving a track exactly tau times its radius long."></canvas>
-        </figure>
-      </div>
-    </section>
-
-    <section>
-      <div class="two boundary-two">
-        <div>
-          <p class="eyebrow">The problem with &#960;</p>
-          <h2>We measured from the wrong place.</h2>
-          <p>A circle is defined by its <strong>radius</strong> &mdash; every point the same distance from a center. Nobody draws a circle by picking a diameter first.</p>
-          <p>But &#960; is built on the <em>diameter</em> (&#960; = circumference &divide; diameter). So our most famous constant starts from a measurement that isn't really fundamental. That tiny mismatch doesn't break anything &mdash; it just quietly makes formulas a little more awkward than they need to be, forever.</p>
-          <p>Switch to the radius and you get &#964;. Suddenly things that used to need a stray factor of 2 just&hellip; don't.</p>
-        </div>
-        <div class="terminal" aria-hidden="true">
-          <div class="bar"><span></span><span></span><span></span><span class="t">circle &mdash; definition</span></div>
-<pre><span class="out">a circle =</span> <span class="key">all points at distance r</span>
-<span class="out">          </span> <span class="key">from a center</span>
-
-<span class="cmd">&#960;</span> = circumference / <span class="out">diameter</span>   <span class="out"># built on the leftover</span>
-<span class="cmd">&#964;</span> = circumference / <span class="key">radius</span>     <span class="out"># built on the real thing</span>
-
-<span class="out">so</span> <span class="key">&#964; = 2&#960;</span></pre>
-        </div>
-      </div>
-    </section>
-
-    <section>
       <div class="sec-head">
         <span class="mark">01</span>
-        <h2>Angles finally make sense</h2>
+        <h2>Radians should make sense. &#960; won't let them.</h2>
       </div>
       <div class="two">
         <div>
-          <p>Here's where &#964; earns its keep. Think about turning all the way around once &mdash; a full spin.</p>
-          <p>With &#964;, <strong>one full turn is just &#964;</strong>. So any slice of a turn reads straight off the fraction: half a turn is &#964;/2, a quarter turn is &#964;/4, a twelfth is &#964;/12. The bottom number literally tells you the fraction of the circle.</p>
-          <p>With &#960; you have to mentally double everything first &mdash; a quarter turn is &#960;/2? &mdash; and that little stumble is exactly where a lot of people first decide they're "bad at math."</p>
-          <p class="small-lede">Watch the wedge sweep around. The readout shows the fraction of a full turn directly.</p>
+          <p>Quick: how much of a turn is &#960;? You'd guess a whole circle. It's <em>half</em>. A full circle is 2&#960;. Now ask for &#960;/8 of a turn &mdash; feels like an eighth, but it's actually a <em>sixteenth</em>.</p>
+          <p>Every single angle makes you secretly multiply or divide by two and pray you went the right way. "Just pay attention to the direction," people say. No &mdash; that's making excuses for &#960;. Math this simple shouldn't need a conversion step.</p>
+          <p>&#964; deletes the whole tax. <strong>One full turn is just &#964;.</strong> Half a turn is &#964;/2, a quarter is &#964;/4, a twelfth is &#964;/12. The bottom number literally <em>is</em> the fraction of the circle. No translation, no apologies.</p>
+          <p class="small-lede">Watch the wedge sweep around &mdash; the readout is the fraction of a full turn, straight up.</p>
         </div>
         <figure class="figure">
           <span class="figlabel">fraction of a turn</span>
@@ -122,21 +84,61 @@ const body = `
         <div class="turn-row"><span>an eighth</span><span class="pi">\\(\\pi/4\\)</span><span class="ta">\\(\\tau/8\\)</span></div>
         <div class="turn-row"><span>a twelfth</span><span class="pi">\\(\\pi/6\\)</span><span class="ta">\\(\\tau/12\\)</span></div>
       </div>
+
+      <p class="turns-note" style="margin-top:34px;">And the sine wave stops being a squiggle you memorize. Start at &#964; = 0, height zero. A quarter turn (&#964;/4): you're at the top, height one. Half a turn (&#964;/2): back to zero. A full &#964; brings you home. It's just <em>how high you are as you go around the circle</em> &mdash; which is exactly what the figure up top is drawing.</p>
+    </section>
+
+    <section>
+      <div class="two">
+        <div>
+          <p class="eyebrow">Why &#964; and not &#960;</p>
+          <h2>We build circles from a radius.</h2>
+          <p>Nobody draws a circle by picking a diameter. You pin one end, hold out a radius, and swing it around. The radius is the thing that <em>makes</em> the circle &mdash; so the circle's constant should be built from the radius too.</p>
+          <p>Lay that radius along the rim and count how many fit. The answer is always the same: about <strong>6.28</strong> of them, big circle or small. That's &#964;. Literally <em>"how many radii go around."</em></p>
+          <p class="small-lede">Watch one roll out below: a single turn unspools into exactly &#964; radii.</p>
+        </div>
+        <figure class="figure wide">
+          <span class="figlabel">one turn unrolled = &#964; &middot; r</span>
+          <canvas id="rollCanvas" width="520" height="240" role="img"
+            aria-label="A circle rolling along a line for one full turn, leaving a track exactly tau times its radius long."></canvas>
+        </figure>
+      </div>
+    </section>
+
+    <section>
+      <div class="two boundary-two">
+        <div>
+          <p class="eyebrow">The original mistake</p>
+          <h2>&#960; measures the wrong thing.</h2>
+          <p>&#960; is the ratio of the circumference to the <em>diameter</em> &mdash; which is just two radii stuck together. It's a perfectly real number; it's simply answering a question nobody asked.</p>
+          <p>Define the constant from the radius instead and you get &#964; &mdash; and a surprising amount of math quietly gets easier. Same circle, honest measurement, one fewer stray factor of 2 haunting your formulas forever.</p>
+        </div>
+        <div class="terminal" aria-hidden="true">
+          <div class="bar"><span></span><span></span><span></span><span class="t">circle &mdash; definition</span></div>
+<pre><span class="out">a circle =</span> <span class="key">all points at distance r</span>
+<span class="out">          </span> <span class="key">from a center</span>
+
+<span class="cmd">&#960;</span> = circumference / <span class="out">diameter</span>   <span class="out"># the question nobody asked</span>
+<span class="cmd">&#964;</span> = circumference / <span class="key">radius</span>     <span class="out"># the one we actually mean</span>
+
+<span class="out">so</span> <span class="key">&#964; = 2&#960;</span></pre>
+        </div>
+      </div>
     </section>
 
     <section>
       <div class="sec-head">
         <span class="mark">02</span>
-        <h2>The famous equations get prettier too</h2>
+        <h2>The famous equations were hiding a &#964;</h2>
       </div>
-      <p class="turns-note" style="margin-bottom:40px;">&#964; isn't just training wheels for beginners &mdash; it actually makes the grown-up results cleaner. Here are a few favorites, side by side.</p>
+      <p class="turns-note" style="margin-bottom:40px;">Here's the kicker: nearly everywhere a \\(2\\pi\\) shows up, it was &#964; in a trench coat. Pull the disguise off and the greatest hits get <em>better</em>, not worse.</p>
 
       <div class="two" style="margin-bottom:48px;">
         <div>
           <p class="eyebrow">Euler's identity</p>
-          <h2>"The most beautiful equation."</h2>
-          <p>The &#960; version, \\(e^{i\\pi} + 1 = 0\\), is a famous brain-teaser &mdash; gorgeous, but you have to decode it.</p>
-          <p>The &#964; version just <em>says what it means</em>: spin a point all the way around the circle (an angle of &#964;) and you land exactly back where you started, at 1.</p>
+          <h2>"But you'll <em>ruin</em> e<sup>i&#960;</sup>!"</h2>
+          <p>Relax &mdash; nobody's killing Euler's identity. &#964; makes it clearer. Start from Euler's formula, \\(e^{i\\theta} = \\cos\\theta + i\\sin\\theta\\), and spin a full turn by setting \\(\\theta = \\tau\\).</p>
+          <p>After one full turn the height (sine) is 0 and the width (cosine) is 1. So \\(e^{i\\tau} = 1\\): <em>go all the way around, and you're back to 1.</em> No mysterious &minus;1 to decode &mdash; it just says what it does.</p>
           <div class="eq-cols" style="margin-top:18px;">
             <div class="eq-col"><span class="lbl">with &#960;</span><span class="form">\\(e^{i\\pi} + 1 = 0\\)</span></div>
             <div class="eq-col tau-col"><span class="lbl">with &#964;</span><span class="form">\\(e^{i\\tau} = 1\\)</span></div>
@@ -156,7 +158,7 @@ const body = `
             <div class="eq-col"><span class="lbl">with &#960;</span><span class="form">\\(A = \\pi r^2\\)</span></div>
             <div class="eq-col tau-col"><span class="lbl">with &#964;</span><span class="form">\\(A = \\tfrac{1}{2}\\,\\tau r^2\\)</span></div>
           </div>
-          <p class="eq-note">The &#960; form looks shorter, but it hides a pattern. The &#964; form reveals that a circle's area belongs to the same family as half the formulas in physics class &mdash; the "one-half times a constant times something squared" shape:</p>
+          <p class="eq-note">"But the &#960; one is shorter!" Sure &mdash; and it hides the family resemblance. The &#964; form shows a circle's area is the same shape as half the formulas in physics class: one-half, a constant, something squared.</p>
           <div class="family">
             <div><span class="form">\\(\\tfrac{1}{2} g t^2\\)</span><small>distance fallen</small></div>
             <div><span class="form">\\(\\tfrac{1}{2} k x^2\\)</span><small>spring energy</small></div>
@@ -171,7 +173,7 @@ const body = `
             <div class="eq-col"><span class="lbl">with &#960;</span><span class="form">\\(\\dfrac{1}{\\sqrt{2\\pi}\\,\\sigma}\\,e^{-\\frac{(x-\\mu)^2}{2\\sigma^2}}\\)</span></div>
             <div class="eq-col tau-col"><span class="lbl">with &#964;</span><span class="form">\\(\\dfrac{1}{\\sqrt{\\tau}\\,\\sigma}\\,e^{-\\frac{(x-\\mu)^2}{2\\sigma^2}}\\)</span></div>
           </div>
-          <p class="eq-note">That awkward \\(\\sqrt{2\\pi}\\) on the front? It collapses into a single tidy \\(\\sqrt{\\tau}\\).</p>
+          <p class="eq-note">That awkward \\(\\sqrt{2\\pi}\\) bolted to the front collapses into one tidy \\(\\sqrt{\\tau}\\).</p>
         </div>
 
         <div class="eq">
@@ -180,7 +182,7 @@ const body = `
             <div class="eq-col"><span class="lbl">with &#960;</span><span class="form">\\(F(k)=\\int f(x)\\,e^{-2\\pi i k x}\\,dx\\)</span></div>
             <div class="eq-col tau-col"><span class="lbl">with &#964;</span><span class="form">\\(F(k)=\\int f(x)\\,e^{-i\\tau k x}\\,dx\\)</span></div>
           </div>
-          <p class="eq-note">The \\(2\\pi\\) that tags along in nearly every wave and signal equation was always just one thing: &#964;.</p>
+          <p class="eq-note">The \\(2\\pi\\) tagging along in nearly every wave equation? Always just one thing: &#964;.</p>
         </div>
       </div>
     </section>
@@ -190,8 +192,8 @@ const body = `
         <div>
           <p class="eyebrow">So why name the project &#964;?</p>
           <h2>Find the right radius.</h2>
-          <p>A lot of "how AI agents work" material is like &#960; &mdash; technically correct, but built around the wrong center, so simple ideas end up looking complicated and people bounce off.</p>
-          <p>Tau, the project, tries to do what &#964; the number does: find the small, honest core, then build outward from there so the rest becomes obvious. Pick the definition that makes everything else make sense.</p>
+          <p>A lot of "how AI agents work" material is like &#960; &mdash; technically correct, but centered on the wrong thing, so simple ideas end up looking complicated and people bounce off.</p>
+          <p>This project tries to do what &#964; does: find the small, honest core, then build outward so the rest becomes obvious. Pick the definition that makes everything else make sense.</p>
         </div>
         <div class="terminal" aria-hidden="true">
           <div class="bar"><span></span><span></span><span></span><span class="t">tau &mdash; the idea</span></div>
@@ -206,11 +208,11 @@ const body = `
 
     <section class="closing">
       <span class="turn">&#964;</span>
-      <p>Same instinct, applied to code: pick the center that makes everything line up &mdash; then go see how Tau is built.</p>
+      <p>So go ahead, have your &#960; and eat it. But the better dessert is served every <strong>June 28th</strong> (6.28, naturally) &mdash; Tau Day. Michael Hartl's <em>Tau Manifesto</em> makes the full case; this project just borrows the instinct.</p>
       <div class="cta-row">
         <a class="ghost" href="${base}getting-started/">Get started <span class="arr">&rarr;</span></a>
         <a class="ghost" href="${base}01-architecture/">See the architecture <span class="arr">&rarr;</span></a>
-        <a class="ghost" href="https://www.tauday.com/tau-manifesto">Read the full Tau Manifesto <span class="arr">&rarr;</span></a>
+        <a class="ghost" href="https://www.tauday.com/tau-manifesto">Read the Tau Manifesto <span class="arr">&rarr;</span></a>
       </div>
     </section>
 
@@ -233,8 +235,8 @@ const body = `
 ---
 
 <Landing
-  title='Why "Tau"?'
-  description="A friendly, non-mathy explanation of the circle constant τ — and why so many beautiful equations look even better with it."
+  title='Why "Tau"? (or: π is wrong)'
+  description="A friendly, ranty, non-mathy case for the circle constant τ — and why the famous equations look even better with it."
 >
   <Fragment slot="head">
     <script is:inline>

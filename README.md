@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <a href="https://alejandro-ao.github.io/tau/">Documentation</a>
+  <a href="https://twotimespi.dev/">Documentation</a>
   ·
   <a href="docs/getting-started.md">Getting started</a>
   ·
@@ -101,7 +101,7 @@ Tau targets the Python version declared in `pyproject.toml` and uses
 Install from GitHub:
 
 ```bash
-uv tool install git+https://github.com/alejandro-ao/tau.git
+uv tool install tau-ai
 tau --version
 ```
 
@@ -319,7 +319,7 @@ Then open `http://localhost:4321/tau/`. Build the static site with `bun run buil
 
 ## Documentation
 
-The user-facing docs are published at <https://alejandro-ao.github.io/tau/>.
+The user-facing docs are published at <https://twotimespi.dev/>.
 Their source lives in `website/src/content/docs/`:
 
 - [What is Tau?](website/src/content/docs/what-is-tau.md)

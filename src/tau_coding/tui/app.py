@@ -48,7 +48,7 @@ from tau_agent import (
     ToolExecutionStartEvent,
     ToolExecutionUpdateEvent,
 )
-from tau_agent.messages import AgentMessage
+from tau_agent.messages import AgentMessage, UserMessage
 from tau_agent.tools import AgentTool
 from tau_ai import ProviderErrorEvent, ProviderEvent
 from tau_ai.provider import CancellationToken
@@ -1780,7 +1780,8 @@ class TauTuiApp(App[None]):
         self.state = TuiState(skills=session.skills)
         if startup_notice:
             self.state.add_item("status", startup_notice)
-        self.state.load_messages(session.messages)
+        self._prompt_history: tuple[str, ...] = ()
+        self._load_session_messages_from_session()
         self.adapter = TuiEventAdapter(self.state)
         self._prompt_worker: Worker[None] | None = None
         self._compaction_worker: Worker[None] | None = None
@@ -2013,10 +2014,27 @@ class TauTuiApp(App[None]):
             return
 
         if self.state.running:
+            self._remember_prompt(text)
             await self._queue_prompt(text, streaming_behavior=streaming_behavior)
             return
 
+        self._remember_prompt(text)
         self._submit_prompt(text)
+
+    def _remember_prompt(self, text: str) -> None:
+        """Remember a submitted user prompt for lightweight input recall."""
+        if not text.strip():
+            return
+        self._prompt_history = (*self._prompt_history, text)
+
+    def _load_session_messages_from_session(self) -> None:
+        """Load visible session messages and reseed prompt history from them."""
+        self.state.load_messages(self.session.messages)
+        self._prompt_history = tuple(
+            message.content
+            for message in self.session.messages
+            if isinstance(message, UserMessage) and message.content.strip()
+        )
 
     def _is_compaction_active(self) -> bool:
         """Return whether a manual compaction worker is still running."""
@@ -2052,7 +2070,7 @@ class TauTuiApp(App[None]):
             self._compaction_worker = None
         self.state.clear()
         self.state.set_skills(self.session.skills)
-        self.state.load_messages(self.session.messages)
+        self._load_session_messages_from_session()
         self._notify(compact_message)
         self._refresh()
 
@@ -2244,7 +2262,7 @@ class TauTuiApp(App[None]):
         self._compaction_worker = None
         self.state.clear()
         self.state.set_skills(self.session.skills)
-        self.state.load_messages(self.session.messages)
+        self._load_session_messages_from_session()
         self._refresh()
         if notify:
             self._notify("Cancelled compaction.")
@@ -2337,10 +2355,26 @@ class TauTuiApp(App[None]):
         if not self._completion_state.items:
             if self.action_edit_queued_follow_up():
                 return
+            if self.action_recall_previous_prompt():
+                return
             self.query_one("#prompt", PromptInput).action_cursor_up()
             return
         self._completion_state = self._completion_state.select_previous()
         self._refresh_completions()
+
+    def action_recall_previous_prompt(self) -> bool:
+        """Recall the most recent submitted prompt into an empty prompt input."""
+        prompt = self.query_one("#prompt", PromptInput)
+        # Only recall into an empty input so an accidental Up press does not
+        # erase a prompt the user is still writing.
+        if prompt.text.strip() or not self._prompt_history:
+            return False
+        previous_prompt = self._prompt_history[-1]
+        prompt.text = previous_prompt
+        prompt.move_cursor(_text_end_location(previous_prompt))
+        self._completion_state = self._build_completion_state(prompt.text)
+        self._refresh_completions()
+        return True
 
     def action_edit_queued_follow_up(self) -> bool:
         """Move the latest queued follow-up back into the prompt for editing."""
@@ -2417,7 +2451,7 @@ class TauTuiApp(App[None]):
             resume_message = await self.session.resume(session_id)
             self.state.clear()
             self.state.set_skills(self.session.skills)
-            self.state.load_messages(self.session.messages)
+            self._load_session_messages_from_session()
             self._notify(resume_message)
         except Exception as exc:  # noqa: BLE001 - surface command failures in the TUI
             self._notify(f"Error: {exc}", severity="error")
@@ -2479,7 +2513,7 @@ class TauTuiApp(App[None]):
                 result = await result
             self.state.clear()
             self.state.set_skills(self.session.skills)
-            self.state.load_messages(self.session.messages)
+            self._load_session_messages_from_session()
             if isinstance(result, SessionTreeBranchResult):
                 if result.input_prefill is not None:
                     prompt = self.query_one("#prompt", PromptInput)
@@ -2503,7 +2537,7 @@ class TauTuiApp(App[None]):
             await new_session()
             self.state.clear()
             self.state.set_skills(self.session.skills)
-            self.state.load_messages(self.session.messages)
+            self._load_session_messages_from_session()
         except Exception as exc:  # noqa: BLE001 - surface command failures in the TUI
             self._notify(f"Error: {exc}", severity="error")
         self._refresh()

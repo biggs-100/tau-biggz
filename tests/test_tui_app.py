@@ -885,7 +885,9 @@ def test_assistant_markdown_titles_use_highlight_color_and_left_alignment() -> N
 
 def test_dark_theme_markdown_links_use_theme_link_color() -> None:
     console = Console(record=True, width=80, color_system="truecolor")
-    console.print(render_chat_item(ChatItem(role="assistant", text="Read [docs](https://example.com).")))
+    console.print(
+        render_chat_item(ChatItem(role="assistant", text="Read [docs](https://example.com)."))
+    )
 
     output = console.export_text(styles=True)
 
@@ -1903,6 +1905,11 @@ async def test_tui_app_new_command_starts_new_visible_state() -> None:
         assert app.state.items == []
         assert notifications == []
 
+        await pilot.press("up")
+        await pilot.pause()
+
+        assert prompt.value == ""
+
 
 @pytest.mark.anyio
 async def test_tui_app_compact_command_runs_session_compaction() -> None:
@@ -2121,6 +2128,11 @@ async def test_tui_app_resume_command_reloads_visible_state() -> None:
         assert [(item.role, item.text) for item in app.state.items] == [
             ("user", "Restored prompt"),
         ]
+
+        await pilot.press("up")
+        await pilot.pause()
+
+        assert prompt.value == "Restored prompt"
 
 
 @pytest.mark.anyio
@@ -2515,6 +2527,12 @@ async def test_tui_app_tree_picker_branches_with_summary() -> None:
         assert [(item.role, item.text) for item in app.state.items] == [
             ("user", "Branched to left"),
         ]
+
+        prompt = app.query_one("#prompt")
+        await pilot.press("up")
+        await pilot.pause()
+
+        assert prompt.value == "Branched to left"
 
 
 @pytest.mark.anyio
@@ -3872,7 +3890,7 @@ async def test_tui_app_queues_follow_up_prompt_from_keybinding() -> None:
 
 @pytest.mark.anyio
 async def test_tui_app_up_arrow_edits_latest_queued_follow_up() -> None:
-    session = FakeSession()
+    session = FakeSession(messages=[UserMessage(content="remembered prompt")])
     app = TauTuiApp(session)
 
     async with app.run_test() as pilot:
@@ -3891,6 +3909,70 @@ async def test_tui_app_up_arrow_edits_latest_queued_follow_up() -> None:
         assert app.state.queued_follow_up == ("first follow-up",)
         queued_messages = app.query_one("#queued-messages")
         assert queued_messages.display is True
+
+
+@pytest.mark.anyio
+async def test_tui_app_up_arrow_recalls_latest_sent_prompt_when_input_is_empty() -> None:
+    session = FakeSession()
+    app = TauTuiApp(session)
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt", TextArea)
+        prompt.text = "first prompt"
+        await pilot.press("enter")
+        await pilot.pause()
+        prompt.text = "latest prompt"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        prompt.text = ""
+        await pilot.press("up")
+        await pilot.pause()
+
+        assert prompt.text == "latest prompt"
+        assert prompt.cursor_location == (0, len("latest prompt"))
+        assert session.prompt_texts == ["first prompt", "latest prompt"]
+
+
+@pytest.mark.anyio
+async def test_tui_app_up_arrow_recalls_latest_restored_user_message() -> None:
+    app = TauTuiApp(
+        FakeSession(
+            messages=[
+                UserMessage(content="earlier prompt"),
+                AssistantMessage(content="response"),
+                UserMessage(content="restored prompt"),
+            ]
+        )
+    )
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt", TextArea)
+        prompt.focus()
+        prompt.text = ""
+
+        await pilot.press("up")
+        await pilot.pause()
+
+        assert prompt.text == "restored prompt"
+        assert prompt.cursor_location == (0, len("restored prompt"))
+
+
+@pytest.mark.anyio
+async def test_tui_app_up_arrow_preserves_non_empty_prompt_movement() -> None:
+    app = TauTuiApp(FakeSession(messages=[UserMessage(content="remembered prompt")]))
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt", TextArea)
+        prompt.focus()
+        prompt.text = "first line\nsecond line"
+        prompt.move_cursor((1, len("second line")))
+
+        await pilot.press("up")
+        await pilot.pause()
+
+        assert prompt.text == "first line\nsecond line"
+        assert prompt.cursor_location == (0, len("first line"))
 
 
 @pytest.mark.anyio

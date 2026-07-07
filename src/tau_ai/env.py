@@ -49,6 +49,7 @@ class AnthropicConfig:
     thinking_budget_tokens: int | None = None
     thinking_effort: str | None = None
     thinking_mode: str = "budget"
+    bearer_auth: bool = False
     provider_name: str = "Anthropic"
 
 

@@ -1481,6 +1481,7 @@ def anthropic_config_from_provider(
         provider_name=provider.name,
         base_url=_normalize_anthropic_base_url(_model_base_url(provider, selected_model)),
         headers=_model_headers(provider, selected_model),
+        bearer_auth=provider.compat.get("bearer_auth", False),
         timeout_seconds=provider.timeout_seconds,
         max_retries=provider.max_retries,
         max_retry_delay_seconds=provider.max_retry_delay_seconds,

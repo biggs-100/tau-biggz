@@ -9,6 +9,8 @@ from typing import Annotated
 import anyio
 import typer
 
+from tau_coding._fix_encoding import reconfigure_std_streams
+
 from tau_agent.session import JsonlSessionStorage, SessionEntry, SessionStorage
 from tau_ai import (
     DEFAULT_OPENAI_COMPATIBLE_MAX_RETRIES,
@@ -181,6 +183,8 @@ def main(
     ] = False,
 ) -> None:
     """Run the Tau CLI."""
+    reconfigure_std_streams()
+
     if version:
         typer.echo(f"tau {__version__}")
         raise typer.Exit()

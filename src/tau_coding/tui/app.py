@@ -64,6 +64,7 @@ from tau_coding.provider_catalog import (
     builtin_provider_entry,
 )
 from tau_coding.provider_config import (
+    AnthropicProviderConfig,
     OpenAICompatibleProviderConfig,
     ProviderConfig,
     ProviderSelection,
@@ -867,6 +868,7 @@ class CustomProviderLoginResult:
     models: tuple[str, ...]
     default_model: str
     api_key: str
+    kind: str = "openai-compatible"
 
 
 class LoginMethodPickerScreen(ModalScreen[str | None]):
@@ -1338,6 +1340,7 @@ class CustomProviderLoginScreen(ModalScreen[CustomProviderLoginResult | None]):
     _INPUT_ORDER: ClassVar[tuple[str, ...]] = (
         "custom-provider-name",
         "custom-provider-display-name",
+        "custom-provider-kind",
         "custom-provider-base-url",
         "custom-provider-api-key-env",
         "custom-provider-models",
@@ -1361,6 +1364,10 @@ class CustomProviderLoginScreen(ModalScreen[CustomProviderLoginResult | None]):
             yield Input(
                 placeholder="Display name shown in UI, e.g. Nebius AI Studio",
                 id="custom-provider-display-name",
+            )
+            yield Input(
+                placeholder="Provider kind (openai-compatible, anthropic, ...)",
+                id="custom-provider-kind",
             )
             yield Input(
                 placeholder="OpenAI-compatible base URL, e.g. https://api.studio.nebius.ai/v1",
@@ -1440,10 +1447,13 @@ class CustomProviderLoginScreen(ModalScreen[CustomProviderLoginResult | None]):
         api_key = self._field("custom-provider-api-key", "API key")
         if api_key is None:
             return None
+        kind = self.query_one("#custom-provider-kind", Input).value.strip()
+        kind = kind or "openai-compatible"
         display_name = self.query_one("#custom-provider-display-name", Input).value.strip()
         return CustomProviderLoginResult(
             provider_name=provider_name,
             display_name=display_name or provider_name,
+            kind=kind,
             base_url=base_url,
             api_key_env=api_key_env,
             models=models,
@@ -2887,18 +2897,29 @@ class TauTuiApp(App[None]):
     ) -> None:
         if result is None:
             return
-        provider = OpenAICompatibleProviderConfig(
-            name=result.provider_name,
-            base_url=result.base_url.rstrip("/"),
-            api_key_env=result.api_key_env,
-            credential_name=result.provider_name,
-            models=result.models,
-            default_model=result.default_model,
-        )
+        kind = result.kind
+        if kind == "anthropic":
+            provider: ProviderConfig = AnthropicProviderConfig(
+                name=result.provider_name,
+                base_url=result.base_url.rstrip("/"),
+                api_key_env=result.api_key_env,
+                credential_name=result.provider_name,
+                models=result.models,
+                default_model=result.default_model,
+            )
+        else:
+            provider = OpenAICompatibleProviderConfig(
+                name=result.provider_name,
+                base_url=result.base_url.rstrip("/"),
+                api_key_env=result.api_key_env,
+                credential_name=result.provider_name,
+                models=result.models,
+                default_model=result.default_model,
+            )
         catalog_entry = ProviderCatalogEntry(
             name=provider.name,
             display_name=result.display_name,
-            kind="openai-compatible",
+            kind=kind,
             base_url=provider.base_url,
             api_key_env=provider.api_key_env,
             credential_name=provider.credential_name,

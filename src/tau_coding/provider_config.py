@@ -21,7 +21,7 @@ from tau_ai import (
     OpenAICompatibleConfig,
 )
 from tau_ai.env import DEFAULT_OPENAI_COMPATIBLE_BASE_URL
-from tau_coding.catalog_loader import effective_catalog, save_user_catalog_entries
+from tau_coding.catalog_loader import CatalogError, effective_catalog, save_user_catalog_entries
 from tau_coding.credentials import FileCredentialStore, credentials_path
 from tau_coding.paths import TauPaths
 from tau_coding.provider_catalog import (
@@ -694,7 +694,20 @@ def _with_builtin_catalog_models(
 
 def _effective_provider_configs(paths: TauPaths | None = None) -> tuple[ProviderConfig, ...]:
     """Return provider configs for the effective catalog (builtin + user overlay)."""
-    return tuple(provider_config_from_entry(entry) for entry in effective_catalog(paths))
+    try:
+        return tuple(provider_config_from_entry(entry) for entry in effective_catalog(paths))
+    except CatalogError:
+        import sys
+        from tau_coding.catalog_loader import user_catalog_path
+
+        path = user_catalog_path(paths)
+        if path.exists():
+            import traceback
+            sys.stderr.write(f"Warning: ignoring invalid user catalog at {path}\n")
+            traceback.print_exc(file=sys.stderr)
+        return tuple(
+            provider_config_from_entry(entry) for entry in BUILTIN_PROVIDER_CATALOG
+        )
 
 
 def _append_catalog_providers(

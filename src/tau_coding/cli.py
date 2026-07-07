@@ -10,6 +10,7 @@ import anyio
 import typer
 
 from tau_coding._fix_encoding import reconfigure_std_streams
+from tau_coding.provider_add import providers_add_command
 
 from tau_agent.session import JsonlSessionStorage, SessionEntry, SessionStorage
 from tau_ai import (
@@ -220,9 +221,13 @@ def main(
         typer.echo(f"Exported session to {exported_path}")
         raise typer.Exit()
 
-    if prompt_option is None and command == "providers" and len(positional_args) == 1:
-        providers_command()
-        raise typer.Exit()
+    if prompt_option is None and command == "providers":
+        if len(positional_args) >= 2 and positional_args[1] == "add":
+            providers_add_command()
+            raise typer.Exit()
+        if len(positional_args) == 1:
+            providers_command()
+            raise typer.Exit()
 
     if prompt_option is None and command == "setup" and len(positional_args) == 1:
         setup_command(

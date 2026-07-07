@@ -753,6 +753,7 @@ class CodingSession:
             provider_config,
             model=model,
             current=self._thinking_level,
+            preferred=provider_config.thinking_defaults.get(model),
         )
         try:
             provider = create_model_provider(

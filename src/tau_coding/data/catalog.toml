@@ -6456,7 +6456,7 @@ default_model = "deepseek-v4-flash"
 docs_url = "https://opencode.ai/docs/go/"
 api = "openai-completions"
 thinking_levels = ["off", "high", "xhigh"]
-thinking_models = ["deepseek-v4-pro"]
+thinking_models = ["deepseek-v4-pro", "deepseek-v4-flash"]
 thinking_default = "off"
 thinking_parameter = "reasoning_effort"
 
@@ -6525,6 +6525,7 @@ input = ["text"]
 context_window = 163840
 max_tokens = 131072
 cost = { input = 1.74, output = 3.48, cacheRead = 0.0145 }
+thinking_level_map = { off = "none", high = "high", xhigh = "xhigh" }
 
 [providers.model_metadata."deepseek-v4-flash"]
 name = "DeepSeek V4 Flash"
@@ -6533,6 +6534,7 @@ input = ["text"]
 context_window = 163840
 max_tokens = 131072
 cost = { input = 0.14, output = 0.28, cacheRead = 0.0028 }
+thinking_level_map = { off = "none", high = "high", xhigh = "xhigh" }
 
 
 # ── OpenCode Go Anthropic (Messages API models) ──────────────────────────

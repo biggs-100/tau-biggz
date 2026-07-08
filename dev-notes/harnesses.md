@@ -318,6 +318,28 @@ args = ["-y", "@modelcontextprotocol/server-github"]
 
 ---
 
+
+### Comandos tau mcp
+
+```bash
+# Buscar servers en npm
+tau mcp search filesystem
+
+# Instalar un server (agrega a .tau/mcp.toml)
+tau mcp install @modelcontextprotocol/server-filesystem
+
+# Listar servers instalados
+tau mcp list
+
+# Remover un server
+tau mcp remove filesystem
+```
+
+Al instalar un paquete, Tau genera automaticamente la entrada en `.tau/mcp.toml`
+usando `npx -y <package>` como comando STDIO. La proxima vez que inicies Tau,
+el server se conectara automaticamente y sus tools estaran disponibles.
+
+
 ## Extensiones Python
 
 Las extensiones permiten agregar tools, comandos slash, y event handlers

@@ -112,10 +112,11 @@ def create_coding_tools(
         create_edit_tool(cwd=root),
         create_bash_tool(cwd=root, shell_command_prefix=shell_command_prefix),
     ]
+    tools.append(create_web_search_tool())
     if extension_tools:
         for ext_tool in extension_tools:
             tools.append(_extension_tool_to_agent_tool(ext_tool))
-    return tools
+    return [_wrap_tool_with_events(t) for t in tools]
 
 
 
@@ -668,6 +669,87 @@ def create_bash_tool(
         cwd=cwd,
         shell_command_prefix=shell_command_prefix,
     ).to_agent_tool()
+
+
+
+def create_web_search_tool() -> AgentTool:
+    """Create an AgentTool for web searching via DuckDuckGo."""
+    import httpx
+    import re
+
+    input_schema: dict[str, JSONValue] = {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Search query",
+            },
+        },
+        "required": ["query"],
+    }
+
+    async def search_executor(
+        arguments: Mapping[str, JSONValue],
+        signal: ToolCancellationToken | None = None,
+    ) -> AgentToolResult:
+        query = str(arguments.get("query", ""))
+        if not query:
+            return AgentToolResult(
+                tool_call_id="web",
+                name="web_search",
+                ok=False,
+                content="No search query provided.",
+                error="Missing query",
+            )
+        try:
+            url = "https://html.duckduckgo.com/html/"
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(url, data={"q": query})
+                resp.raise_for_status()
+                text = resp.text
+
+            results = []
+            for match in re.finditer(
+                r'<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>\s*<h[^>]*>(.*?)</h',
+                text,
+                re.DOTALL,
+            ):
+                url_result = match.group(1)
+                title = re.sub(r"<[^>]+>", "", match.group(2)).strip()
+                results.append(f"{title}\n{url_result}")
+                if len(results) >= 8:
+                    break
+
+            if not results:
+                return AgentToolResult(
+                    tool_call_id="web",
+                    name="web_search",
+                    ok=True,
+                    content="No results found.",
+                )
+
+            return AgentToolResult(
+                tool_call_id="web",
+                name="web_search",
+                ok=True,
+                content="\n\n---\n\n".join(results),
+            )
+        except Exception as exc:
+            return AgentToolResult(
+                tool_call_id="web",
+                name="web_search",
+                ok=False,
+                content=f"Search failed: {exc}",
+                error=str(exc),
+            )
+
+    return AgentTool(
+        name="web_search",
+        description="Search the web using DuckDuckGo. Returns up to 8 results with titles and URLs.",
+        input_schema=input_schema,
+        executor=search_executor,
+        prompt_snippet="Search the web for information.",
+    )
 
 
 def _prefixed_shell_command(command: str, prefix: str | None) -> str:

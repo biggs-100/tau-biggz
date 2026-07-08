@@ -87,6 +87,13 @@ def get_extension_registry():
     """Return the global extension registry, loading if needed."""
     if _extension_registry is None:
         _load_extensions()
+        if rpc:
+            from tau_coding.rpc import run_rpc_mode
+            try:
+                anyio.run(run_rpc_mode, cwd=cwd)
+            except RuntimeError as exc:
+                raise typer.BadParameter(str(exc)) from exc
+            raise typer.Exit()
     return _extension_registry
 
 
@@ -215,6 +222,10 @@ def main(
             help="Automatically compact TUI context above this rough token estimate.",
         ),
     ] = None,
+    rpc: Annotated[
+        bool,
+        typer.Option("--rpc", help="Run in RPC mode (JSONL over stdin/stdout)."),
+    ] = False,
     version: Annotated[
         bool,
         typer.Option("--version", help="Show Tau's version and exit."),

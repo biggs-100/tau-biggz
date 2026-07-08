@@ -84,6 +84,24 @@ def coding_harness() -> HarnessDefinition:
 # ── search paths ────────────────────────────────────────────────────────
 
 
+# Global active harness (set at CLI startup, read by session init)
+_active_harness: HarnessDefinition | None = None
+
+
+def set_active_harness(h: HarnessDefinition | None) -> None:
+    """Set the active harness for the current session."""
+    global _active_harness
+    _active_harness = h
+
+
+def get_active_harness() -> HarnessDefinition:
+    """Return the active harness or the built-in coding harness."""
+    global _active_harness
+    if _active_harness is not None:
+        return _active_harness
+    return coding_harness()
+
+
 def _project_harness_dir(cwd: Path | None = None) -> Path:
     return (cwd or Path.cwd()) / ".tau" / "harnesses"
 

@@ -1276,6 +1276,7 @@ class CodingSession:
                     await self._persist_messages_since(retry_persisted_count)
                 return
             await self._try_auto_compact(context=context, phase="auto_compact_after_prompt")
+            await self._auto_name_session(expanded_content)
         except Exception as exc:
             self._last_diagnostic_log_path = self._diagnostic_logger.log_exception(
                 context=context,
@@ -1384,6 +1385,18 @@ class CodingSession:
     def _invalidate_context_usage_cache(self) -> None:
         """Mark context accounting dirty after transcript/system/tool changes."""
         self._context_usage_cache = None
+
+
+    async def _auto_name_session(self, first_message: str) -> None:
+        """Generate a short session title from the first user message."""
+        if self.session_title is not None:
+            return
+        name = _auto_session_name_from_text(first_message)
+        if name and self._config.session_id is not None and self._config.session_manager is not None:
+            self._config.session_manager.touch_session(
+                self._config.session_id,
+                title=name,
+            )
 
     async def _refresh_persisted_state(self, *, leaf_id: str | None) -> None:
         entries = await self._read_session_entries()
@@ -1977,6 +1990,19 @@ def _coerced_thinking_level(
     default = provider_default_thinking_level(provider, model=model)
     return default or levels[0]
 
+
+
+def _auto_session_name_from_text(text: str) -> str | None:
+    """Derive a short session name (3-4 words) from the first user message."""
+    import re
+    cleaned = re.sub(r"[^\w\s]", " ", text).strip()
+    words = [w for w in cleaned.split() if w.lower() not in {"a", "an", "the", "is", "are", "was", "were", "to", "of", "in", "for", "on", "with", "at", "by", "and", "or", "but"}]
+    if not words:
+        return None
+    name = " ".join(words[:4])
+    if not name:
+        return None
+    return name[0].upper() + name[1:] if len(name) > 1 else name
 
 def _unavailable_thinking_message(session: CodingSession) -> str:
     message = f"Thinking controls are unavailable for {session.provider_name}:{session.model}"

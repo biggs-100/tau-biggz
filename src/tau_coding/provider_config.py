@@ -1339,6 +1339,9 @@ def _thinking_level_map_supports(
     thinking_level_map: dict[ThinkingLevel, str | None],
     level: ThinkingLevel,
 ) -> bool:
+    # Empty map means no model-level filtering - rely on provider thinking_levels
+    if not thinking_level_map:
+        return True
     if level in thinking_level_map:
         return thinking_level_map[level] is not None
     return level != "xhigh"

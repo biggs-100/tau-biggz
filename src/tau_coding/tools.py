@@ -24,6 +24,7 @@ from typing import Any
 
 from tau_agent.tools import AgentTool, AgentToolResult, ToolCancellationToken, ToolExecutor
 from tau_coding.extensions import ToolRegistration, get_default_registry
+from tau_coding.mcp_integration import get_mcp_registry, mcp_tool_to_agent_tool
 from tau_agent.types import JSONValue
 
 DEFAULT_MAX_OUTPUT_BYTES = 50 * 1024

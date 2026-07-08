@@ -1,0 +1,18 @@
+# MCP server configuration for Tau
+#
+# Add servers here to expose their tools to the Tau agent.
+# Protocol: Model Context Protocol (JSON-RPC 2.0)
+
+[[servers]]
+name = "filesystem"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "."]
+# env = { FOO = "bar" }
+
+# [[servers]]
+# name = "github"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-github"]
+# env = { GITHUB_TOKEN = "your_token" }

@@ -1123,10 +1123,13 @@ class CodingSession:
         return f"Compacted {len(compaction.replaces_entry_ids)} context entries."
 
     async def aclose(self) -> None:
-        """Close runtime providers created by this coding session."""
+        """Close runtime providers and MCP connections."""
         for provider in self._owned_providers:
             await provider.aclose()
         self._owned_providers.clear()
+        mcp_reg = __import__("tau_coding.mcp_integration", fromlist=["get_mcp_registry"]).get_mcp_registry()
+        if mcp_reg._connected:
+            await mcp_reg.disconnect_all()
 
     def handle_command(self, text: str) -> CommandResult:
         """Handle coding-session slash commands.

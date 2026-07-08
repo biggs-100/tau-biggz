@@ -9,11 +9,6 @@ from typing import Annotated
 import anyio
 import typer
 
-from tau_coding._fix_encoding import reconfigure_std_streams
-from tau_coding.extensions import get_default_registry
-from tau_coding.harness import load_harness, list_available_harnesses, set_active_harness
-from tau_coding.provider_add import providers_add_command
-
 from tau_agent.session import JsonlSessionStorage, SessionEntry, SessionStorage
 from tau_ai import (
     DEFAULT_OPENAI_COMPATIBLE_MAX_RETRIES,
@@ -23,8 +18,13 @@ from tau_ai import (
 )
 from tau_ai.env import DEFAULT_OPENAI_COMPATIBLE_BASE_URL
 from tau_coding import __version__
+from tau_coding._fix_encoding import reconfigure_std_streams
 from tau_coding.catalog_loader import user_catalog_path
 from tau_coding.credentials import FileCredentialStore
+from tau_coding.extensions import get_default_registry
+from tau_coding.harness import list_available_harnesses, load_harness, set_active_harness
+from tau_coding.models_sync import models_sync_command
+from tau_coding.provider_add import providers_add_command
 from tau_coding.provider_config import (
     DEFAULT_MODEL,
     DEFAULT_PROVIDER_NAME,
@@ -275,6 +275,15 @@ def main(
             providers_command()
             raise typer.Exit()
 
+    if (
+        prompt_option is None
+        and command == "models"
+        and len(positional_args) >= 2
+        and positional_args[1] == "sync"
+    ):
+        models_sync_command()
+        raise typer.Exit()
+
     if prompt_option is None and command == "setup" and len(positional_args) == 1:
         setup_command(
             provider_name=provider or DEFAULT_PROVIDER_NAME,
@@ -511,6 +520,16 @@ async def run_openai_print_mode(
 ) -> bool:
     """Run print mode with the OpenAI-compatible provider configured from the environment."""
     settings = load_provider_settings()
+    # Auto-sync model metadata from models.dev on startup
+    try:
+        from tau_coding.models_sync import sync_models
+        from tau_coding.provider_config import save_provider_settings
+        _sync_result, _updated_settings = sync_models(settings)
+        if _updated_settings is not settings:
+            save_provider_settings(_updated_settings, paths=None)
+            settings = load_provider_settings()
+    except Exception:
+        pass
     shell_settings = load_shell_settings()
     selection = resolve_provider_selection(settings, provider_name=provider_name, model=model)
     provider = create_model_provider(

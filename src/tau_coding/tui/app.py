@@ -4246,6 +4246,16 @@ async def run_tui_app(
         raise RuntimeError("--resume and --new-session cannot be used together")
 
     provider_settings = load_provider_settings()
+    # Auto-sync model metadata from models.dev on startup
+    try:
+        from tau_coding.models_sync import sync_models
+        from tau_coding.provider_config import save_provider_settings
+        _sync_result, _updated_settings = sync_models(provider_settings)
+        if _updated_settings is not provider_settings:
+            save_provider_settings(_updated_settings, paths=None)
+            provider_settings = load_provider_settings()
+    except Exception:
+        pass
     shell_settings = load_shell_settings()
     manager = session_manager or SessionManager()
     record = _explicit_resume_record(

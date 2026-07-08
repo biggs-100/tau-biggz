@@ -11,6 +11,7 @@ import typer
 
 from tau_coding._fix_encoding import reconfigure_std_streams
 from tau_coding.extensions import get_default_registry
+from tau_coding.harness import load_harness, list_available_harnesses
 from tau_coding.provider_add import providers_add_command
 
 from tau_agent.session import JsonlSessionStorage, SessionEntry, SessionStorage
@@ -191,6 +192,14 @@ def main(
         PrintOutputMode,
         typer.Option("--output", "-o", help="Output mode for print mode."),
     ] = PrintOutputMode.text,
+    harness: Annotated[
+        str | None,
+        typer.Option("--harness", help="Harness name (project .tau/harnesses/<name>.toml)."),
+    ] = None,
+    list_harnesses: Annotated[
+        bool,
+        typer.Option("--list-harnesses", help="List available harnesses."),
+    ] = False,
     resume: Annotated[
         str | None,
         typer.Option("--resume", help="Resume a session id in TUI mode."),
@@ -224,6 +233,13 @@ def main(
 
     if resume is not None and new_session:
         raise typer.BadParameter("--resume and --new-session cannot be used together")
+
+    if list_harnesses:
+        for h in list_available_harnesses():
+            typer.echo(f"  {h['name']:20s} {h['description']}")
+        raise typer.Exit()
+
+    active_harness = load_harness(harness)
 
     positional_args = prompt_args or []
     command = positional_args[0] if positional_args else None

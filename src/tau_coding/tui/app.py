@@ -4117,6 +4117,8 @@ def _resolve_tui_startup_selection(
     provider_name: str | None,
     model: str | None,
     explicit_resume: bool,
+    manager: Any | None = None,
+    cwd: Path | None = None,
 ) -> ProviderSelection:
     if provider_name is not None or model is not None:
         return resolve_provider_selection(settings, provider_name=provider_name, model=model)
@@ -4132,6 +4134,17 @@ def _resolve_tui_startup_selection(
         credential_reader=FileCredentialStore(),
     ):
         return default_selection
+
+    # Try to restore provider/model from the latest session for this cwd
+    if manager is not None and cwd is not None and not explicit_resume:
+        latest = manager.latest_session_for_cwd(cwd)
+        if latest is not None:
+            latest_selection = _selection_from_session_record(settings, latest)
+            if latest_selection is not None and provider_has_usable_credentials(
+                latest_selection.provider,
+                credential_reader=FileCredentialStore(),
+            ):
+                return latest_selection
 
     fallback_selection = _first_usable_startup_selection(settings)
     return fallback_selection or default_selection
@@ -4227,6 +4240,8 @@ async def run_tui_app(
         provider_name=provider_name,
         model=model,
         explicit_resume=session_id is not None,
+        manager=manager,
+        cwd=cwd,
     )
     startup_message: str | None = None
     runtime_provider_config: ProviderConfig | None = selection.provider

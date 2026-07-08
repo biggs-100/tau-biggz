@@ -56,6 +56,11 @@ class McpRegistry:
         self._tools: list[McpToolInfo] = []
         self._connected = False
 
+    @property
+    def connected(self) -> bool:
+        """Whether any MCP servers are currently connected."""
+        return self._connected
+
     def add_server(self, config: McpServerConfig) -> None:
         """Register an MCP server configuration."""
         self._servers[config.name] = config

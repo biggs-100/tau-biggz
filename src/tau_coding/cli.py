@@ -11,7 +11,7 @@ import typer
 
 from tau_coding._fix_encoding import reconfigure_std_streams
 from tau_coding.extensions import get_default_registry
-from tau_coding.harness import load_harness, list_available_harnesses
+from tau_coding.harness import load_harness, list_available_harnesses, set_active_harness
 from tau_coding.provider_add import providers_add_command
 
 from tau_agent.session import JsonlSessionStorage, SessionEntry, SessionStorage
@@ -240,6 +240,7 @@ def main(
         raise typer.Exit()
 
     active_harness = load_harness(harness)
+    set_active_harness(active_harness)
 
     positional_args = prompt_args or []
     command = positional_args[0] if positional_args else None

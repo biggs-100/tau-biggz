@@ -23,7 +23,7 @@ from time import monotonic
 from typing import Any
 
 from tau_agent.tools import AgentTool, AgentToolResult, ToolCancellationToken, ToolExecutor
-from tau_coding.extensions import ToolRegistration
+from tau_coding.extensions import ToolRegistration, get_default_registry
 from tau_agent.types import JSONValue
 
 DEFAULT_MAX_OUTPUT_BYTES = 50 * 1024
@@ -116,6 +116,47 @@ def create_coding_tools(
         for ext_tool in extension_tools:
             tools.append(_extension_tool_to_agent_tool(ext_tool))
     return tools
+
+
+
+def _wrap_tool_with_events(tool: AgentTool) -> AgentTool:
+    """Wrap a tool's executor to fire extension events before/after execution."""
+    original_executor = tool.executor
+
+    async def event_dispatched_executor(arguments, signal=None):
+        registry = get_default_registry()
+        event_data = {
+            "tool_name": tool.name,
+            "input": dict(arguments),
+            "tool_call_id": "ext_event",
+        }
+        results = registry.dispatch_event("tool_call", event_data)
+        for result in results:
+            if isinstance(result, dict) and result.get("block"):
+                reason = result.get("reason", "Blocked by extension")
+                return AgentToolResult(
+                    tool_call_id="ext",
+                    name=tool.name,
+                    ok=False,
+                    content=reason,
+                    error=reason,
+                )
+        result = await original_executor(arguments, signal=signal)
+        registry.dispatch_event("after_tool_call", {
+            "tool_name": tool.name,
+            "input": dict(arguments),
+            "result": {"ok": result.ok, "content": result.content},
+        })
+        return result
+
+    return AgentTool(
+        name=tool.name,
+        description=tool.description,
+        input_schema=tool.input_schema,
+        executor=event_dispatched_executor,
+        prompt_snippet=tool.prompt_snippet,
+        prompt_guidelines=tool.prompt_guidelines,
+    )
 
 
 def _extension_tool_to_agent_tool(ext_tool: ToolRegistration) -> AgentTool:

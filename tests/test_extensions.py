@@ -94,3 +94,30 @@ def test_default_registry_uses_tau_paths(tmp_path: Path, monkeypatch) -> None:
     candidates = reg.discover()
 
     assert isinstance(candidates, list)
+
+
+def test_greeting_extension_loads() -> None:
+    """Greeting extension is discoverable and loads correctly."""
+    reg = ExtensionRegistry()
+    reg.add_search_path(Path("example_extensions"))
+    instances = reg.load_all()
+    greeting_exts = [i for i in instances if "greeting" in i.path.lower()]
+    assert len(greeting_exts) == 1
+    ext = greeting_exts[0]
+    tool_names = [t.name for t in ext.tools]
+    cmd_names = [c.name for c in ext.commands]
+    assert "hello" in tool_names
+    assert "hi" in cmd_names
+
+
+def test_greeting_tool_returns_greeting() -> None:
+    """@tool('hello') returns a greeting string when called."""
+
+    class TestGreetingExt(Extension):
+        @tool("hello", "Greet the user")
+        def hello(self, name: str = "world") -> str:
+            return f"Hello, {name}!"
+
+    ext = TestGreetingExt()
+    assert ext.hello() == "Hello, world!"
+    assert ext.hello("Tau") == "Hello, Tau!"

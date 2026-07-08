@@ -56,6 +56,15 @@ class HarnessTools:
 
 
 @dataclass
+class HarnessSubAgent:
+    """A sub-agent type available to the orchestrator."""
+
+    name: str = ""
+    instructions: str = ""
+    tools: tuple[str, ...] = ()
+
+
+@dataclass
 class HarnessDefinition:
     """Complete definition of one agent harness."""
 
@@ -64,6 +73,7 @@ class HarnessDefinition:
     personality: HarnessPersonality = field(default_factory=HarnessPersonality)
     provider: HarnessProvider = field(default_factory=HarnessProvider)
     tools: HarnessTools = field(default_factory=HarnessTools)
+    subagents: tuple[HarnessSubAgent, ...] = ()
 
 
 # ── the built-in coding harness (implicit, no file needed) ─────────────

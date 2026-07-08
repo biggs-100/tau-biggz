@@ -43,7 +43,7 @@ builtin = ["read", "write"]
     h = load_harness("legal", cwd=tmp_path)
     assert h.name == "legal"
     assert h.description == "Abogado corporativo"
-    assert "abogado" in h.personality.system_prompt
+    assert "lawyer" in h.personality.system_prompt
     assert h.provider.name == "opencode-zen"
 
 

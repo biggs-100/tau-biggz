@@ -14,3 +14,5 @@ wheels/
 website/public/
 website/resources/
 website/.hugo_build.lock
+# Local Pi runtime state
+.atl/

@@ -1128,7 +1128,7 @@ class CodingSession:
             await provider.aclose()
         self._owned_providers.clear()
         mcp_reg = __import__("tau_coding.mcp_integration", fromlist=["get_mcp_registry"]).get_mcp_registry()
-        if mcp_reg._connected:
+        if mcp_reg.connected:
             await mcp_reg.disconnect_all()
 
     def handle_command(self, text: str) -> CommandResult:

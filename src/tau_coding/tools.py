@@ -778,7 +778,7 @@ def create_subagent_tool() -> AgentTool:
         signal: ToolCancellationToken | None = None,
     ) -> AgentToolResult:
         task = str(arguments.get("task", ""))
-        agent_type = str(arguments.get("agent_type", "")) if arguments.get("agent_type") else None
+        instructions = str(arguments.get("instructions", "")) if arguments.get("instructions") else None
         if not task:
             return AgentToolResult(
                 tool_call_id="sub",

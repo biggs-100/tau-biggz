@@ -10,6 +10,7 @@ import anyio
 import typer
 
 from tau_coding._fix_encoding import reconfigure_std_streams
+from tau_coding.extensions import create_default_registry
 from tau_coding.provider_add import providers_add_command
 
 from tau_agent.session import JsonlSessionStorage, SessionEntry, SessionStorage
@@ -60,6 +61,33 @@ from tau_coding.update_check import (
     startup_release_notes_notice,
     startup_update_notice,
 )
+
+_extension_registry: Any | None = None
+
+
+def _load_extensions() -> None:
+    """Discover and load Tau extensions from default paths."""
+    global _extension_registry
+    if _extension_registry is not None:
+        return
+    registry = create_default_registry()
+    loaded = registry.load_all()
+    if loaded:
+        for inst in loaded:
+            typer.echo(f"  loaded extension: {inst.name}", err=True)
+            for t in inst.tools:
+                typer.echo(f"    tool: {t.name}", err=True)
+            for c in inst.commands:
+                typer.echo(f"    command: /{c.name}", err=True)
+    _extension_registry = registry
+
+
+def get_extension_registry():
+    """Return the global extension registry, loading if needed."""
+    if _extension_registry is None:
+        _load_extensions()
+    return _extension_registry
+
 
 app = typer.Typer(
     name="tau",
@@ -185,6 +213,7 @@ def main(
 ) -> None:
     """Run the Tau CLI."""
     reconfigure_std_streams()
+    _load_extensions()
 
     if version:
         typer.echo(f"tau {__version__}")

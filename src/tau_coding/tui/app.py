@@ -202,6 +202,7 @@ class PromptInput(TextArea):
 
     BINDINGS: ClassVar[list[BindingEntry]] = []
     shell_mode_style: str = ""
+    _PASTE_COLLAPSE_THRESHOLD: int = 500
 
     def __init__(
         self,
@@ -215,6 +216,23 @@ class PromptInput(TextArea):
         self._base_bindings = self._bindings.copy()
         self._footer_mode: Literal["normal", "completion", "running"] = "normal"
         self._apply_prompt_bindings()
+        self._pasted_content: str | None = None
+
+    @property
+    def effective_text(self) -> str:
+        """Return the real text, whether collapsed or not."""
+        return self._pasted_content if self._pasted_content is not None else self.text
+
+    def action_paste(self) -> None:
+        """Paste clipboard content, collapsing large pastes into a placeholder."""
+        super().action_paste()
+        text = self.text
+        if len(text) > self._PASTE_COLLAPSE_THRESHOLD:
+            self._pasted_content = text
+            lines = text.count("\n") + 1
+            self.text = f"[Pasted content: {len(text)} chars, {lines} lines]"
+        else:
+            self._pasted_content = None
 
     def set_footer_mode(self, mode: Literal["normal", "completion", "running"]) -> None:
         """Switch the prompt bindings shown by Textual's built-in footer."""
@@ -2131,7 +2149,8 @@ class TauTuiApp(App[None]):
         streaming_behavior: Literal["steer", "follow_up"],
     ) -> None:
         prompt = self.query_one("#prompt", PromptInput)
-        raw_text = prompt.text
+        raw_text = prompt.effective_text
+        prompt._pasted_content = None
         applied_completion = self._apply_selected_completion(raw_text)
         if applied_completion is not None and applied_completion != raw_text:
             prompt.text = applied_completion

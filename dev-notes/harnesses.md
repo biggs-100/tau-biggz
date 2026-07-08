@@ -103,6 +103,43 @@ tools = ["read"]
 | `tools.builtin` | `["read", "write", "edit", "bash"]` | Tools built-in activas |
 | `subagents` | `[]` | Lista de sub-agentes disponibles |
 
+## Tool Approval Chain
+
+Controla que tools pueden ejecutarse sin intervencion.
+
+```toml
+[approval]
+default = "allow"            # allow | deny | ask
+
+[tools.approval]
+bash = "deny"                # nunca ejecutar bash
+write = "ask"                # preguntar antes de escribir
+read = "allow"               # leer siempre permitido
+edit = "ask"                 # preguntar antes de editar
+web_search = "allow"         # buscar siempre permitido
+```
+
+### Valores
+
+| Valor | Significado |
+|-------|-------------|
+| `allow` | La tool se ejecuta sin preguntar |
+| `deny` | La tool se bloquea siempre |
+| `ask` | La tool requiere aprobacion (se bloquea con mensaje) |
+
+### Orden de resolucion
+
+1. `deny` por tool → bloqueo absoluto
+2. `ask` por tool → requiere aprobacion
+3. `allow` por tool → ejecuta directamente
+4. `default` → aplica a todas las tools sin regla explicita
+
+Las extensiones con `@on("tool_call")` se ejecutan **despues** de la cadena
+de aprobacion. Una extension puede bloquear una tool incluso si el harness
+la tiene como `allow`.
+
+
+
 ---
 
 ## Agentes como markdown

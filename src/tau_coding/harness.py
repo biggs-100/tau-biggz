@@ -56,6 +56,14 @@ class HarnessTools:
 
 
 @dataclass
+class HarnessApproval:
+    """Tool approval chain policy."""
+
+    default: str = "allow"
+    rules: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
 class HarnessSubAgent:
     """A sub-agent type available to the orchestrator."""
 
@@ -74,6 +82,7 @@ class HarnessDefinition:
     provider: HarnessProvider = field(default_factory=HarnessProvider)
     tools: HarnessTools = field(default_factory=HarnessTools)
     subagents: tuple[HarnessSubAgent, ...] = ()
+    approval: HarnessApproval = field(default_factory=HarnessApproval)
 
 
 # ── the built-in coding harness (implicit, no file needed) ─────────────

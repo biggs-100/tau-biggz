@@ -1286,7 +1286,9 @@ def provider_thinking_levels(
             return ()
         return _levels_from_thinking_map(metadata.thinking_level_map)
     if provider.thinking_models and selected_model not in provider.thinking_models:
-        return ()
+        # If the model has reasoning=True in metadata, allow it anyway
+        if metadata is None or metadata.reasoning is not True:
+            return ()
     return tuple(
         level
         for level in provider.thinking_levels

@@ -4150,6 +4150,24 @@ def _resolve_tui_startup_selection(
     return fallback_selection or default_selection
 
 
+
+def _resolve_startup_thinking_level(
+    provider: ProviderConfig,
+    model: str,
+) -> ThinkingLevel:
+    """Return a valid thinking level for the startup provider/model pair."""
+    from tau_coding.provider_config import provider_thinking_levels, provider_default_thinking_level
+    levels = provider_thinking_levels(provider, model=model)
+    if not levels:
+        return DEFAULT_THINKING_LEVEL
+    preferred = provider_default_thinking_level(provider, model=model)
+    if preferred and preferred in levels:
+        return preferred
+    if DEFAULT_THINKING_LEVEL in levels:
+        return DEFAULT_THINKING_LEVEL
+    return levels[0]
+
+
 def _first_usable_startup_selection(settings: Any) -> ProviderSelection | None:
     credential_store = FileCredentialStore()
     for provider in settings.providers:
@@ -4249,7 +4267,7 @@ async def run_tui_app(
         provider = create_model_provider(
             selection.provider,
             model=selection.model,
-            thinking_level=DEFAULT_THINKING_LEVEL,
+            thinking_level=_resolve_startup_thinking_level(selection.provider, selection.model),
         )
     except RuntimeError:
         login_required_message = (

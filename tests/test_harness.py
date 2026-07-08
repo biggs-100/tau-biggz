@@ -30,7 +30,7 @@ name = "legal"
 description = "Abogado corporativo"
 
 [personality]
-system_prompt = "Sos un abogado."
+system_prompt = "You are a lawyer."
 
 [provider]
 name = "opencode-zen"
@@ -57,7 +57,7 @@ name = "mio"
 description = "Mi harness"
 
 [personality]
-system_prompt = "Sos un asistente."
+system_prompt = "You are an assistant."
 """)
 
     h = load_harness(cwd=tmp_path)

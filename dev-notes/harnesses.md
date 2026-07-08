@@ -111,7 +111,7 @@ Controla que tools pueden ejecutarse sin intervencion.
 [approval]
 default = "allow"            # allow | deny | ask
 
-[tools.approval]
+[approval.rules]
 bash = "deny"                # nunca ejecutar bash
 write = "ask"                # preguntar antes de escribir
 read = "allow"               # leer siempre permitido
@@ -125,14 +125,13 @@ web_search = "allow"         # buscar siempre permitido
 |-------|-------------|
 | `allow` | La tool se ejecuta sin preguntar |
 | `deny` | La tool se bloquea siempre |
-| `ask` | La tool requiere aprobacion (se bloquea con mensaje) |
+| `ask` | La tool requiere aprobacion (falla a allow sin handler interactivo) |
 
 ### Orden de resolucion
 
-1. `deny` por tool → bloqueo absoluto
-2. `ask` por tool → requiere aprobacion
-3. `allow` por tool → ejecuta directamente
-4. `default` → aplica a todas las tools sin regla explicita
+1. Regla explicita por tool → deny bloquea, allow/ask pasan
+2. `default` policy → deny bloquea, allow/ask pasan
+3. Sin configuracion → todas las tools permitidas
 
 Las extensiones con `@on("tool_call")` se ejecutan **despues** de la cadena
 de aprobacion. Una extension puede bloquear una tool incluso si el harness

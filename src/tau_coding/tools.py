@@ -24,6 +24,7 @@ from typing import Any
 
 from tau_agent.tools import AgentTool, AgentToolResult, ToolCancellationToken, ToolExecutor
 from tau_coding.extensions import ToolRegistration, get_default_registry
+from tau_coding.harness import HarnessApproval
 from tau_coding.mcp_integration import get_mcp_registry, mcp_tool_to_agent_tool
 from tau_agent.types import JSONValue
 
@@ -100,6 +101,7 @@ def create_coding_tools(
     cwd: str | Path | None = None,
     shell_command_prefix: str | None = None,
     extension_tools: list[ToolRegistration] | None = None,
+    approval: HarnessApproval | None = None,
 ) -> list[AgentTool]:
     """Create the default coding-tool set for a local project.
 
@@ -118,15 +120,67 @@ def create_coding_tools(
     if extension_tools:
         for ext_tool in extension_tools:
             tools.append(_extension_tool_to_agent_tool(ext_tool))
-    return [_wrap_tool_with_events(t) for t in tools]
+    return [_wrap_tool_with_events(t, approval=approval) for t in tools]
 
 
 
-def _wrap_tool_with_events(tool: AgentTool) -> AgentTool:
+def _check_tool_approval(
+    tool_name: str,
+    approval: HarnessApproval | None,
+) -> str | None:
+    """Check if a tool is approved by the harness policy.
+
+    Returns ``None`` if the tool may execute, or a denial reason string
+    if the tool is blocked.
+
+    Resolution order:
+      1. Explicit rule for *tool_name* in ``approval.rules``
+      2. ``approval.default`` ("allow", "deny", or "ask")
+      3. No policy → allow
+
+    The ``ask`` rule falls through to allow when no interactive prompt
+    handler is available.
+    """
+    if approval is None:
+        return None
+
+    # 1. Explicit per-tool rule (wins over default)
+    if tool_name in approval.rules:
+        rule = approval.rules[tool_name]
+        if rule == "deny":
+            return f"Tool '{tool_name}' is denied by harness approval policy"
+        # "allow" or "ask" (no interactive handler yet) → pass through
+        return None
+
+    # 2. Default policy
+    if approval.default == "deny":
+        return f"Tool '{tool_name}' is denied by default harness approval policy"
+
+    # "allow" or "ask" (no interactive handler yet) → pass through
+    return None
+
+
+
+def _wrap_tool_with_events(
+    tool: AgentTool,
+    approval: HarnessApproval | None = None,
+) -> AgentTool:
     """Wrap a tool's executor to fire extension events before/after execution."""
     original_executor = tool.executor
 
     async def event_dispatched_executor(arguments, signal=None):
+        # 1. Approval chain check
+        denial = _check_tool_approval(tool.name, approval)
+        if denial is not None:
+            return AgentToolResult(
+                tool_call_id="ext",
+                name=tool.name,
+                ok=False,
+                content=denial,
+                error=denial,
+            )
+
+        # 2. Extension event dispatch
         registry = get_default_registry()
         event_data = {
             "tool_name": tool.name,
@@ -144,6 +198,8 @@ def _wrap_tool_with_events(tool: AgentTool) -> AgentTool:
                     content=reason,
                     error=reason,
                 )
+
+        # 3. Actual execution
         result = await original_executor(arguments, signal=signal)
         registry.dispatch_event("after_tool_call", {
             "tool_name": tool.name,

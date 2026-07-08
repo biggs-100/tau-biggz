@@ -92,3 +92,50 @@ system_prompt = "test"
     harnesses = list_available_harnesses(cwd=tmp_path)
     names = [h["name"] for h in harnesses]
     assert "legal" in names
+
+
+def test_load_harness_with_approval(tmp_path: Path) -> None:
+    """Harness [approval] section should be parsed correctly."""
+    harness_dir = tmp_path / ".tau" / "harnesses"
+    harness_dir.mkdir(parents=True)
+    hfile = harness_dir / "restricted.toml"
+    hfile.write_text("""
+name = "restricted"
+description = "Restricted harness"
+
+[personality]
+system_prompt = "You are restricted."
+
+[approval]
+default = "deny"
+
+[approval.rules]
+read = "allow"
+write = "allow"
+edit = "deny"
+""")
+
+    h = load_harness("restricted", cwd=tmp_path)
+    assert h.approval.default == "deny"
+    assert h.approval.rules == {"read": "allow", "write": "allow", "edit": "deny"}
+
+
+def test_harness_approval_default_allow() -> None:
+    """When no [approval] section exists, default should be 'allow'."""
+    harness_dir = Path(".tau") / "harnesses"
+    harness_dir.mkdir(parents=True, exist_ok=True)
+    hfile = harness_dir / "permissive.toml"
+    hfile.write_text("""
+name = "permissive"
+[personality]
+system_prompt = "You are permissive."
+""")
+
+    try:
+        h = load_harness("permissive")
+        assert h.approval.default == "allow"
+        assert h.approval.rules == {}
+    finally:
+        # Clean up
+        import shutil
+        shutil.rmtree(harness_dir, ignore_errors=True)

@@ -236,10 +236,17 @@ def _parse_harness_file(path: Path) -> HarnessDefinition:
         extensions=tuple(tools_raw.get("extensions", [])),
     )
 
+    approval_raw = raw.get("approval", {})
+    approval = HarnessApproval(
+        default=approval_raw.get("default", "allow"),
+        rules=dict(approval_raw.get("rules", {})),
+    )
+
     return HarnessDefinition(
         name=name,
         description=description,
         personality=personality,
         provider=provider,
         tools=tools,
+        approval=approval,
     )

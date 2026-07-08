@@ -279,6 +279,8 @@ class CodingSession:
             if latest_leaf is not None
             else linear_state
         )
+        from tau_coding.harness import get_active_harness
+        _active_harness = get_active_harness()
         tools = (
             config.tools
             if config.tools is not None
@@ -286,6 +288,7 @@ class CodingSession:
                 cwd=config.cwd,
                 shell_command_prefix=config.shell_command_prefix,
                 extension_tools=get_default_registry().get_tools(),
+                approval=_active_harness.approval,
             )
         )
         resource_paths = resource_paths_with_cwd(config.resource_paths, config.cwd)
@@ -2198,12 +2201,13 @@ def _harness_filtered_tools(config):
     from tau_coding.extensions import get_default_registry
     from tau_coding.harness import get_active_harness
     from tau_coding.tools import create_coding_tools
+    harness = get_active_harness()
     all_tools = create_coding_tools(
         cwd=config.cwd,
         shell_command_prefix=config.shell_command_prefix,
         extension_tools=get_default_registry().get_tools(),
+        approval=harness.approval,
     )
-    harness = get_active_harness()
     if harness.name == "coding":
         return all_tools
     allowed = set(harness.tools.builtin)

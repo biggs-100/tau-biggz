@@ -79,3 +79,24 @@ The loading order is:
 2. User catalog merged on top (``~/.tau/catalog.toml``)
 
 User providers override built-in providers with the same name.
+
+## OpenCode providers
+
+This fork adds four OpenCode subscription providers to the built-in catalog:
+
+| Provider | Type | Base URL | Models |
+|----------|------|----------|--------|
+| ``opencode-zen`` | openai-compatible | ``https://opencode.ai/zen/v1`` | GPT-5.5, GPT-5.4, DeepSeek V4, Kimi, GLM, free models |
+| ``opencode-zen-anthropic`` | anthropic (bearer auth) | ``https://opencode.ai/zen/v1`` | Claude Fable 5, Opus 4.8, Sonnet 4.6, Haiku 4.5 |
+| ``opencode-go`` | openai-compatible | ``https://opencode.ai/zen/go/v1`` | DeepSeek V4 Flash, GLM-5.2, Kimi K2.7 |
+| ``opencode-go-anthropic`` | anthropic (bearer auth) | ``https://opencode.ai/zen/go/v1`` | MiniMax M3, Qwen3.7 Max |
+
+Login with ``/login opencode-zen`` in the TUI and paste your API key.
+
+## New CLI commands
+
+```bash
+tau providers add            # interactive: add a custom provider via CLI
+tau --harness <name>         # use a specific harness
+tau --list-harnesses         # list available harnesses
+```

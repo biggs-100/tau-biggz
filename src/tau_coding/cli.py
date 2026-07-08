@@ -284,6 +284,11 @@ def main(
         models_sync_command()
         raise typer.Exit()
 
+    if prompt_option is None and command == "package" and len(positional_args) >= 2:
+        from tau_coding.package_manager import package_command
+        package_command(positional_args[1:])
+        raise typer.Exit()
+
     if prompt_option is None and command == "setup" and len(positional_args) == 1:
         setup_command(
             provider_name=provider or DEFAULT_PROVIDER_NAME,

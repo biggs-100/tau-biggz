@@ -1,0 +1,41 @@
+{
+  "openai": {
+    "id": "openai",
+    "models": {
+      "gpt-5.4": {
+        "limit": {"context": 2000000, "output": 131072},
+        "reasoning": true
+      },
+      "gpt-5.4-mini": {
+        "limit": {"context": 1000000, "output": 65536},
+        "reasoning": true
+      },
+      "o4-mini": {
+        "limit": {"context": 1000000, "output": 65536},
+        "reasoning": true
+      }
+    }
+  },
+  "anthropic": {
+    "id": "anthropic",
+    "models": {
+      "claude-sonnet-4-6": {
+        "limit": {"context": 200000, "output": 8192},
+        "reasoning": null
+      },
+      "claude-haiku-4-5": {
+        "limit": {"context": 200000, "output": 4096},
+        "reasoning": false
+      }
+    }
+  },
+  "x-ai": {
+    "id": "x-ai",
+    "models": {
+      "grok-4": {
+        "limit": {"context": 131072, "output": 4096},
+        "reasoning": false
+      }
+    }
+  }
+}

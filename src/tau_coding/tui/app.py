@@ -2003,6 +2003,7 @@ class TauTuiApp(App[None]):
         """Reflect the active session name in Textual's header state."""
         self.title = "Tau"
         self.sub_title = _session_header_sub_title(self.session)
+        self._sync_terminal_title()
 
     def _sync_text_selection_state(self) -> None:
         """Disable native text selection while the transcript is mutating."""
@@ -2067,6 +2068,7 @@ class TauTuiApp(App[None]):
         self._refresh()
         self._sync_text_selection_state()
         self._refresh_completions()
+        self._sync_terminal_title()
         if self.startup_message:
             self._notify(self.startup_message, severity="warning")
         if self.initial_prompt and self.initial_prompt.strip():
@@ -2077,6 +2079,8 @@ class TauTuiApp(App[None]):
         if self._activity_timer is not None:
             self._activity_timer.stop()
             self._activity_timer = None
+        from tau_coding.tui._terminal_title import set_terminal_title
+        set_terminal_title("Tau")
 
     def on_resize(self, event: Resize) -> None:
         """Update responsive chrome when the terminal changes size."""
@@ -3259,17 +3263,34 @@ class TauTuiApp(App[None]):
             else:
                 self._activity_timer.resume()
             self._apply_activity_indicator()
+            self._sync_terminal_title()
             return
         self._activity_frame = 0
         if self._activity_timer is not None:
             self._activity_timer.pause()
         self._apply_activity_indicator()
+        self._sync_terminal_title()
+
+    def _sync_terminal_title(self) -> None:
+        """Update the terminal tab title with session name and running state."""
+        session_name = getattr(self.session, "session_title", None) or ""
+        if self.state.running:
+            prefix = "\u25cf "  # filled circle
+        else:
+            prefix = ""
+        if session_name:
+            title = f"{prefix}{session_name} — Tau"
+        else:
+            title = f"{prefix}Tau"
+        from tau_coding.tui._terminal_title import set_terminal_title
+        set_terminal_title(title)
 
     def _tick_activity(self) -> None:
         if not self.state.running:
             return
         self._activity_frame += 1
         self._apply_activity_indicator()
+        self._sync_terminal_title()
 
     def _apply_activity_indicator(self) -> None:
         theme = self.tui_settings.resolved_theme

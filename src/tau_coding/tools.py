@@ -113,6 +113,7 @@ def create_coding_tools(
         create_bash_tool(cwd=root, shell_command_prefix=shell_command_prefix),
     ]
     tools.append(create_web_search_tool())
+    tools.append(create_subagent_tool())
     if extension_tools:
         for ext_tool in extension_tools:
             tools.append(_extension_tool_to_agent_tool(ext_tool))
@@ -749,6 +750,112 @@ def create_web_search_tool() -> AgentTool:
         input_schema=input_schema,
         executor=search_executor,
         prompt_snippet="Search the web for information.",
+    )
+
+
+
+def create_subagent_tool() -> AgentTool:
+    """Create an AgentTool for spawning sub-agents."""
+    from tau_agent import AgentHarness, AgentHarnessConfig
+
+    input_schema: dict[str, JSONValue] = {
+        "type": "object",
+        "properties": {
+            "task": {
+                "type": "string",
+                "description": "The task or question for the sub-agent",
+            },
+            "agent_type": {
+                "type": "string",
+                "description": "Optional sub-agent personality from .tau/agent-types/ (e.g. reviewer, researcher)",
+            },
+        },
+        "required": ["task"],
+    }
+
+    async def subagent_executor(
+        arguments: Mapping[str, JSONValue],
+        signal: ToolCancellationToken | None = None,
+    ) -> AgentToolResult:
+        task = str(arguments.get("task", ""))
+        agent_type = str(arguments.get("agent_type", "")) if arguments.get("agent_type") else None
+        if not task:
+            return AgentToolResult(
+                tool_call_id="sub",
+                name="subagent_run",
+                ok=False,
+                content="No task provided.",
+            )
+
+        try:
+            system_prompt = "You are a helpful sub-agent. Complete the assigned task concisely."
+
+            if agent_type:
+                from tau_coding.harness import load_harness
+                harness = load_harness(agent_type)
+                if harness and harness.personality.system_prompt:
+                    system_prompt = harness.personality.system_prompt
+
+            from tau_coding.provider_config import load_provider_settings
+            from tau_coding.provider_runtime import create_model_provider
+
+            settings = load_provider_settings()
+            if not settings or not settings.providers:
+                return AgentToolResult(
+                    tool_call_id="sub",
+                    name="subagent_run",
+                    ok=False,
+                    content="No provider configured. Login with /login first.",
+                )
+
+            first = settings.providers[0]
+            model = first.default_model
+            provider = create_model_provider(first, model=model)
+
+            harness = AgentHarness(
+                AgentHarnessConfig(
+                    provider=provider,
+                    model=model,
+                    system=system_prompt,
+                    tools=[],
+                ),
+            )
+            text_parts: list[str] = []
+            async for event in harness.prompt(task):
+                from tau_agent import AgentEndEvent, ErrorEvent
+                if isinstance(event, AgentEndEvent):
+                    text_parts.append(event.message.content if event.message.content else "")
+                elif isinstance(event, ErrorEvent) and not event.recoverable:
+                    await provider.aclose()
+                    return AgentToolResult(
+                        tool_call_id="sub",
+                        name="subagent_run",
+                        ok=False,
+                        content=f"Sub-agent error: {event.message}",
+                    )
+            result_text = "".join(text_parts).strip()
+            await provider.aclose()
+            return AgentToolResult(
+                tool_call_id="sub",
+                name="subagent_run",
+                ok=True,
+                content=result_text or "(no response)",
+            )
+        except Exception as exc:
+            return AgentToolResult(
+                tool_call_id="sub",
+                name="subagent_run",
+                ok=False,
+                content=f"Sub-agent failed: {exc}",
+                error=str(exc),
+            )
+
+    return AgentTool(
+        name="subagent_run",
+        description="Spawn a sub-agent to complete a task independently. Returns the sub-agent's response.",
+        input_schema=input_schema,
+        executor=subagent_executor,
+        prompt_snippet="Delegate tasks to sub-agents for parallel or specialized work.",
     )
 
 

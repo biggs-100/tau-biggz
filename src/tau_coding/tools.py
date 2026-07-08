@@ -23,6 +23,7 @@ from time import monotonic
 from typing import Any
 
 from tau_agent.tools import AgentTool, AgentToolResult, ToolCancellationToken, ToolExecutor
+from tau_coding.extensions import ToolRegistration
 from tau_agent.types import JSONValue
 
 DEFAULT_MAX_OUTPUT_BYTES = 50 * 1024
@@ -97,23 +98,68 @@ def create_coding_tools(
     *,
     cwd: str | Path | None = None,
     shell_command_prefix: str | None = None,
+    extension_tools: list[ToolRegistration] | None = None,
 ) -> list[AgentTool]:
     """Create the default coding-tool set for a local project.
 
-    The returned tools are ordered as `read`, `write`, `edit`, and `bash`.
-    Relative paths used with those tools are resolved against `cwd`; when `cwd`
-    is omitted, the process current working directory at factory-call time is
-    used. The tools share per-path write/edit locks within this process so
-    concurrent mutations of the same file do not interleave. When configured,
-    `shell_command_prefix` is prepended to every bash tool command.
+    The returned tools are ordered as `read`, `write`, `edit`, and `bash`,
+    followed by any extension-registered tools.
     """
     root = Path.cwd() if cwd is None else Path(cwd)
-    return [
+    tools = [
         create_read_tool(cwd=root),
         create_write_tool(cwd=root),
         create_edit_tool(cwd=root),
         create_bash_tool(cwd=root, shell_command_prefix=shell_command_prefix),
     ]
+    if extension_tools:
+        for ext_tool in extension_tools:
+            tools.append(_extension_tool_to_agent_tool(ext_tool))
+    return tools
+
+
+def _extension_tool_to_agent_tool(ext_tool: ToolRegistration) -> AgentTool:
+    """Convert an extension tool registration into an AgentTool."""
+    properties: dict[str, JSONValue] = {}
+    required: list[str] = []
+    for param in ext_tool.parameters:
+        properties[param["name"]] = {"type": "string", "description": f"Parameter {param['name']}"}
+        required.append(param["name"])
+    input_schema: dict[str, JSONValue] = {
+        "type": "object",
+        "properties": properties,
+        "required": required,
+    }
+
+    async def executor(
+        arguments: Mapping[str, JSONValue],
+        signal: ToolCancellationToken | None = None,
+    ) -> AgentToolResult:
+        try:
+            result = ext_tool.executor(**dict(arguments))
+            if hasattr(result, "__await__"):
+                result = await result
+            return AgentToolResult(
+                tool_call_id="ext",
+                name=ext_tool.name,
+                ok=True,
+                content=str(result),
+            )
+        except Exception as exc:
+            return AgentToolResult(
+                tool_call_id="ext",
+                name=ext_tool.name,
+                ok=False,
+                content=str(exc),
+                error=str(exc),
+            )
+
+    return AgentTool(
+        name=ext_tool.name,
+        description=ext_tool.description,
+        input_schema=input_schema,
+        executor=executor,
+    )
 
 
 def create_read_tool_definition(*, cwd: str | Path | None = None) -> ToolDefinition:

@@ -10,7 +10,7 @@ import anyio
 import typer
 
 from tau_coding._fix_encoding import reconfigure_std_streams
-from tau_coding.extensions import create_default_registry
+from tau_coding.extensions import get_default_registry
 from tau_coding.provider_add import providers_add_command
 
 from tau_agent.session import JsonlSessionStorage, SessionEntry, SessionStorage
@@ -62,7 +62,7 @@ from tau_coding.update_check import (
     startup_update_notice,
 )
 
-_extension_registry: Any | None = None
+_extension_registry = None
 
 
 def _load_extensions() -> None:
@@ -70,10 +70,10 @@ def _load_extensions() -> None:
     global _extension_registry
     if _extension_registry is not None:
         return
-    registry = create_default_registry()
-    loaded = registry.load_all()
-    if loaded:
-        for inst in loaded:
+    registry = get_default_registry()
+    loaded_instances = list(registry._extensions.values()) if hasattr(registry, '_extensions') else []
+    if loaded_instances:
+        for inst in loaded_instances:
             typer.echo(f"  loaded extension: {inst.name}", err=True)
             for t in inst.tools:
                 typer.echo(f"    tool: {t.name}", err=True)

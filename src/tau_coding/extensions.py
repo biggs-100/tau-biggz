@@ -130,6 +130,19 @@ class CommandRegistration:
     handler: Callable[..., Any]
 
 
+# Global singleton registry
+_default_registry: ExtensionRegistry | None = None
+
+
+def get_default_registry() -> ExtensionRegistry:
+    """Return or create the global extension registry singleton."""
+    global _default_registry
+    if _default_registry is None:
+        _default_registry = create_default_registry()
+        _default_registry.load_all()
+    return _default_registry
+
+
 @dataclass
 class ExtensionInstance:
     """A loaded extension instance with its registrations."""

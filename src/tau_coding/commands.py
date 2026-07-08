@@ -12,6 +12,7 @@ from tau_coding.prompt_templates import PromptTemplate
 from tau_coding.provider_catalog import BUILTIN_PROVIDER_CATALOG, builtin_provider_entry
 from tau_coding.reload import CodingReloadSummary, ReloadCategorySummary
 from tau_coding.resources import ResourceDiagnostic
+from tau_coding.extensions import get_default_registry
 from tau_coding.session_manager import CodingSessionRecord, SessionManager
 from tau_coding.skills import Skill
 from tau_coding.system_prompt import ProjectContextFile
@@ -198,6 +199,25 @@ class CommandRegistry:
         )
 
 
+
+
+def _extension_command_handler(context: CommandContext, cmd) -> CommandResult:
+    """Route a slash command to its extension handler."""
+    try:
+        result = cmd.handler(cmd, context.args.strip())
+        if hasattr(result, "__await__"):
+            import asyncio
+            result = asyncio.get_event_loop().run_until_complete(result)
+        return CommandResult(
+            handled=True,
+            message=str(result) if result is not None else None,
+        )
+    except Exception as exc:
+        return CommandResult(
+            handled=True,
+            message=f"Extension command error: {exc}",
+        )
+
 def create_default_command_registry() -> CommandRegistry:
     """Create Tau's built-in slash command registry."""
     registry = CommandRegistry()
@@ -348,6 +368,18 @@ def create_default_command_registry() -> CommandRegistry:
             handler=_logout_command,
         )
     )
+
+    # Register extension commands
+    for ext_cmd in get_default_registry().get_commands():
+        registry.register(
+            SlashCommand(
+                name=ext_cmd.name,
+                usage=f"/{ext_cmd.name}",
+                description=ext_cmd.description,
+                handler=lambda ctx, cmd=ext_cmd: _extension_command_handler(ctx, cmd),
+            )
+        )
+
     return registry
 
 

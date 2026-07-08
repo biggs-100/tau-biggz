@@ -104,6 +104,7 @@ from tau_coding.thinking import (
     next_thinking_level,
     normalize_thinking_level,
 )
+from tau_coding.extensions import get_default_registry
 from tau_coding.tools import create_bash_tool, create_coding_tools
 
 StreamingBehavior = Literal["steer", "follow_up"]
@@ -283,6 +284,7 @@ class CodingSession:
             else create_coding_tools(
                 cwd=config.cwd,
                 shell_command_prefix=config.shell_command_prefix,
+                extension_tools=get_default_registry().get_tools(),
             )
         )
         resource_paths = resource_paths_with_cwd(config.resource_paths, config.cwd)

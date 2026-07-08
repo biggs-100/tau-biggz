@@ -2769,12 +2769,25 @@ class TauTuiApp(App[None]):
         self._refresh()
 
     async def _open_tree_picker(self) -> None:
+        if self.state.running:
+            self._notify(
+                "Wait for the agent to finish before opening the session tree.",
+                severity="warning",
+            )
+            return
         tree_choices = getattr(self.session, "tree_choices", None)
         if tree_choices is None:
             self._notify("Session tree is not available.", severity="warning")
             return
         try:
             choices = tuple(await tree_choices())
+        except RecursionError:
+            self._notify(
+                "Session tree is too deep or complex right now. "
+                "Try again after the agent finishes.",
+                severity="warning",
+            )
+            return
         except Exception as exc:  # noqa: BLE001 - surface command failures in the TUI
             self._notify(f"Error: {exc}", severity="error")
             return

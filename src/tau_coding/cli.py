@@ -284,9 +284,9 @@ def main(
         models_sync_command()
         raise typer.Exit()
 
-    if prompt_option is None and command == "package" and len(positional_args) >= 2:
+    if prompt_option is None and command == "package":
         from tau_coding.package_manager import package_command
-        package_command(positional_args[1:])
+        package_command(positional_args[1:] if len(positional_args) >= 2 else [])
         raise typer.Exit()
 
     if prompt_option is None and command == "setup" and len(positional_args) == 1:

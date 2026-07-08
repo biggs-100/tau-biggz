@@ -89,13 +89,31 @@ class HarnessDefinition:
 
 
 def coding_harness() -> HarnessDefinition:
-    """Return the default coding-agent harness."""
+    """Return the default coding-agent harness.
+
+    Checks ``~/.tau/SYSTEM.md`` and ``~/.tau/APPEND_SYSTEM.md`` for
+    custom system prompts (same convention as named harnesses).
+    """
+    system_prompt = (
+        "You are Tau, a coding agent. "
+        "You help users read, write, edit, and debug code."
+    )
+
+    home_system = Path.home() / ".tau" / "SYSTEM.md"
+    if home_system.exists():
+        system_prompt = home_system.read_text(encoding="utf-8").strip()
+
+    home_append = Path.home() / ".tau" / "APPEND_SYSTEM.md"
+    if home_append.exists():
+        append_text = home_append.read_text(encoding="utf-8").strip()
+        if append_text:
+                system_prompt = (system_prompt + "\n\n" + append_text) if system_prompt else append_text
+
     return HarnessDefinition(
         name="coding",
         description="Coding agent with file/shell tools",
         personality=HarnessPersonality(
-            system_prompt="You are Tau, a coding agent. "
-            "You help users read, write, edit, and debug code.",
+            system_prompt=system_prompt,
         ),
     )
 
@@ -131,6 +149,21 @@ def _project_harness_file(cwd: Path | None = None) -> Path:
 
 def _global_harness_dir() -> Path:
     return Path.home() / ".tau" / "harnesses"
+
+
+# ── SYSTEM.md / APPEND_SYSTEM.md resolution ────────────────────────────
+
+
+def _find_system_md(toml_path: Path) -> Path | None:
+    """Return SYSTEM.md path alongside the harness TOML, if it exists."""
+    candidate = toml_path.with_name("SYSTEM.md")
+    return candidate if candidate.exists() else None
+
+
+def _find_append_system_md(toml_path: Path) -> Path | None:
+    """Return APPEND_SYSTEM.md path alongside the harness TOML, if it exists."""
+    candidate = toml_path.with_name("APPEND_SYSTEM.md")
+    return candidate if candidate.exists() else None
 
 
 # ── load / parse ────────────────────────────────────────────────────────
@@ -241,6 +274,21 @@ def _parse_harness_file(path: Path) -> HarnessDefinition:
         default=approval_raw.get("default", "allow"),
         rules=dict(approval_raw.get("rules", {})),
     )
+
+    # Prefer SYSTEM.md over [personality].system_prompt
+    system_md = _find_system_md(path)
+    if system_md is not None:
+        personality.system_prompt = system_md.read_text(encoding="utf-8").strip()
+
+    # Append APPEND_SYSTEM.md if it exists
+    append_md = _find_append_system_md(path)
+    if append_md is not None:
+        append_text = append_md.read_text(encoding="utf-8").strip()
+        if append_text:
+            if personality.system_prompt:
+                personality.system_prompt += "\n\n" + append_text
+            else:
+                personality.system_prompt = append_text
 
     return HarnessDefinition(
         name=name,

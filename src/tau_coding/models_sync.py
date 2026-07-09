@@ -51,6 +51,7 @@ _PROVIDER_NAME_MAP: dict[str, str] = {
     "x-ai": "xai",
     "z-ai": "zai",
     "opencode-go": "opencode-go",
+        "opencode": "opencode-zen",
 }
 
 

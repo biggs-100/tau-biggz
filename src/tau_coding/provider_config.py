@@ -1279,12 +1279,12 @@ def provider_thinking_levels(
     """Return thinking levels supported by a provider/model pair."""
     selected_model = model or provider.default_model
     metadata = _metadata_for_model(provider, selected_model)
-    if metadata is not None and metadata.reasoning is False:
-        return ()
     if provider.thinking_levels is None:
+        # No provider-level thinking config - rely on model metadata
         if metadata is None or metadata.reasoning is not True:
             return ()
         return _levels_from_thinking_map(metadata.thinking_level_map)
+    # Provider has thinking_levels - trust the provider
     if provider.thinking_models and selected_model not in provider.thinking_models:
         # If the model has reasoning=True in metadata, allow it anyway
         if metadata is None or metadata.reasoning is not True:

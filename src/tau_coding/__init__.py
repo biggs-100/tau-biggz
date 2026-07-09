@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from tau_agent.harness import AgentHarness, AgentHarnessConfig
+from tau_coding.extensions import ExtensionRegistry, create_default_registry as create_extension_registry
+from tau_coding.harness import HarnessDefinition, coding_harness, load_harness
+
 from tau_coding.commands import (
     CommandRegistry,
     CommandResult,
@@ -153,7 +157,10 @@ from tau_coding.tools import (
 __version__ = "0.1.3"
 
 __all__ = [
-    "__version__",
+        "AgentHarness",
+        "AgentHarnessConfig",
+        "ClosableModelProvider",
+"__version__",
     "CodingSession",
     "CodingSessionConfig",
     "CodingSessionRecord",
@@ -209,6 +216,12 @@ __all__ = [
     "create_bash_tool",
     "create_bash_tool_definition",
     "create_coding_tools",
+        "create_extension_registry",
+        "create_model_provider",
+        "coding_harness",
+        "create_extension_registry",
+        "create_model_provider",
+        "coding_harness",
     "create_edit_tool",
     "create_edit_tool_definition",
     "create_default_command_registry",
@@ -245,6 +258,12 @@ __all__ = [
     "format_skills_for_prompt",
     "FileCredentialStore",
     "jsonl_session_storage",
+        "load_harness",
+        "SyncResult",
+        "sync_models",
+        "load_harness",
+        "SyncResult",
+        "sync_models",
     "load_provider_settings",
     "load_shell_settings",
     "load_prompt_templates",

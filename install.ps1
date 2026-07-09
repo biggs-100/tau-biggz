@@ -29,27 +29,23 @@ if (-not $python) {
 }
 Write-Host "  Python found" -ForegroundColor Green
 
-# Determine Python Scripts directory
-$pyBase = Split-Path -Parent (& $python -c "import sys; print(sys.executable)")
-$scriptsDir = Split-Path -Parent $pyBase
-$scriptsDir = Join-Path $scriptsDir "Scripts"
+# Find the Scripts directory
+$scriptsDir = & $python -c "import sys; from pathlib import Path; p = Path(sys.executable).parent / 'Scripts'; print(p)" 2>$null
 if (-not (Test-Path $scriptsDir)) {
-    $scriptsDir = Join-Path $env:APPDATA "Python\Python312\Scripts"
+    # Fallback: user site-packages scripts
+    $scriptsDir = & $python -c "import site; print(site.USER_BASE)" 2>$null
+    if ($scriptsDir) { $scriptsDir = Join-Path $scriptsDir "Scripts" }
+}
+if (-not (Test-Path $scriptsDir)) {
+    $scriptsDir = "$env:APPDATA\Python\Python312\Scripts"
 }
 
-# Clean previous installations
-Write-Host "  Cleaning previous installations..." -ForegroundColor Yellow
+# Clean
+Write-Host "  Cleaning..." -ForegroundColor Yellow
 & $python -m pip uninstall -y $Package 2>$null
 & $python -m pip cache remove $Package 2>$null
-
-# Remove stale launcher from common locations
-$tauPaths = @(
-    "$env:LOCALAPPDATA\Programs\Python\Python312\Scripts\tau.exe",
-    "$env:APPDATA\Python\Python312\Scripts\tau.exe",
-    "$env:USERPROFILE\.local\bin\tau.exe",
-    "$scriptsDir\tau.exe"
-)
-foreach ($p in $tauPaths) { if (Test-Path $p) { Remove-Item $p -Force -ErrorAction SilentlyContinue } }
+Remove-Item "$scriptsDir\tau.exe" -Force -ErrorAction SilentlyContinue
+Remove-Item "$scriptsDir\tau-script.py" -Force -ErrorAction SilentlyContinue
 
 # Install
 Write-Host "  Installing $Package $Version..." -ForegroundColor Yellow
@@ -59,18 +55,41 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# Add Scripts directory to PATH if not already there
+# Show where tau was installed
+$tauExe = "$scriptsDir\tau.exe"
+if (Test-Path $tauExe) {
+    Write-Host "  Installed at: $tauExe" -ForegroundColor Green
+} else {
+    # Search
+    $tauExe = Get-ChildItem -Path "$env:LOCALAPPDATA\Programs\Python" -Recurse -Filter "tau.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($tauExe) {
+        $scriptsDir = $tauExe.Directory.FullName
+        $tauExe = $tauExe.FullName
+        Write-Host "  Installed at: $tauExe" -ForegroundColor Green
+    } else {
+        Write-Host "  tau.exe not found! Try running as Administrator:" -ForegroundColor Yellow
+        Write-Host "  pip install --force-reinstall tau-biggz" -ForegroundColor Yellow
+    }
+}
+
+# Add to USER PATH
 $currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if ($currentPath -notlike "*$scriptsDir*") {
-    Write-Host "  Adding $scriptsDir to PATH..." -ForegroundColor Yellow
+    Write-Host "  Adding to PATH..." -ForegroundColor Yellow
     [Environment]::SetEnvironmentVariable("Path", "$currentPath;$scriptsDir", "User")
-    # Update current session
     $env:Path = "$env:Path;$scriptsDir"
-    Write-Host "  PATH updated (log out/in or restart terminal to make permanent)" -ForegroundColor Yellow
+    Write-Host "  PATH updated!" -ForegroundColor Green
+} else {
+    Write-Host "  Already in PATH" -ForegroundColor Green
 }
 
 Write-Host ""
 Write-Host "  tau-biggz $Version installed!" -ForegroundColor Green
 Write-Host ""
-Write-Host "  Run: tau --version"
-Write-Host "  Or: python -m tau_coding.cli --version"
+
+if (Test-Path $tauExe) {
+    Write-Host "  Run: $tauExe --version"
+    Write-Host "  Or close and reopen PowerShell, then: tau --version"
+} else {
+    Write-Host "  Try: python -m tau_coding.cli --version"
+}

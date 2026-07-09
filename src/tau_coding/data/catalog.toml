@@ -6025,8 +6025,8 @@ thinking_parameter = "reasoning_effort"
 "gpt-5" = 400000
 "gpt-5-codex" = 400000
 "gpt-5-nano" = 400000
-"deepseek-v4-pro" = 163840
-"deepseek-v4-flash" = 163840
+"deepseek-v4-pro" = 1000000
+"deepseek-v4-flash" = 1000000
 "minimax-m3" = 1048576
 "minimax-m2.7" = 1048576
 "minimax-m2.5" = 1048576
@@ -6200,14 +6200,14 @@ unsupported_thinking_levels = ["off"]
 name = "DeepSeek V4 Pro"
 reasoning = true
 input = ["text"]
-context_window = 163840
+context_window = 1000000
 max_tokens = 131072
 
 [providers.model_metadata."deepseek-v4-flash"]
 name = "DeepSeek V4 Flash"
 reasoning = true
 input = ["text"]
-context_window = 163840
+context_window = 1000000
 max_tokens = 131072
 
 [providers.model_metadata."minimax-m3"]
@@ -6467,8 +6467,8 @@ thinking_parameter = "reasoning_effort"
 "kimi-k2.6" = 131072
 "mimo-v2.5" = 1048576
 "mimo-v2.5-pro" = 1048576
-"deepseek-v4-pro" = 163840
-"deepseek-v4-flash" = 163840
+"deepseek-v4-pro" = 1000000
+"deepseek-v4-flash" = 1000000
 
 [providers.model_metadata."glm-5.2"]
 name = "GLM-5.2"
@@ -6522,7 +6522,7 @@ cost = { input = 1.74, output = 3.48, cacheRead = 0.0145 }
 name = "DeepSeek V4 Pro"
 reasoning = true
 input = ["text"]
-context_window = 163840
+context_window = 1000000
 max_tokens = 131072
 cost = { input = 1.74, output = 3.48, cacheRead = 0.0145 }
 thinking_level_map = { off = "none", high = "high", xhigh = "xhigh" }
@@ -6531,7 +6531,7 @@ thinking_level_map = { off = "none", high = "high", xhigh = "xhigh" }
 name = "DeepSeek V4 Flash"
 reasoning = true
 input = ["text"]
-context_window = 163840
+context_window = 1000000
 max_tokens = 131072
 cost = { input = 0.14, output = 0.28, cacheRead = 0.0028 }
 thinking_level_map = { off = "none", high = "high", xhigh = "xhigh" }

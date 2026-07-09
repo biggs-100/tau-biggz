@@ -1,7 +1,7 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # tau-biggz installer
-# Usage: curl -fsSL https://tau-biggz.dev/install.sh | sh
-set -euo pipefail
+# Usage: curl -fsSL https://raw.githubusercontent.com/biggs-100/tau-biggz/main/install.sh | sh
+set -eu
 
 REPO="biggs-100/tau-biggz"
 PACKAGE="tau-biggz"
@@ -21,9 +21,9 @@ case "$OS" in Linux) ;; Darwin) ;; CYGWIN*|MINGW*|MSYS*) OS="windows" ;; *) echo
 PYTHON=""
 for cmd in python3 python; do
     if command -v "$cmd" &>/dev/null; then
-        PY_VER=$("$cmd" --version 2>&1 | grep -oP '\d+\.\d+' | head -1)
-        MAJOR="${PY_VER%%.*}"
-        MINOR="${PY_VER#*.}"
+        PY_VER=$("$cmd" --version 2>&1 | awk '{print \$2}' | cut -d. -f1-2)
+        MAJOR=$(echo "$PY_VER" | cut -d. -f1)
+        MINOR=$(echo "$PY_VER" | cut -d. -f2)
         if [ "$MAJOR" -ge 3 ] && [ "$MINOR" -ge 12 ]; then
             PYTHON="$cmd"
             break

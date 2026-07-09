@@ -154,7 +154,7 @@ from tau_coding.tools import (
     create_write_tool_definition,
 )
 
-__version__ = "0.1.6"
+__version__ = "0.1.7"
 
 __all__ = [
         "AgentHarness",

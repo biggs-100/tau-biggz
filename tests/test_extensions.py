@@ -6,6 +6,7 @@ from pathlib import Path
 
 from tau_coding.extensions import (
     Extension,
+    ExtensionError,
     ExtensionInstance,
     ExtensionRegistry,
     command,
@@ -273,3 +274,167 @@ def test_ui_widget_collection() -> None:
     assert widgets[0].zone == "status-bar"
     assert widgets[0].name == "clock"
     assert widgets[0].text_fn() == "🕒 12:00:00"
+
+
+# ── Install / Uninstall / Reload tests ──────────────────────────────────────
+
+
+def test_install_extension_py_file(tmp_path: Path) -> None:
+    """Install a .py file, verify it is loaded and copied to the global dir."""
+    ext_dir = tmp_path / "extensions"
+    ext_dir.mkdir()
+
+    src_file = tmp_path / "my_ext.py"
+    src_file.write_text("""
+from tau_coding.extensions import Extension, tool
+
+class MyExt(Extension):
+    @tool("hello", "Say hello")
+    def hello(self, name: str = "world") -> str:
+        return f"Hello, {name}!"
+""")
+
+    reg = ExtensionRegistry()
+    reg.add_search_path(ext_dir)
+
+    inst = reg.install_extension(str(src_file))
+
+    assert inst.name == "MyExt"
+    assert len(inst.tools) == 1
+    assert inst.tools[0].name == "hello"
+    assert inst.tools[0].description == "Say hello"
+
+    # File was copied to the global dir
+    assert (ext_dir / "my_ext.py").exists()
+
+    # Extension is registered
+    assert "MyExt" in reg._extensions
+
+
+def test_install_extension_package(tmp_path: Path) -> None:
+    """Install a package directory with __init__.py, verify it is loaded."""
+    ext_dir = tmp_path / "extensions"
+    ext_dir.mkdir()
+
+    pkg_dir = tmp_path / "my_pkg"
+    pkg_dir.mkdir()
+    (pkg_dir / "__init__.py").write_text("""
+from tau_coding.extensions import Extension, command
+
+class MyPkgExt(Extension):
+    @command("pkg_cmd", description="A package command")
+    def my_cmd(self, args: str) -> str:
+        return f"pkg: {args}"
+""")
+
+    reg = ExtensionRegistry()
+    reg.add_search_path(ext_dir)
+
+    inst = reg.install_extension(str(pkg_dir))
+
+    assert inst.name == "MyPkgExt"
+    assert len(inst.commands) == 1
+    assert inst.commands[0].name == "pkg_cmd"
+
+    # Directory was copied
+    assert (ext_dir / "my_pkg").is_dir()
+    assert (ext_dir / "my_pkg" / "__init__.py").exists()
+
+
+def test_uninstall_extension(tmp_path: Path) -> None:
+    """Install then uninstall — verify the extension is removed from the
+    registry and its files are deleted from disk."""
+    ext_dir = tmp_path / "extensions"
+    ext_dir.mkdir()
+
+    src_file = tmp_path / "my_ext.py"
+    src_file.write_text("""
+from tau_coding.extensions import Extension, tool
+
+class MyExt(Extension):
+    @tool("hello", "Say hello")
+    def hello(self, name: str = "world") -> str:
+        return f"Hello, {name}!"
+""")
+
+    reg = ExtensionRegistry()
+    reg.add_search_path(ext_dir)
+
+    reg.install_extension(str(src_file))
+    assert "MyExt" in reg._extensions
+    assert (ext_dir / "my_ext.py").exists()
+
+    # Uninstall
+    reg.uninstall_extension("MyExt")
+
+    assert "MyExt" not in reg._extensions
+    assert not (ext_dir / "my_ext.py").exists()
+
+
+def test_reload_extension(tmp_path: Path) -> None:
+    """Install, modify the installed file, reload, and verify the changes
+    are picked up."""
+    ext_dir = tmp_path / "extensions"
+    ext_dir.mkdir()
+
+    src_file = tmp_path / "my_ext.py"
+    src_file.write_text("""
+from tau_coding.extensions import Extension, tool
+
+class MyExt(Extension):
+    @tool("greet", "Original description")
+    def greet(self, name: str = "world") -> str:
+        return f"Hello, {name}!"
+""")
+
+    reg = ExtensionRegistry()
+    reg.add_search_path(ext_dir)
+
+    # Install
+    inst = reg.install_extension(str(src_file))
+    assert inst.tools[0].description == "Original description"
+
+    # Modify the installed file directly
+    installed_path = ext_dir / "my_ext.py"
+    installed_path.write_text("""
+from tau_coding.extensions import Extension, tool
+
+class MyExt(Extension):
+    @tool("greet", "Modified description")
+    def greet(self, name: str = "world") -> str:
+        return f"Hello, {name}!"
+""")
+
+    # Reload
+    new_inst = reg.reload_extension("MyExt")
+
+    assert new_inst.tools[0].description == "Modified description"
+    assert new_inst.enabled is True  # enabled state preserved
+    # It should be a fresh object
+    assert new_inst is not inst
+
+
+def test_install_twice_raises(tmp_path: Path) -> None:
+    """Installing the same extension twice raises ExtensionError."""
+    ext_dir = tmp_path / "extensions"
+    ext_dir.mkdir()
+
+    src_file = tmp_path / "my_ext.py"
+    src_file.write_text("""
+from tau_coding.extensions import Extension, tool
+
+class MyExt(Extension):
+    @tool("hello", "Say hello")
+    def hello(self, name: str = "world") -> str:
+        return f"Hello, {name}!"
+""")
+
+    reg = ExtensionRegistry()
+    reg.add_search_path(ext_dir)
+
+    reg.install_extension(str(src_file))
+
+    import pytest
+
+    with pytest.raises(ExtensionError, match="already installed"):
+        reg.install_extension(str(src_file))

@@ -24,15 +24,15 @@ Extensions are Python files placed in ``~/.tau/extensions/`` or
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import inspect
-import os
+import shutil
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
-
+from typing import Any
 
 # ── public API ──────────────────────────────────────────────────────────
 
@@ -60,7 +60,8 @@ def tool(name: str, description: str = "") -> Callable[[Callable[..., Any]], Cal
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         sig = inspect.signature(func)
         params = [
-            {"name": p.name, "kind": str(p.annotation) if p.annotation != inspect.Parameter.empty else "string"}
+            {"name": p.name,
+                "kind": str(p.annotation) if p.annotation != inspect.Parameter.empty else "string"}
             for p in sig.parameters.values()
             if p.name != "self"
         ]
@@ -75,7 +76,9 @@ def tool(name: str, description: str = "") -> Callable[[Callable[..., Any]], Cal
     return decorator
 
 
-def command(name: str, *, description: str = "") -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+def command(
+    name: str, *, description: str = ""
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator that marks a method as a slash command."""
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -196,9 +199,12 @@ class ExtensionRegistry:
             if not d.is_dir():
                 continue
             for entry in sorted(d.iterdir()):
-                if entry.suffix == ".py" and not entry.name.startswith("_"):
-                    candidates.append(entry)
-                elif entry.is_dir() and (entry / "__init__.py").exists():
+                if (
+                    entry.suffix == ".py"
+                    and not entry.name.startswith("_")
+                ) or (
+                    entry.is_dir() and (entry / "__init__.py").exists()
+                ):
                     candidates.append(entry)
         return candidates
 
@@ -242,7 +248,9 @@ class ExtensionRegistry:
             try:
                 ext = obj()
             except Exception as exc:
-                raise ExtensionError(f"Failed to instantiate {obj.__name__} from {path}: {exc}") from exc
+                raise ExtensionError(
+                    f"Failed to instantiate {obj.__name__} from {path}: {exc}"
+                ) from exc
 
             tools = self._collect_tools(ext)
             commands = self._collect_commands(ext)
@@ -411,6 +419,147 @@ class ExtensionRegistry:
                 import traceback
                 traceback.print_exc()
         self._extensions.clear()
+
+    def install_extension(self, path: str) -> ExtensionInstance:
+        """Copy a .py file or package dir into the global extension directory and load it.
+
+        Steps:
+        1. Resolve the source path.
+        2. Determine destination name (filename or dirname).
+        3. Copy to the first global search directory, auto-configuring the
+           default global path if none is set.
+        4. Load the new extension.
+        5. Return the loaded ExtensionInstance.
+
+        Raises ExtensionError if the source is not found or the extension
+        is already installed.
+        """
+        src = Path(path).resolve()
+        if not src.exists():
+            raise ExtensionError(f"Extension source not found: {src}")
+
+        # Auto-configure default global path when none is set
+        if not self._global_dirs:
+            global_path, _ = default_extension_paths()
+            self.add_search_path(global_path)
+        ext_dir = self._global_dirs[0]
+        ext_dir.mkdir(parents=True, exist_ok=True)
+
+        dest = ext_dir / src.name
+        if dest.exists():
+            raise ExtensionError(
+                f"Extension already installed at {dest}"
+            )
+
+        if src.is_dir():
+            shutil.copytree(src, dest, dirs_exist_ok=False)
+        else:
+            shutil.copy2(src, dest)
+
+        try:
+            inst = self._load_one(dest)
+        except ExtensionError:
+            # Clean up the copied file on load failure
+            if dest.is_dir():
+                shutil.rmtree(dest, ignore_errors=True)
+            else:
+                dest.unlink(missing_ok=True)
+            raise
+
+        self._extensions[inst.name] = inst
+        return inst
+
+    def uninstall_extension(self, name: str) -> None:
+        """Remove an extension by name and delete its files from disk.
+
+        Steps:
+        1. Look up the extension by class name.
+        2. Call on_unload().
+        3. Remove from the internal registry.
+        4. Delete the extension files from the global directory.
+        5. Clean up sys.modules cache entries.
+
+        Raises KeyError if the extension is not loaded.
+        """
+        if name not in self._extensions:
+            raise KeyError(f"Extension {name!r} not found")
+
+        ext = self._extensions.pop(name)
+
+        try:
+            ext.instance.on_unload()
+        except Exception:
+            import traceback
+
+            traceback.print_exc()
+
+        path = Path(ext.path)
+        if path.exists():
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+
+        self._clean_sys_modules(path)
+
+    def reload_extension(self, name: str) -> ExtensionInstance:
+        """Hot-reload a single extension without touching its files on disk.
+
+        Steps:
+        1. Save the enabled state.
+        2. Call on_unload() on the old instance.
+        3. Remove from the internal registry.
+        4. Clean sys.modules cache.
+        5. Re-import and re-register from the same path.
+        6. Restore the enabled state.
+        7. Return the new ExtensionInstance.
+
+        Raises KeyError if the extension is not loaded.
+        """
+        if name not in self._extensions:
+            raise KeyError(f"Extension {name!r} not found")
+
+        old_ext = self._extensions[name]
+        enabled = old_ext.enabled
+        path_str = old_ext.path
+
+        try:
+            old_ext.instance.on_unload()
+        except Exception:
+            import traceback
+
+            traceback.print_exc()
+
+        del self._extensions[name]
+
+        path = Path(path_str)
+        self._clean_sys_modules(path)
+
+        inst = self._load_one(path)
+        inst.enabled = enabled
+        self._extensions[name] = inst
+        return inst
+
+    @staticmethod
+    def _clean_sys_modules(path: Path) -> None:
+        """Remove extension-related entries from sys.modules and clear bytecode cache."""
+        file_stem = path.stem if path.suffix == ".py" else path.name
+        spec_name = f"tau_ext_{file_stem}"
+        sys.modules.pop(spec_name, None)
+        # Remove any sub-modules if it was a package
+        keys_to_remove = [
+            k for k in sys.modules if k.startswith(f"{spec_name}.")
+        ]
+        for k in keys_to_remove:
+            sys.modules.pop(k, None)
+        # Clear bytecode cache so reload picks up changes
+        importlib.invalidate_caches()
+        pycache = path.parent / "__pycache__"
+        if pycache.is_dir():
+            for cache_file in pycache.iterdir():
+                if cache_file.stem.startswith(file_stem):
+                    with contextlib.suppress(OSError):
+                        cache_file.unlink()
 
 
 # ── default paths ───────────────────────────────────────────────────────

@@ -1,5 +1,80 @@
 [
   {
+    "version": "0.1.4",
+    "date": "2026-07-08",
+    "sections": {
+      "New": [
+        "Add OpenCode subscription provider support with Bearer authentication.",
+        "Add models.dev metadata sync for automatic model catalog updates.",
+        "Add automatic thinking level mapping for reasoning models."
+      ],
+      "Changed": [
+        "Improve provider model scoping for thinking-level detection.",
+        "Update model catalog with correct context windows for deepseek models."
+      ],
+      "Fixed": [
+        "Fix model lookup path resolution for nested provider configs.",
+        "Fix field nesting issues in model metadata (limit.context).",
+        "Fix 304 merge handling during model catalog sync.",
+        "Fix thinking level validation at startup with empty thinking_level_map."
+      ]
+    }
+  },
+  {
+    "version": "0.1.5",
+    "date": "2026-07-08",
+    "sections": {
+      "New": [
+        "Add package manager (tau package install/remove/list).",
+        "Add RPC mode (tau --rpc) with JSONL protocol over stdin/stdout.",
+        "Add formal SDK exports and developer documentation.",
+        "Add SYSTEM.md / APPEND_SYSTEM.md support for harness system prompt.",
+        "Add install scripts for Linux/macOS (install.sh) and Windows (install.ps1)."
+      ],
+      "Changed": [
+        "Extend harness system prompt assembly to support SYSTEM.md files."
+      ],
+      "Fixed": [
+        "Fix __version__ sync between pyproject.toml and __init__.py."
+      ]
+    }
+  },
+  {
+    "version": "0.1.6",
+    "date": "2026-07-09",
+    "sections": {
+      "New": [
+        "Add offline mode (--offline flag and TAU_OFFLINE env var).",
+        "Add tool sandboxing with SandboxConfig and path validation.",
+        "Add trust store for persistent tool approval decisions.",
+        "Add extension UI widget registration (status-bar support).",
+        "Add CI pipeline with matrix strategy and coverage reporting.",
+        "Add TUI integration tests and end-to-end session tests."
+      ],
+      "Changed": [
+        "Update CLI reference documentation.",
+        "Update extension development docs with UI widget API."
+      ],
+      "Fixed": [
+        "Fix UnicodeEncodeError in terminal title on Windows.",
+        "Fix FakeSession drift in TUI test stubs."
+      ]
+    }
+  },
+  {
+    "version": "0.1.7",
+    "date": "2026-07-09",
+    "sections": {
+      "Fixed": [
+        "Fix tautological package name references (tau-ai -> tau-biggz).",
+        "Fix version string assertions in CLI tests (0.1.2 -> 0.1.7).",
+        "Fix update check message to reference tau-biggz instead of tau-ai.",
+        "Fix tool count assertions in session and tool tests.",
+        "Fix release notes metadata for versions 0.1.4 through 0.1.7."
+      ]
+    }
+  },
+  {
     "version": "0.1.3",
     "date": "2026-07-07",
     "sections": {

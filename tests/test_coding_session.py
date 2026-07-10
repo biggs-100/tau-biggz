@@ -3,6 +3,7 @@ import json
 from collections.abc import AsyncIterator
 from pathlib import Path
 
+import sys
 import pytest
 
 from tau_agent import (
@@ -176,7 +177,7 @@ async def test_load_empty_session_defers_transcript_file(tmp_path: Path) -> None
     assert session.available_thinking_levels == ("off", "minimal", "low", "medium", "high", "xhigh")
     assert session.cwd == tmp_path
     assert session.model == "fake"
-    assert [tool.name for tool in session.tools] == ["read", "write", "edit", "bash"]
+    assert [tool.name for tool in session.tools] == ["read", "write", "edit", "bash", "web_search", "subagent_run"]
 
 
 @pytest.mark.anyio
@@ -476,6 +477,7 @@ async def test_terminal_command_can_run_without_context(tmp_path: Path) -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.skipif(sys.platform == "win32", reason="bash-specific shell prefix test")
 async def test_terminal_command_uses_configured_shell_command_prefix(tmp_path: Path) -> None:
     storage = JsonlSessionStorage(tmp_path / "session.jsonl")
     session = await CodingSession.load(
@@ -497,6 +499,7 @@ async def test_terminal_command_uses_configured_shell_command_prefix(tmp_path: P
 
 
 @pytest.mark.anyio
+@pytest.mark.skipif(sys.platform == "win32", reason="bash-specific shell prefix test")
 async def test_agent_bash_tool_uses_configured_shell_command_prefix(tmp_path: Path) -> None:
     storage = JsonlSessionStorage(tmp_path / "session.jsonl")
     session = await CodingSession.load(
@@ -773,6 +776,8 @@ async def test_session_uses_active_model_thinking_capabilities(
     with pytest.raises(ValueError, match="not available"):
         await session.set_thinking_level("medium")
 
+    # Mock provider persistence to avoid test environment side effects
+    monkeypatch.setattr("tau_coding.session.CodingSession._persist_default_model_choice", lambda self: None)
     session.set_model("plain")
 
     assert session.available_thinking_levels == ()
@@ -2198,6 +2203,10 @@ async def test_session_switches_configured_provider(
             ),
         ),
     )
+    monkeypatch.setattr(
+        "tau_coding.provider_config.load_provider_settings",
+        lambda paths=None: settings,
+    )
     session = await CodingSession.load(
         CodingSessionConfig(
             provider=FakeProvider([]),
@@ -2409,6 +2418,7 @@ async def test_session_toggles_and_cycles_scoped_models(
 
 
 @pytest.mark.anyio
+@pytest.mark.skipif(sys.platform == "win32", reason="bash-specific shell prefix test")
 async def test_session_resume_preserves_shell_command_prefix(tmp_path: Path) -> None:
     manager = SessionManager(TauPaths(home=tmp_path / ".tau", agents_home=tmp_path / ".agents"))
     first_cwd = tmp_path / "first"

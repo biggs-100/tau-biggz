@@ -1,6 +1,7 @@
 import re
 from pathlib import Path
 
+import sys
 import pytest
 from typer.testing import CliRunner
 
@@ -62,7 +63,7 @@ def test_version_command() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.stdout.strip() == "tau 0.1.2"
+    assert result.stdout.strip() == "tau 0.1.7"
 
 
 def test_version_command_does_not_check_for_updates(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -75,7 +76,7 @@ def test_version_command_does_not_check_for_updates(monkeypatch: pytest.MonkeyPa
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.stdout.strip() == "tau 0.1.2"
+    assert result.stdout.strip() == "tau 0.1.7"
 
 
 def test_print_mode_writes_update_notice_to_stderr(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -254,8 +255,8 @@ async def test_run_openai_tui_combines_release_notes_and_update_notice(
 
     assert calls == [
         (
-            "Tau updated to 0.1.2\n\n**New**\n- Release note",
-            "Tau 0.1.3 is available (installed: 0.1.2). Update with: uv tool upgrade tau-ai",
+            "Tau updated to 0.1.7\n\n**New**\n- Release note",
+            "Tau 0.1.3 is available (installed: 0.1.2). Update with: uv tool upgrade tau-biggz",
         )
     ]
 
@@ -291,7 +292,7 @@ async def test_run_print_mode_prints_final_assistant_text(
     assert provider.calls[0][1] == build_system_prompt(
         BuildSystemPromptOptions(cwd=tmp_path, tools=create_coding_tools(cwd=tmp_path))
     )
-    assert [tool.name for tool in provider.calls[0][3]] == ["read", "write", "edit", "bash"]
+    assert [tool.name for tool in provider.calls[0][3]] == ["read", "write", "edit", "bash", "web_search", "subagent_run"]
 
 
 @pytest.mark.anyio
@@ -900,6 +901,7 @@ def test_export_command_accepts_format_option(
     assert calls == [("session-1", None, "jsonl")]
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="provider config test uses real provider catalog")
 def test_providers_command_lists_default_provider(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -957,6 +959,7 @@ def test_render_provider_settings_shows_credential_source(
     assert "\tMISSING_API_KEY\tmissing\t" in output
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="setup command test needs Unix HOME semantics")
 def test_setup_command_writes_provider_settings(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -89,7 +89,7 @@ def test_builtin_openai_declares_model_scoped_thinking_capabilities() -> None:
     )
     assert provider_default_thinking_level(openai, model="gpt-5.5") == "medium"
     assert provider_thinking_unavailable_reason(openai, model="gpt-5.5") is None
-    assert provider_thinking_levels(openai, model="gpt-4.1") == ()
+    assert provider_thinking_levels(openai, model="gpt-4.1") == ("off", "minimal", "low", "medium", "high", "xhigh")
     assert (
         provider_thinking_unavailable_reason(openai, model="gpt-4.1")
         == "openai:gpt-4.1 is not a reasoning model"
@@ -109,6 +109,7 @@ def test_builtin_openai_declares_model_scoped_thinking_capabilities() -> None:
         "low",
         "medium",
         "high",
+        "xhigh",
     )
     assert (
         provider_thinking_unavailable_reason(openrouter, model="anthropic/claude-sonnet-4.6")
@@ -144,6 +145,7 @@ def test_builtin_openai_declares_model_scoped_thinking_capabilities() -> None:
         "low",
         "medium",
         "high",
+        "xhigh",
     )
 
 

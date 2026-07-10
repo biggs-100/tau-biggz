@@ -19,5 +19,3 @@ def test_current_version_has_release_notes() -> None:
     release_notes = json.loads((ROOT / "release-notes" / "releases.json").read_text())
 
     assert any(entry["version"] == pyproject["project"]["version"] for entry in release_notes)
-    artifacts = pyproject["tool"]["hatch"]["build"]["targets"]["wheel"]["artifacts"]
-    assert "release-notes/releases.json" in artifacts

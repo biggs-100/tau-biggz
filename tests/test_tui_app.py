@@ -12,7 +12,7 @@ from textual.color import Color
 from textual.containers import VerticalScroll
 from textual.geometry import Offset
 from textual.selection import SELECT_ALL, Selection
-from textual.widgets import Footer, Input, Label, ListItem, ListView, Static, TextArea
+from textual.widgets import Button, Footer, Input, Label, ListItem, ListView, Static, TextArea
 from textual.widgets import Markdown as TextualMarkdown
 from textual.widgets.markdown import MarkdownStream
 
@@ -105,6 +105,7 @@ from tau_coding.tui.widgets import (
     render_session_sidebar,
     transcript_item_selection_text,
 )
+from tau_coding.tui.welcome_screen import WelcomeScreen
 
 ANSI_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
@@ -148,6 +149,7 @@ class FakeSession:
         self.events = tuple(events)
         self.cwd = Path("/workspace/project")
         self.provider_name = "openai"
+        self.provider: object = None
         self.model = "fake-model"
         self.available_models = ("fake-model", "other-model")
         self.available_model_choices = (
@@ -5782,3 +5784,85 @@ class _FakeSessionManager:
     def list_sessions(self, cwd: Path | None = None) -> list[CodingSessionRecord]:
         del cwd
         return self._records
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_welcome_screen_renders_when_login_required() -> None:
+    from tau_coding.tui.app import LoginRequiredProvider
+
+    app = TauTuiApp(FakeSession())
+    app.session.provider = LoginRequiredProvider("Login required...")
+
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.pause()
+        assert isinstance(app.screen, WelcomeScreen)
+        assert app.screen.query_one("#welcome-title", Static)
+        assert app.screen.query_one("#welcome-configure", Button)
+        assert app.screen.query_one("#welcome-later", Button)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_welcome_screen_configure_now_opens_login_picker() -> None:
+    from tau_coding.tui.app import LoginRequiredProvider
+
+    app = TauTuiApp(FakeSession())
+    app.session.provider = LoginRequiredProvider("Login required...")
+
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.pause()
+        assert isinstance(app.screen, WelcomeScreen)
+        await pilot.click("#welcome-configure")
+        await pilot.pause()
+        from tau_coding.tui.screens import LoginMethodPickerScreen
+        assert isinstance(app.screen, LoginMethodPickerScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_welcome_screen_later_dismisses() -> None:
+    from tau_coding.tui.app import LoginRequiredProvider
+
+    app = TauTuiApp(FakeSession())
+    app.session.provider = LoginRequiredProvider("Login required...")
+
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.pause()
+        assert isinstance(app.screen, WelcomeScreen)
+        await pilot.click("#welcome-later")
+        await pilot.pause()
+        assert not isinstance(app.screen, WelcomeScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_welcome_screen_not_shown_when_credentials_exist() -> None:
+    app = TauTuiApp(FakeSession())
+    app.session.provider = object()  # any non-LoginRequiredProvider
+
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.pause()
+        assert not isinstance(app.screen, WelcomeScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_welcome_screen_coexists_with_startup_notification() -> None:
+    from tau_coding.tui.app import LoginRequiredProvider
+
+    notices = ("Release notes...",)
+    app = TauTuiApp(
+        FakeSession(),
+        startup_message="Login required...",
+        startup_notices=notices,
+    )
+    app.session.provider = LoginRequiredProvider("Login required...")
+
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.pause()
+        assert isinstance(app.screen, WelcomeScreen)
+        await pilot.click("#welcome-later")
+        await pilot.pause()
+        assert not isinstance(app.screen, WelcomeScreen)
+        assert any("Release notes" in item.text for item in app.state.items)

@@ -33,6 +33,7 @@ from tau_coding.tui.widgets import (
     render_session_sidebar,
     transcript_item_selection_text,
 )
+from tau_coding.tui.welcome_screen import WelcomeScreen
 
 __all__ = [
     "BUILTIN_TUI_THEME_NAMES",
@@ -55,6 +56,7 @@ __all__ = [
     "TuiTheme",
     "TuiThemeName",
     "TuiState",
+    "WelcomeScreen",
     "get_tui_theme",
     "load_tui_settings",
     "render_chat_item",

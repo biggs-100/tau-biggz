@@ -681,6 +681,16 @@ class CodingSession:
 
     @property
 
+    def provider(self) -> ModelProvider:
+
+        """Return the active model provider for this session."""
+
+        return self._config.provider
+
+
+
+    @property
+
     def model(self) -> str:
 
         """Return the active model for this session."""

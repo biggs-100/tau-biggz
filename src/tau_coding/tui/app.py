@@ -135,6 +135,7 @@ from tau_coding.tui.screens import (  # noqa: F401 - re-exported for API compat
     _tree_choice_index,
     _tree_picker_label,
 )
+from tau_coding.tui.welcome_screen import WelcomeScreen
 from tau_coding.tui.state import TuiState, format_terminal_command_result_block
 from tau_coding.tui.widgets import (
     CompactSessionInfo,
@@ -667,8 +668,20 @@ class TauTuiApp(App[None]):
         self._sync_terminal_title()
         if self.startup_message:
             self._notify(self.startup_message, severity="warning")
+        if isinstance(self.session.provider, LoginRequiredProvider):
+            self.push_screen(
+                WelcomeScreen(),
+                callback=self._handle_welcome_screen_result,
+            )
         if self.initial_prompt and self.initial_prompt.strip():
             await self._submit_prompt(self.initial_prompt.strip())
+
+    def _handle_welcome_screen_result(self, result: Literal["configure"] | None) -> None:
+        """Handle the WelcomeScreen dismiss result."""
+        if result == "configure":
+            self._open_login_picker()
+        # If None (Later/Escape), do nothing — prompt bar already has focus
+        # from on_mount. The login-required toast is visible.
 
     def on_unmount(self) -> None:
         """Stop the activity timer when the app is torn down."""

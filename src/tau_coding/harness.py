@@ -24,7 +24,7 @@ from __future__ import annotations
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 
 # ── data model ──────────────────────────────────────────────────────────
@@ -64,6 +64,27 @@ class HarnessApproval:
 
 
 @dataclass
+class SandboxConfig:
+    """Sandbox policy for built-in file tools.
+
+    Controls which paths the agent's file tools (read, write, edit) may
+    access.  In ``"strict"`` mode only paths under the project working
+    directory plus explicitly allowed directories are permitted.
+    """
+
+    mode: str = "permissive"
+    allowed_paths: tuple[str, ...] = ()
+    allow_home_tau: bool = True
+    allow_temp: bool = True
+
+
+class ApprovalAction(NamedTuple):
+    """Resolved approval action for a single tool."""
+
+    action: str  # One of "allow", "deny", "ask"
+
+
+@dataclass
 class HarnessSubAgent:
     """A sub-agent type available to the orchestrator."""
 
@@ -83,6 +104,7 @@ class HarnessDefinition:
     tools: HarnessTools = field(default_factory=HarnessTools)
     subagents: tuple[HarnessSubAgent, ...] = ()
     approval: HarnessApproval = field(default_factory=HarnessApproval)
+    sandbox: SandboxConfig = field(default_factory=SandboxConfig)
 
 
 # ── the built-in coding harness (implicit, no file needed) ─────────────
@@ -290,6 +312,14 @@ def _parse_harness_file(path: Path) -> HarnessDefinition:
             else:
                 personality.system_prompt = append_text
 
+    sandbox_raw = raw.get("sandbox", {})
+    sandbox = SandboxConfig(
+        mode=sandbox_raw.get("mode", "permissive"),
+        allowed_paths=tuple(sandbox_raw.get("allowed_paths", [])),
+        allow_home_tau=sandbox_raw.get("allow_home_tau", True),
+        allow_temp=sandbox_raw.get("allow_temp", True),
+    )
+
     return HarnessDefinition(
         name=name,
         description=description,
@@ -297,4 +327,5 @@ def _parse_harness_file(path: Path) -> HarnessDefinition:
         provider=provider,
         tools=tools,
         approval=approval,
+        sandbox=sandbox,
     )

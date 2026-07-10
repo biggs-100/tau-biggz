@@ -1,18 +1,18 @@
-# Python-generated files
-__pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
-.mypy_cache/
-
-# Virtual environments
-.venv
 
 # Hugo docs site (website/)
+# Local Pi runtime state
+# Python-generated files
+# Virtual environments
+*.egg-info
+*.py[oc]
+.atl/
+.coverage
+.mypy_cache/
+.venv
+__pycache__/
+build/
+dist/
+website/.hugo_build.lock
 website/public/
 website/resources/
-website/.hugo_build.lock
-# Local Pi runtime state
-.atl/
+wheels/

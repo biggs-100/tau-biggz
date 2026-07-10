@@ -1,145 +1,115 @@
-# Contributing to Tau
+# Contributing to tau-biggz
 
-Thanks for helping improve Tau. Tau is both a usable terminal coding agent and a teaching codebase for understanding how coding agents are built. Contributions should preserve that dual purpose: make the tool better while keeping the architecture small, readable, and easy to learn from.
+## Development Setup
 
-## Project philosophy
+### Prerequisites
 
-Tau is organized around three layers:
+- Python 3.12+
+- [uv](https://docs.astral.sh/uv/) (package manager)
+
+### First-time setup
+
+```bash
+git clone https://github.com/biggs-100/tau-biggz.git
+cd tau-biggz
+uv sync --dev
+```
+
+### Running tests
+
+```bash
+# Full test suite
+uv run pytest
+
+# Specific test file
+uv run pytest tests/test_agents.py -v
+
+# With coverage
+uv run pytest --cov=tau_ai --cov=tau_agent --cov=tau_coding
+
+# TUI tests (Linux: use xvfb-run)
+xvfb-run uv run pytest tests/test_tui_app.py -m tui
+```
+
+### Linting and formatting
+
+```bash
+# Lint
+uv run ruff check .
+
+# Format
+uv run ruff format --check .
+
+# Type-check
+uv run mypy .
+```
+
+## Architecture
+
+Tau preserves Pi's core separation of concerns:
 
 ```text
 tau_ai      provider/model streaming layer
 tau_agent   portable agent harness, loop, tools, events, sessions
-tau_coding  CLI app, resources, skills, extensions, commands, TUI integration
+tau_coding  CLI app, resources, skills, extensions, commands, TUI
 ```
 
-The key boundary is:
+Keep the core agent packages (`tau_ai`, `tau_agent`) independent of:
+- Textual, Rich, or any rendering framework
+- Session file locations
+- Application-specific resource loading
+- CLI behavior and provider setup UX
+
+## Coding Guidelines
+
+### Commits
+
+- Use [conventional commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `test:`, `docs:`, `refactor:`, `chore:`
+- Keep commits atomic: one coherent feature, fix, docs update, refactor, or cleanup per commit
+- Never add AI attribution (no "Co-Authored-By")
+
+### Tests
+
+- New features require tests
+- Bug fixes require a regression test
+- Use `@pytest.mark.anyio` for async tests
+- Use `tmp_path` fixture for file I/O tests
+- Use `monkeypatch` for environment/test isolation
+
+### Code style
+
+- Target Python 3.12+
+- Typed dataclasses or schema models for core messages, events, tools, and sessions
+- Keep async boundaries explicit
+- Use `uv run python` or `uv run pytest` so commands use the project environment
+
+## Pull Request Process
+
+1. Ensure all tests pass: `uv run pytest`
+2. Ensure lint passes: `uv run ruff check .`
+3. Ensure formatting passes: `uv run ruff format --check .`
+4. Update CHANGELOG.md with your changes
+5. Open a PR with a clear description of the change and its motivation
+
+## Project Layout
 
 ```text
-AgentHarness = reusable agent brain
-AgentSession = coding-agent environment
-TUI = one possible frontend
+src/
+  tau_ai/          # Provider/model streaming
+  tau_agent/       # Portable agent harness
+  tau_coding/      # CLI, TUI, resources, extensions
+tests/             # Test suite
+  integration/     # Integration tests (FakeProvider -> real tools)
+website/           # Hugo documentation site
+dev-notes/         # Build journals, ADRs, design docs
 ```
 
-Please keep these principles in mind:
+## Documentation
 
-- **Small layers beat magic.** Each package should have one clear job.
-- **Events are the contract.** The harness emits typed events; UI and renderers consume them.
-- **The core stays portable.** `tau_agent` should not depend on the CLI, Textual, Rich, local config paths, or Tau-specific resource loading.
-- **Tools are ordinary typed functions.** Prefer explicit schemas and structured results.
-- **Sessions are durable and inspectable.** Avoid changes that make history hard to read, resume, or export.
-- **Documentation follows implementation.** User-facing behavior and architectural decisions should be documented.
-
-## Local development
-
-Use `uv` for Python commands so they run in the project environment.
-
-```bash
-uv sync --dev
-uv run tau --version
-```
-
-Run Tau from the checkout:
-
-```bash
-uv run tau
-uv run tau -p "explain this repo"
-```
-
-## Checks before submitting
-
-Run the relevant focused tests while developing, then run the full checks before opening a pull request when practical:
-
-```bash
-uv run pytest
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy
-```
-
-For the documentation site (a [Hugo](https://gohugo.io/) project):
-
-```bash
-cd website
-hugo server -D
-hugo --minify
-```
-
-## Where changes belong
-
-Use the layer boundaries to decide where code should live:
-
-- Provider integrations, model adapters, and provider-neutral streaming belong in `tau_ai`.
-- Agent loop behavior, tool abstractions, events, messages, harnesses, and portable session primitives belong in `tau_agent`.
-- CLI behavior, slash commands, TUI integration, local config, resources, skills, prompt templates, and coding-specific tools belong in `tau_coding`.
-- Textual-specific code should stay behind the TUI layer.
-- Rich rendering should not leak into the reusable agent harness.
-
-If a change crosses layers, prefer adding a small typed boundary instead of importing app-specific details into core code.
-
-## Adding a provider or model
-
-The built-in provider catalog is data, not code: edit
-`src/tau_coding/data/catalog.toml` and open a PR — no Python changes needed.
-Each `[[providers]]` table declares the provider's name, kind
-(`openai-compatible`, `anthropic`, or `openai-codex`), base URL, models,
-default model, context windows, and thinking configuration. Validation happens
-at load time, so a typo fails tests with a pointed error message.
-
-For personal or unreleased providers, create `~/.tau/catalog.toml` with the
-same schema — it is overlaid on the built-in catalog (your values win, models
-are unioned) and needs no PR at all.
-
-## Testing expectations
-
-- Add or update tests for behavior changes.
-- Use fake providers and fake tools for deterministic agent-loop tests.
-- Keep core tests free of provider-specific assumptions.
-- Add regression tests for bugs.
-- Prefer focused tests that describe the behavior being protected.
-
-## Documentation expectations
-
-For substantial architectural or phase-oriented work, add beginner-friendly notes under `dev-notes/` explaining:
-
-- what changed
+Each substantial change should leave behind notes under `dev-notes/` explaining:
+- what was added
 - why it exists
-- how it maps to Tau's architecture
+- how it maps to Pi's design
 - how to test or use it
 
-For user-facing behavior, update the published docs under:
-
-```text
-website/src/content/docs/
-```
-
-## Release process
-
-Tau is published to PyPI as `tau-ai`. Publishing is a production release action,
-not a side effect of every commit merged to `main`.
-
-To prepare a release, intentionally bump `[project].version` in `pyproject.toml`
-and merge that change through a pull request. The PyPI workflow publishes only
-when it detects that version change, or when a maintainer uses an explicit
-release trigger such as a published GitHub Release or manual workflow dispatch.
-See [dev-notes/release-process.md](dev-notes/release-process.md) for the full
-process.
-
-## Pull request guidelines
-
-Good Tau pull requests are small, focused, and easy to review. Please include:
-
-- the motivation for the change
-- a summary of behavior changes
-- tests or checks you ran
-- screenshots or terminal output for TUI/CLI changes when useful
-- notes about compatibility, migrations, config changes, or provider-specific behavior
-
-Avoid unrelated refactors in feature or bug-fix PRs. If a larger design change is needed, open an issue or discussion first.
-
-## Roadmap alignment
-
-Tau is developed incrementally. For larger changes, check the roadmap issue before starting:
-
-<https://github.com/alejandro-ao/tau/issues/1>
-
-When in doubt, favor the smallest step that preserves the architecture and teaches the design clearly.
+For user-facing changes, update the docs under `website/src/content/docs/`.

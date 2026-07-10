@@ -85,8 +85,9 @@ def test_print_mode_writes_update_notice_to_stderr(monkeypatch: pytest.MonkeyPat
         cwd: Path,
         output: PrintOutputMode,
         provider_name: str | None,
+        offline: bool = False,
     ) -> bool:
-        del prompt, model, cwd, output, provider_name
+        del prompt, model, cwd, output, provider_name, offline
         return True
 
     monkeypatch.setattr(
@@ -109,8 +110,9 @@ def test_json_print_mode_suppresses_update_notice(monkeypatch: pytest.MonkeyPatc
         cwd: Path,
         output: PrintOutputMode,
         provider_name: str | None,
+        offline: bool = False,
     ) -> bool:
-        del prompt, model, cwd, output, provider_name
+        del prompt, model, cwd, output, provider_name, offline
         return True
 
     monkeypatch.setattr(
@@ -154,8 +156,9 @@ def test_cli_without_prompt_invokes_tui_runner(
         auto_compact_token_threshold: int | None,
         initial_prompt: str | None,
         update_notice: object | None = None,
+        offline: bool = False,
     ) -> None:
-        del update_notice
+        del update_notice, offline
         calls.append(
             (
                 model,
@@ -192,8 +195,9 @@ def test_cli_positional_prompt_invokes_tui_runner(
         auto_compact_token_threshold: int | None,
         initial_prompt: str | None,
         update_notice: object | None = None,
+        offline: bool = False,
     ) -> None:
-        del update_notice
+        del update_notice, offline
         calls.append(
             (
                 model,
@@ -551,7 +555,9 @@ def test_cli_exits_nonzero_when_print_mode_fails(monkeypatch: pytest.MonkeyPatch
         cwd: Path,
         output: PrintOutputMode,
         provider_name: str | None,
+        offline: bool = False,
     ) -> bool:
+        del offline
         return False
 
     monkeypatch.setattr(cli, "_startup_update_notice", lambda: None)
@@ -576,8 +582,9 @@ def test_default_tui_invokes_tui_runner_with_flags(
         auto_compact_token_threshold: int | None,
         initial_prompt: str | None,
         update_notice: object | None = None,
+        offline: bool = False,
     ) -> None:
-        del update_notice
+        del update_notice, offline
         calls.append(
             (
                 model,

@@ -226,6 +226,14 @@ def main(
         bool,
         typer.Option("--rpc", help="Run in RPC mode (JSONL over stdin/stdout)."),
     ] = False,
+    offline: Annotated[
+        bool,
+        typer.Option("--offline", help="Skip network calls on startup (model sync, update check)."),
+    ] = False,
+    unsafe: Annotated[
+        bool,
+        typer.Option("--unsafe", help="Disable sandbox restrictions for this session."),
+    ] = False,
     version: Annotated[
         bool,
         typer.Option("--version", help="Show Tau's version and exit."),
@@ -238,6 +246,9 @@ def main(
     if version:
         typer.echo(f"tau {__version__}")
         raise typer.Exit()
+
+    # Offline mode: --offline flag or TAU_OFFLINE env var
+    _offline = offline or environ.get("TAU_OFFLINE", "").strip().lower() not in ("", "0", "false", "no")
 
     if ctx.invoked_subcommand is not None:
         return
@@ -252,6 +263,10 @@ def main(
 
     active_harness = load_harness(harness)
     set_active_harness(active_harness)
+
+    if unsafe:
+        active_harness.sandbox.mode = "permissive"
+        typer.echo("\u26a0  Sandbox disabled via --unsafe flag", err=True)
 
     positional_args = prompt_args or []
     command = positional_args[0] if positional_args else None
@@ -292,6 +307,9 @@ def main(
         and len(positional_args) >= 2
         and positional_args[1] == "sync"
     ):
+        if _offline:
+            typer.echo("Offline mode — skipping models sync.", err=True)
+            raise typer.Exit()
         models_sync_command()
         raise typer.Exit()
 
@@ -314,7 +332,7 @@ def main(
         raise typer.Exit()
 
     if prompt_option is None:
-        notice = _startup_update_notice()
+        notice = None if _offline else _startup_update_notice()
         try:
             anyio.run(
                 run_openai_tui,
@@ -326,6 +344,7 @@ def main(
                 auto_compact_threshold,
                 initial_prompt,
                 notice,
+                _offline,
             )
         except (RuntimeError, ValueError) as exc:
             raise typer.BadParameter(str(exc)) from exc
@@ -335,12 +354,13 @@ def main(
     if prompt is None:
         raise AssertionError("prompt option should be set outside TUI mode")
 
-    notice = _startup_update_notice()
-    if notice is not None and output is PrintOutputMode.text:
-        typer.echo(notice.message, err=True)
+    if not _offline:
+        notice = _startup_update_notice()
+        if notice is not None and output is PrintOutputMode.text:
+            typer.echo(notice.message, err=True)
 
     try:
-        ok = anyio.run(run_openai_print_mode, prompt, model, cwd or Path.cwd(), output, provider)
+        ok = anyio.run(run_openai_print_mode, prompt, model, cwd or Path.cwd(), output, provider, _offline)
     except (RuntimeError, ValueError) as exc:
         raise typer.BadParameter(str(exc)) from exc
     if not ok:
@@ -356,9 +376,10 @@ async def run_openai_tui(
     auto_compact_token_threshold: int | None = None,
     initial_prompt: str | None = None,
     update_notice: UpdateNotice | None = None,
+    offline: bool = False,
 ) -> None:
     """Run the Textual TUI with the default OpenAI-compatible provider."""
-    release_notes_notice = startup_release_notes_notice(__version__)
+    release_notes_notice = startup_release_notes_notice(__version__) if not offline else None
     startup_notices = [
         notice
         for notice in (
@@ -376,6 +397,7 @@ async def run_openai_tui(
         auto_compact_token_threshold=auto_compact_token_threshold,
         initial_prompt=initial_prompt,
         startup_notices=tuple(startup_notices),
+        offline=offline,
     )
 
 
@@ -532,20 +554,22 @@ async def run_openai_print_mode(
     cwd: Path,
     output: PrintOutputMode = PrintOutputMode.text,
     provider_name: str | None = None,
+    offline: bool = False,
     session_manager: SessionManager | None = None,
 ) -> bool:
     """Run print mode with the OpenAI-compatible provider configured from the environment."""
     settings = load_provider_settings()
     # Auto-sync model metadata from models.dev on startup
-    try:
-        from tau_coding.models_sync import sync_models
-        from tau_coding.provider_config import save_provider_settings
-        _sync_result, _updated_settings = sync_models(settings)
-        if _updated_settings is not settings:
-            save_provider_settings(_updated_settings, paths=None)
-            settings = load_provider_settings()
-    except Exception:
-        pass
+    if not offline:
+        try:
+            from tau_coding.models_sync import sync_models
+            from tau_coding.provider_config import save_provider_settings
+            _sync_result, _updated_settings = sync_models(settings)
+            if _updated_settings is not settings:
+                save_provider_settings(_updated_settings, paths=None)
+                settings = load_provider_settings()
+        except Exception:
+            pass
     shell_settings = load_shell_settings()
     selection = resolve_provider_selection(settings, provider_name=provider_name, model=model)
     provider = create_model_provider(

@@ -112,6 +112,7 @@ from tau_coding.tui.widgets import (
     CompactSessionInfo,
     SessionSidebar,
     TranscriptView,
+    render_compact_session_info,
     render_completion_suggestions,
 )
 
@@ -3273,6 +3274,27 @@ class TauTuiApp(App[None]):
         sidebar.update_from_session(self.session, theme=theme)
         compact_info = self.query_one("#compact-session-info", CompactSessionInfo)
         compact_info.update_from_session(self.session, theme=theme)
+
+        # Wire extension UI widgets into the status bar
+        _ext_widget_texts = []
+        for _w in get_default_registry().get_ui_widgets(zone="status-bar"):
+            try:
+                _t = _w.text_fn()
+                if _t:
+                    _ext_widget_texts.append(_t)
+            except Exception:
+                pass
+        if _ext_widget_texts:
+            from rich.table import Table
+            from rich.text import Text as RichText
+            _base = render_compact_session_info(self.session, theme=theme)
+            _ext_line = RichText(" | ".join(_ext_widget_texts), style=theme.completion_description)
+            _combined = Table.grid(expand=True)
+            _combined.add_column(ratio=1)
+            _combined.add_row(_base)
+            _combined.add_row(_ext_line)
+            compact_info.update(_combined)
+
         queued_messages = self.query_one("#queued-messages", Static)
         queued_messages.display = self.state.queued_message_count > 0
         queued_messages.update(_render_queued_messages(self.state, theme=theme))

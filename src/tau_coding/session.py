@@ -663,6 +663,8 @@ class CodingSession:
 
         session._refresh_runtime_provider()
 
+        get_default_registry().dispatch_event("session_start", {"session": session})
+
         return session
 
 
@@ -2255,6 +2257,8 @@ class CodingSession:
 
         """Close runtime providers and MCP connections."""
 
+        get_default_registry().dispatch_event("session_end", {"session": self})
+
         for provider in self._owned_providers:
 
             await provider.aclose()
@@ -2431,6 +2435,8 @@ class CodingSession:
 
         """Append a user prompt, run the agent, and persist new messages."""
 
+        get_default_registry().dispatch_event("before_prompt", {"session": self, "prompt": content})
+
         context = self._diagnostic_context()
 
         try:
@@ -2572,6 +2578,8 @@ class CodingSession:
             await self._try_auto_compact(context=context, phase="auto_compact_after_prompt")
 
             await self._auto_name_session(expanded_content)
+
+            get_default_registry().dispatch_event("after_prompt", {"session": self, "prompt": expanded_content})
 
         except Exception as exc:
 

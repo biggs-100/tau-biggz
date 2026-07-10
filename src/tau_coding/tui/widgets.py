@@ -34,6 +34,7 @@ from tau_agent.tools import AgentTool
 from tau_coding.prompt_templates import PromptTemplate
 from tau_coding.skills import Skill
 from tau_coding.system_prompt import ProjectContextFile
+from tau_coding.extensions import get_default_registry
 from tau_coding.tui.autocomplete import CompletionState
 from tau_coding.tui.config import TAU_DARK_THEME, TuiRoleStyle, TuiTheme
 from tau_coding.tui.state import ChatItem, TuiState
@@ -985,6 +986,25 @@ def render_compact_session_info(
     right.append(f"{session.provider_name}:{session.model}", style=theme.prompt_text)
     right.append(" ")
     right.append(f"({_thinking_level(session)})", style=theme.completion_description)
+
+    # Extension UI widgets
+    try:
+        ui_widgets = get_default_registry().get_ui_widgets(zone="status-bar")
+        if ui_widgets:
+            parts = []
+            for w in ui_widgets:
+                try:
+                    widget_text = w.text_fn()
+                    if widget_text:
+                        parts.append(widget_text)
+                except Exception:
+                    pass
+            if parts:
+                widget_part = Text(" | ".join(parts), style=theme.completion_description)
+                left.append("  ")
+                left.append(widget_part)
+    except Exception:
+        pass
 
     table = Table.grid(expand=True)
     table.add_column(ratio=1)

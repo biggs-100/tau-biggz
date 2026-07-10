@@ -44,11 +44,6 @@ class Extension:
     decorators to register capabilities.
     """
 
-    # Populated by the decorators at class definition time.
-    _tools: list[dict[str, Any]] = []
-    _commands: list[dict[str, Any]] = []
-    _handlers: dict[str, list[Callable[..., Any]]] = {}
-
     def on_load(self) -> None:
         """Called after the extension is loaded. Override for init logic."""
 
@@ -174,6 +169,7 @@ class ExtensionInstance:
     tools: list[ToolRegistration] = field(default_factory=list)
     commands: list[CommandRegistration] = field(default_factory=list)
     handlers: dict[str, list[Callable[..., Any]]] = field(default_factory=dict)
+    ui_widgets: tuple[UIWidget, ...] = ()
 
 
 class ExtensionRegistry:
@@ -250,6 +246,7 @@ class ExtensionRegistry:
             tools = self._collect_tools(ext)
             commands = self._collect_commands(ext)
             handlers = self._collect_handlers(ext)
+            ui_widgets = self._collect_ui_widgets(ext)
 
             try:
                 ext.on_load()
@@ -264,6 +261,7 @@ class ExtensionRegistry:
                     tools=tools,
                     commands=commands,
                     handlers=handlers,
+                    ui_widgets=ui_widgets,
                 )
             )
 
@@ -302,6 +300,22 @@ class ExtensionRegistry:
                 )
             )
         return cmds
+
+    def _collect_ui_widgets(self, ext: Extension) -> tuple[UIWidget, ...]:
+        """Collect UI widgets from an extension instance."""
+        widgets: list[UIWidget] = []
+        for _name, method in inspect.getmembers(ext, predicate=inspect.ismethod):
+            zone = getattr(method, "__tau_ui_widget__", None)
+            if zone is None:
+                continue
+            widgets.append(
+                UIWidget(
+                    zone=zone,
+                    name=method.__name__,
+                    text_fn=method,
+                )
+            )
+        return tuple(widgets)
 
     def _collect_handlers(self, ext: Extension) -> dict[str, list[Callable[..., Any]]]:
         handlers: dict[str, list[Callable[..., Any]]] = {}

@@ -11,7 +11,9 @@ from tau_coding.mcp_manager import (
     _load_configs,
     _package_to_name,
     _save_configs,
+    mcp_install,
     mcp_list,
+    mcp_remove,
     mcp_search,
 )
 
@@ -188,3 +190,146 @@ class TestMcpSearch:
         results = mcp_search("something-odd")
         assert len(results) >= 1
         assert "something-odd" in results[0]["name"]
+
+    def _make_mock_response(self, json_data: dict) -> object:
+        """Create a mock httpx.Response with request set for raise_for_status."""
+        import httpx
+
+        request = httpx.Request(
+            "GET",
+            "https://registry.npmjs.org/-/v1/search",
+        )
+        return httpx.Response(200, json=json_data, request=request)
+
+    def test_search_successful(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Successful HTTP response returns parsed npm results."""
+        import httpx
+
+        mock_response = self._make_mock_response(
+            {
+                "objects": [
+                    {
+                        "package": {
+                            "name": "@modelcontextprotocol/server-filesystem",
+                            "description": "MCP server for filesystem operations",
+                            "version": "1.0.0",
+                        },
+                    },
+                    {
+                        "package": {
+                            "name": "@modelcontextprotocol/server-github",
+                            "description": "MCP server for GitHub",
+                            "version": "2.0.0",
+                        },
+                    },
+                ]
+            },
+        )
+
+        monkeypatch.setattr(httpx, "get", lambda *a, **kw: mock_response)
+
+        results = mcp_search("filesystem")
+        assert len(results) == 2
+        assert results[0]["name"] == "@modelcontextprotocol/server-filesystem"
+        assert results[0]["description"] == "MCP server for filesystem operations"
+        assert results[0]["version"] == "1.0.0"
+        assert results[1]["name"] == "@modelcontextprotocol/server-github"
+
+    def test_search_empty_response(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Empty npm response returns empty list."""
+        import httpx
+
+        mock_response = self._make_mock_response({"objects": []})
+        monkeypatch.setattr(httpx, "get", lambda *a, **kw: mock_response)
+
+        results = mcp_search("nonexistent")
+        assert results == []
+
+
+# ── mcp_install ────────────────────────────────────────────────────────
+
+
+class TestMcpInstall:
+    """Tests for mcp_install -- add MCP server to config."""
+
+    def test_install_new(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """Install a new MCP server creates a config entry."""
+        _monkeypatch_config_path(monkeypatch, tmp_path)
+
+        result = mcp_install("@modelcontextprotocol/server-filesystem")
+        assert "Installed" in result
+        assert "filesystem" in result
+
+        configs = _load_configs()
+        assert len(configs) == 1
+        assert configs[0]["name"] == "filesystem"
+        assert configs[0]["transport"] == "stdio"
+        assert configs[0]["command"] == "npx"
+        assert configs[0]["args"] == ["-y", "@modelcontextprotocol/server-filesystem"]
+
+    def test_install_duplicate(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """Installing a package with a duplicate name returns already-installed message."""
+        _monkeypatch_config_path(monkeypatch, tmp_path)
+
+        mcp_install("@modelcontextprotocol/server-filesystem")
+        result = mcp_install("@modelcontextprotocol/server-filesystem")
+        assert "already installed" in result
+
+        configs = _load_configs()
+        assert len(configs) == 1
+
+    def test_install_simple_name(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """Install a package without npm scope."""
+        _monkeypatch_config_path(monkeypatch, tmp_path)
+
+        result = mcp_install("server-git")
+        assert "Installed" in result
+        assert "git" in result
+
+        configs = _load_configs()
+        assert len(configs) == 1
+        assert configs[0]["name"] == "git"
+        assert configs[0]["args"] == ["-y", "server-git"]
+
+
+# ── mcp_remove ─────────────────────────────────────────────────────────
+
+
+class TestMcpRemove:
+    """Tests for mcp_remove -- remove MCP server from config."""
+
+    def test_remove_existing(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """Remove an existing server removes it from config."""
+        _monkeypatch_config_path(monkeypatch, tmp_path)
+        _save_configs([
+            {"name": "filesystem", "transport": "stdio", "command": "npx",
+             "args": ["-y", "@scope/server-fs"]},
+            {"name": "search", "transport": "stdio", "command": "npx",
+             "args": ["-y", "@scope/server-search"]},
+        ])
+
+        result = mcp_remove("search")
+        assert "Removed" in result
+
+        configs = _load_configs()
+        assert len(configs) == 1
+        assert configs[0]["name"] == "filesystem"
+
+    def test_remove_nonexistent(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """Remove a non-existent server returns not-found message."""
+        _monkeypatch_config_path(monkeypatch, tmp_path)
+
+        result = mcp_remove("nonexistent")
+        assert "not found" in result
+
+    def test_remove_last(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """Remove the last server in config."""
+        _monkeypatch_config_path(monkeypatch, tmp_path)
+        _save_configs([
+            {"name": "only-one", "transport": "stdio", "command": "npx",
+             "args": ["-y", "server-only"]},
+        ])
+
+        result = mcp_remove("only-one")
+        assert "Removed" in result
+        assert _load_configs() == []

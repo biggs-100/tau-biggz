@@ -13,7 +13,7 @@ Tau is a Python tool. The easiest way to install it is with
 [`uv`](https://docs.astral.sh/uv/):
 
 ```bash
-uv tool install tau-ai
+uv tool install tau-biggz
 ```
 
 Tau requires Python 3.12 or newer.
@@ -25,10 +25,35 @@ tau --version
 ```
 
 {{% tip title="Don't have uv?" %}}
-You can install Tau with `pipx install tau-ai` or
-`python -m pip install tau-ai`. If you prefer `uv`, install it with
+You can install Tau with `pipx install tau-biggz` or
+`python -m pip install tau-biggz`. If you prefer `uv`, install it with
 `curl -LsSf https://astral.sh/uv/install.sh | sh` (macOS/Linux), or see the
 [uv install docs](https://docs.astral.sh/uv/getting-started/installation/).
+{{% /tip %}}
+
+{{% tip title="Install script (macOS/Linux)" %}}
+For a single-command setup:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/biggs-100/tau-biggz/main/install.sh | sh
+```
+{{% /tip %}}
+
+{{% tip title="Install script (Windows/PowerShell)" %}}
+
+```powershell
+irm https://raw.githubusercontent.com/biggs-100/tau-biggz/main/install.ps1 | iex
+```
+{{% /tip %}}
+
+{{% tip title="Offline mode" %}}
+Pass `--offline` to skip network calls (model sync, update check) on startup:
+
+```bash
+tau --offline
+```
+
+You can also set `TAU_OFFLINE=1` in your environment.
 {{% /tip %}}
 
 ## 2. Connect a model

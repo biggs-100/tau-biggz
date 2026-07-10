@@ -7,15 +7,11 @@
 </p>
 
 <p align="center">
-  <a href="https://twotimespi.dev/">Documentation</a>
+  <a href="https://github.com/biggs-100/tau-biggz">GitHub</a>
   ·
-  <a href="https://twotimespi.dev/quickstart/">Quickstart</a>
+  <a href="https://pypi.org/project/tau-biggz/">PyPI</a>
   ·
-  <a href="https://twotimespi.dev/internals/architecture/">Architecture</a>
-  ·
-  <a href="https://pypi.org/project/tau-ai/">PyPI</a>
-  ·
-  <a href="https://github.com/alejandro-ao/tau/issues/1">Roadmap</a>
+  <a href="https://github.com/biggs-100/tau-biggz/issues">Issues</a>
 </p>
 
 ---
@@ -54,20 +50,32 @@ or rendering. Frontends consume events.
 
 ## Install
 
-Tau is published on PyPI as `tau-ai` and installs a `tau` command.
+Tau is published on PyPI as `tau-biggz` and installs a `tau` command.
 It requires Python 3.12 or newer.
 
 ```bash
-uv tool install tau-ai
+uv tool install tau-biggz
 tau --version
 ```
 
 Don't have `uv`? Install with `pipx` or `pip` instead:
 
 ```bash
-pipx install tau-ai
+pipx install tau-biggz
 # or
-python -m pip install tau-ai
+python -m pip install tau-biggz
+```
+
+You can also use the install script for a single-command setup:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/biggs-100/tau-biggz/main/install.sh | sh
+```
+
+PowerShell (Windows):
+
+```powershell
+irm https://raw.githubusercontent.com/biggs-100/tau-biggz/main/install.ps1 | iex
 ```
 
 If you prefer `uv`, install it with:
@@ -79,8 +87,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 For local development:
 
 ```bash
-git clone https://github.com/alejandro-ao/tau.git
-cd tau
+git clone https://github.com/biggs-100/tau-biggz.git
+cd tau-biggz
 uv sync --dev
 uv run tau --version
 ```
@@ -122,7 +130,7 @@ tau
 
 Tau ships with support for OpenAI, Anthropic, OpenAI Codex subscription auth,
 OpenRouter, Hugging Face, and custom OpenAI-compatible endpoints, including local
-models. See the [providers guide](https://twotimespi.dev/guides/providers-and-models/).
+models. See the [providers guide](website/content/guides/providers-and-models.md).
 
 The built-in catalog lives in `src/tau_coding/data/catalog.toml`; add your own
 providers and models by dropping a `~/.tau/catalog.toml` with the same schema —
@@ -134,12 +142,17 @@ no code changes required.
 - Built-in coding tools: `read`, `write`, `edit`, and `bash`.
 - Durable JSONL sessions under `~/.tau/sessions/` with resume and branching.
 - Slash commands for login, model selection, sessions, compaction, export, theme,
-  and more.
+  trust, and more.
 - Project instructions from `AGENTS.md`, `.tau/`, and `.agents/` resources.
 - User skills and prompt templates.
 - Context accounting, manual compaction, and optional automatic compaction.
 - Provider-neutral event rendering for Rich, plain text, JSON, transcripts, and
   custom frontends.
+- `--offline` flag to skip network calls on startup.
+- `--rpc` mode for non-Python integrations (JSONL over stdin/stdout).
+- `--harness` / `--list-harnesses` for loading and listing agent harnesses.
+- `tau models sync` to sync model metadata from the model registry.
+- `tau package` to install, list, and remove community packages.
 
 ## Philosophy
 
@@ -208,20 +221,24 @@ Open <http://localhost:1313/>. Build with `hugo --minify`.
 
 ## Documentation
 
-User docs are published at <https://twotimespi.dev/> and live in
-`website/content/`.
+User docs live in `website/content/`. Build and view them locally:
+
+```bash
+cd website
+hugo server -D
+```
 
 Useful entry points:
 
-- [What is Tau?](https://twotimespi.dev/what-is-tau/)
-- [Quickstart](https://twotimespi.dev/quickstart/)
-- [Core concepts](https://twotimespi.dev/concepts/)
-- [Architecture overview](https://twotimespi.dev/internals/architecture/)
-- [The agent loop & events](https://twotimespi.dev/internals/agent-loop/)
-- [CLI reference](https://twotimespi.dev/reference/cli/)
+- [What is Tau?](website/content/what-is-tau.md)
+- [Quickstart](website/content/quickstart.md)
+- [Core concepts](website/content/concepts.md)
+- [Architecture overview](website/content/internals/architecture.md)
+- [The agent loop & events](website/content/internals/agent-loop.md)
+- [CLI reference](website/content/reference/cli.md)
 
 Tau is under active development. The implementation roadmap is tracked in
-[GitHub issue #1](https://github.com/alejandro-ao/tau/issues/1).
+[GitHub issues](https://github.com/biggs-100/tau-biggz/issues).
 
 ## License
 

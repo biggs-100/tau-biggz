@@ -16,6 +16,7 @@ command palette with **Ctrl+K**.
 | `/export [--format html\|jsonl] [dest]` | Export the current session |
 | `/resume [session-id]` | Resume a previous session, or open the picker |
 | `/tree` | Branch from an earlier point in the session tree |
+| `/trust add\|remove\|list [tool]` | Manage trusted tools for approval-required execution |
 | `/name <new name>` | Rename the current session |
 | `/model` | Open the model picker |
 | `/scoped-models` | Choose favorite models for the Ctrl+P quick-cycle |

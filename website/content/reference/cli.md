@@ -15,7 +15,7 @@ tau [OPTIONS] [PROMPT] [COMMAND] [ARGS]
 - `-p/--prompt` runs a single prompt in [print mode]({{< relref "../guides/print-mode.md" >}}).
 
 On TUI and text print-mode startup, Tau may show a non-blocking notice when a
-newer `tau-ai` release is available on PyPI. Disable it with
+newer `tau-biggz` release is available on PyPI. Disable it with
 `TAU_NO_UPDATE_CHECK=1`; utility commands such as `tau --version`, `tau sessions`,
 and `tau export` do not run the check. After an upgrade, the TUI also adds a
 one-time release-notes message to the transcript with the new features and fixes.
@@ -29,6 +29,11 @@ one-time release-notes message to the transcript with the new features and fixes
 | `tau sessions` | List indexed sessions (id, title, model, cwd) |
 | `tau export <ref> [dest] [--format html\|jsonl]` | Export a session id or JSONL path (HTML default) |
 | `tau providers` | List configured providers and how each authenticates |
+| `tau providers add` | Add a new provider interactively |
+| `tau models sync` | Sync model metadata from the model registry |
+| `tau package install <name>` | Install a community package |
+| `tau package list` | List installed community packages |
+| `tau package remove <name>` | Remove a community package |
 | `tau [setup options] setup` | Create/update an OpenAI-compatible provider |
 
 ## Options
@@ -44,6 +49,10 @@ one-time release-notes message to the transcript with the new features and fixes
 | `--new-session` | Start a new session instead of resuming the default |
 | `--auto-compact-threshold INT` | Auto-compact above this rough token estimate |
 | `--version` | Print the version and exit |
+| `--offline` | Skip network calls on startup (model sync, update check) |
+| `--rpc` | Run in RPC mode (JSONL over stdin/stdout) |
+| `--harness TEXT` | Harness name to load |
+| `--list-harnesses` | List available harnesses |
 
 ### Provider setup options
 

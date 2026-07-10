@@ -1,6 +1,6 @@
 # Tau Extension System
 
-Tau extensions let you add custom tools, slash commands, and event
+Tau extensions let you add custom tools, slash commands, UI widgets, and event
 handlers without modifying Tau's source code. They are Python files
 placed in ``~/.tau/extensions/`` or ``.tau/extensions/``.
 
@@ -54,6 +54,50 @@ Run Tau normally. Extensions are auto-discovered.
 | `@tool(name, description)` | Register a tool callable by the LLM |
 | `@command(name, description=)` | Register a slash command (`/name`) |
 | `@on(event_name)` | Subscribe to lifecycle events |
+| `@ui_widget(zone="status-bar")` | Register a UI widget for the TUI status bar |
+
+### `UIWidget` dataclass
+
+```python
+@dataclass
+class UIWidget:
+    zone: str
+    name: str
+    text_fn: Callable[[], str]
+```
+
+Extensions that register UI widgets produce `UIWidget` instances. The `zone`
+determines where in the TUI the widget renders (currently only `"status-bar"`).
+The `text_fn` is called each frame to produce the widget's display text.
+
+See the working example at `example_extensions/ui_status_ext.py`:
+
+```python
+"""Example extension: status bar widget.
+
+Install by placing this file in ~/.tau/extensions/ or .tau/extensions/.
+"""
+
+from __future__ import annotations
+
+import datetime
+
+from tau_coding.extensions import Extension, ui_widget
+
+
+class UiStatusExt(Extension):
+    """Demonstrates extension UI widgets in the status bar."""
+
+    @ui_widget("status-bar")
+    def clock(self) -> str:
+        """Return the current time for the status bar."""
+        return f"🕒 {datetime.datetime.now():%H:%M:%S}"
+
+    @ui_widget("status-bar")
+    def greeting(self) -> str:
+        """Return a greeting."""
+        return "👋 Tau ready"
+```
 
 ### Events
 

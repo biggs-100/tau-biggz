@@ -36,11 +36,11 @@ Run Tau normally. Extensions are auto-discovered.
 
 ---
 
-## Ubicacion
+## Location
 
 ```
-~/.tau/extensions/*.py        global (todos los proyectos)
-.tau/extensions/*.py          proyecto-local
+~/.tau/extensions/*.py        global (all projects)
+.tau/extensions/*.py          project-local
 ```
 
 ---
@@ -103,16 +103,16 @@ class UiStatusExt(Extension):
 
 | Event | Payload | When |
 |-------|---------|------|
-| `session_start` | `{}` | After a session starts |
-| `session_end` | `{}` | Before a session ends |
+| `session_start` | `{"session": ...}` | After a session starts |
+| `session_end` | `{"session": ...}` | Before a session ends |
+| `before_prompt` | `{"session": ..., "prompt": content}` | Before the agent processes a prompt |
+| `after_prompt` | `{"session": ..., "prompt": content}` | After the agent responds |
 | `tool_call` | `{tool_name, input, tool_call_id}` | Before **any** tool executes |
 | `after_tool_call` | `{tool_name, input, result}` | After any tool executes |
-| `before_prompt` | `{content}` | Before the agent processes a prompt |
-| `after_prompt` | `{content, response}` | After the agent responds |
 
-**Nota:** `tool_call` y `after_tool_call` se disparan para TODAS las tools:
-built-in (read, write, edit, bash, web_search, subagent_run), MCP, y de
-extensiones. Esto se logra via `_wrap_tool_with_events()` en `tools.py`.
+**Note:** `tool_call` and `after_tool_call` fire for ALL tools:
+built-in (read, write, edit, bash, web_search, subagent_run), MCP, and
+extension tools. This is achieved via `_wrap_tool_with_events()` in `tools.py`.
 
 ### Event handler return values
 
@@ -121,7 +121,7 @@ extensiones. Esto se logra via `_wrap_tool_with_events()` en `tools.py`.
 
 ---
 
-## Bloqueo de tools
+## Tool blocking
 
 ```python
 @on("tool_call")
@@ -133,12 +133,57 @@ def block_rm(self, event):
     return None
 ```
 
-Esto funciona para **cualquier tool**: read, write, bash, edit, web_search,
-subagent_run, MCP tools, y otras extensiones.
+This works for **any tool**: read, write, bash, edit, web_search,
+subagent_run, MCP tools, and other extensions.
 
 ---
 
-## Tools disponibles
+## Enable / disable extensions at runtime
+
+Extensions are enabled by default when loaded. You can toggle them
+programmatically via the registry API:
+
+```python
+from tau_coding.extensions import get_default_registry
+
+registry = get_default_registry()
+
+# Disable an extension by class name
+registry.disable_extension("MyExtension")
+
+# Re-enable
+registry.enable_extension("MyExtension")
+
+# Check status
+if registry.is_extension_enabled("MyExtension"):
+    ...
+```
+
+Disabling an extension at runtime prevents its tools, commands, UI widgets,
+and event handlers from being returned or dispatched. The extension remains
+loaded in memory and can be re-enabled without re-loading.
+
+---
+
+## `ExtensionRegistry` API
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `add_search_path(path, project_local=False)` | `None` | Add a directory to scan for extensions |
+| `discover()` | `list[Path]` | Return candidate extension file paths |
+| `load_all()` | `list[ExtensionInstance]` | Discover and load all extensions |
+| `get_tools()` | `list[ToolRegistration]` | Return tools from enabled extensions |
+| `get_commands()` | `list[CommandRegistration]` | Return commands from enabled extensions |
+| `get_ui_widgets(zone)` | `list[UIWidget]` | Return UI widgets for a zone from enabled extensions |
+| `dispatch_event(event_name, event_data)` | `list[Any]` | Dispatch event to enabled extension handlers |
+| `enable_extension(name)` | `None` | Enable a loaded extension |
+| `disable_extension(name)` | `None` | Disable a loaded extension |
+| `is_extension_enabled(name)` | `bool` | Check if a loaded extension is enabled |
+| `unload_all()` | `None` | Unload all extensions |
+
+---
+
+## Available tools
 
 | Tool | Description |
 |------|-------------|
@@ -154,10 +199,10 @@ subagent_run, MCP tools, y otras extensiones.
 ### subagent_run
 
 ```python
-# Desde un agente markdown
+# From an agent markdown
 subagent_run(task="Review this code", agent="reviewer")
 
-# Con instrucciones inline
+# With inline instructions
 subagent_run(
   task="Check for security issues",
   instructions="You are a security auditor."
@@ -167,39 +212,42 @@ subagent_run(
 ### web_search
 
 ```python
-web_search(query="ultimos avances IA 2026")
+web_search(query="latest AI advances 2026")
 ```
 
-Usa DuckDuckGo HTML search. No requiere API key.
+Uses DuckDuckGo HTML search. No API key required.
 
 ---
 
-## Ciclo de vida
+## Lifecycle
 
-1. **Discovery** — Tau escanea los directorios de extensiones al arrancar
-2. **Load** — cada `.py` se importa y las subclases de `Extension` se instancian
-3. **on_load()** — llamado despues de instanciar (override para setup)
-4. **Registration** — tools, commands, y handlers se recolectan de los metodos decorados
-5. **on_unload()** — llamado cuando se descargan las extensiones
+1. **Discovery** — Tau scans extension directories at startup
+2. **Load** — each `.py` is imported and `Extension` subclasses are instantiated
+3. **on_load()** — called after instantiation (override for setup)
+4. **Registration** — tools, commands, and handlers are collected from decorated methods
+5. **Enable/disable** — extensions can be toggled at runtime without re-loading
+6. **on_unload()** — called when extensions are unloaded
 
 ---
 
 ## vs MCP
 
-| Aspecto | Extension | MCP Server |
-|---------|-----------|------------|
-| Lenguaje | Python | Cualquiera |
-| Proceso | Dentro de Tau | Proceso separado |
-| Distribucion | Archivo `.py` | Paquete npm/PyPI/binario |
-| Aislamiento | Comparte proceso con Tau | Proceso aislado |
-| Ideal para | Tools chicas, eventos, blocking | Tools complejas, ecosistema externo |
+| Aspect | Extension | MCP Server |
+|--------|-----------|------------|
+| Language | Python | Any |
+| Process | Inside Tau | Separate process |
+| Distribution | `.py` file | npm/PyPI/binary package |
+| Isolation | Shares process with Tau | Isolated process |
+| Ideal for | Small tools, events, blocking | Complex tools, external ecosystem |
 
 ---
 
-## Arquitectura
+## Architecture
 
 - `src/tau_coding/extensions.py` — core (Extension, Registry, decorators)
 - `src/tau_coding/tools.py` — `_wrap_tool_with_events()` dispatches events
-- `src/tau_coding/agents.py` — agent markdown loading
+- `src/tau_coding/commands.py` — extension command routing via `_extension_command_handler()`
+- `src/tau_coding/session.py` — session lifecycle events
+- `src/tau_coding/tui/app.py` / `src/tau_coding/tui/widgets.py` — UI widget rendering
 - Loader: Python `importlib`
-- Event dispatch: sincronico (no bloquear por mucho tiempo)
+- Event dispatch: synchronous (do not block for long)

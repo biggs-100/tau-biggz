@@ -6,11 +6,13 @@ from pathlib import Path
 
 from tau_coding.extensions import (
     Extension,
+    ExtensionInstance,
     ExtensionRegistry,
     command,
     create_default_registry,
-    tool,
     on,
+    tool,
+    ui_widget,
 )
 
 
@@ -121,3 +123,153 @@ def test_greeting_tool_returns_greeting() -> None:
     ext = TestGreetingExt()
     assert ext.hello() == "Hello, world!"
     assert ext.hello("Tau") == "Hello, Tau!"
+
+
+# ── Integration tests ───────────────────────────────────────────────────────
+
+
+def test_event_dispatch() -> None:
+    """Register @on('session_start'), dispatch event, verify handler called."""
+    call_log: list[tuple[str, object]] = []
+
+    class TestExt(Extension):
+        @on("session_start")
+        def on_start(self, event: object) -> None:
+            call_log.append(("session_start", event))
+
+    reg = ExtensionRegistry()
+    ext = TestExt()
+    handlers = reg._collect_handlers(ext)
+    reg._extensions["TestExt"] = ExtensionInstance(
+        name="TestExt",
+        path="",
+        instance=ext,
+        handlers=handlers,
+    )
+
+    reg.dispatch_event("session_start", {"session_id": "test-123"})
+    assert len(call_log) == 1
+    assert call_log[0][0] == "session_start"
+    assert call_log[0][1] == {"session_id": "test-123"}  # type: ignore[comparison-overlap]
+
+
+def test_tool_blocking() -> None:
+    """Register an extension with @on('tool_call') that returns {"block": True}."""
+    class TestExt(Extension):
+        @on("tool_call")
+        def blocker(self, event: object) -> dict:
+            return {"block": True, "reason": "Blocked by test"}
+
+    reg = ExtensionRegistry()
+    ext = TestExt()
+    handlers = reg._collect_handlers(ext)
+    reg._extensions["TestExt"] = ExtensionInstance(
+        name="TestExt",
+        path="",
+        instance=ext,
+        handlers=handlers,
+    )
+
+    results = reg.dispatch_event(
+        "tool_call", {"tool_name": "bash", "input": {}, "tool_call_id": "test"}
+    )
+    assert len(results) == 1
+    assert isinstance(results[0], dict)
+    assert results[0].get("block") is True
+    assert results[0].get("reason") == "Blocked by test"
+
+
+def test_command_routing() -> None:
+    """Extension @command() appears in get_commands() and handler works."""
+    class TestExt(Extension):
+        @command("test_cmd", description="A test command")
+        def my_cmd(self, args: str) -> str:
+            return f"executed: {args}"
+
+    reg = ExtensionRegistry()
+    ext = TestExt()
+    commands = reg._collect_commands(ext)
+    reg._extensions["TestExt"] = ExtensionInstance(
+        name="TestExt",
+        path="",
+        instance=ext,
+        commands=commands,
+    )
+
+    cmds = reg.get_commands()
+    assert len(cmds) == 1
+    assert cmds[0].name == "test_cmd"
+    assert cmds[0].description == "A test command"
+
+    # Handler is the unbound function; real code calls it as handler(cmd_registration, args)
+    result = cmds[0].handler(cmds[0], "arg1")
+    assert result == "executed: arg1"
+
+
+def test_enable_disable() -> None:
+    """Disable an extension, verify get_tools() empty, re-enable, verify tools return."""
+    class TestExt(Extension):
+        @tool("greet", "A test tool")
+        def greet(self, name: str = "world") -> str:
+            return f"Hello, {name}!"
+
+    reg = ExtensionRegistry()
+    ext = TestExt()
+    tools = reg._collect_tools(ext)
+    reg._extensions["TestExt"] = ExtensionInstance(
+        name="TestExt",
+        path="",
+        instance=ext,
+        tools=tools,
+    )
+
+    # Initially enabled
+    assert reg.is_extension_enabled("TestExt")
+    assert len(reg.get_tools()) == 1
+
+    # Disable
+    reg.disable_extension("TestExt")
+    assert not reg.is_extension_enabled("TestExt")
+    assert len(reg.get_tools()) == 0
+
+    # Re-enable
+    reg.enable_extension("TestExt")
+    assert reg.is_extension_enabled("TestExt")
+    assert len(reg.get_tools()) == 1
+
+
+def test_enable_disable_unknown_extension() -> None:
+    """enable/disable/is_enabled on unknown extension raises KeyError."""
+    reg = ExtensionRegistry()
+    import pytest
+
+    with pytest.raises(KeyError, match="NonExistent"):
+        reg.enable_extension("NonExistent")
+    with pytest.raises(KeyError, match="NonExistent"):
+        reg.disable_extension("NonExistent")
+    with pytest.raises(KeyError, match="NonExistent"):
+        reg.is_extension_enabled("NonExistent")
+
+
+def test_ui_widget_collection() -> None:
+    """Create an extension with @ui_widget(), call get_ui_widgets(), verify the widget."""
+    class TestExt(Extension):
+        @ui_widget("status-bar")
+        def clock(self) -> str:
+            return "🕒 12:00:00"
+
+    reg = ExtensionRegistry()
+    ext = TestExt()
+    ui_widgets = reg._collect_ui_widgets(ext)
+    reg._extensions["TestExt"] = ExtensionInstance(
+        name="TestExt",
+        path="",
+        instance=ext,
+        ui_widgets=ui_widgets,
+    )
+
+    widgets = reg.get_ui_widgets(zone="status-bar")
+    assert len(widgets) == 1
+    assert widgets[0].zone == "status-bar"
+    assert widgets[0].name == "clock"
+    assert widgets[0].text_fn() == "🕒 12:00:00"

@@ -71,29 +71,13 @@ def _load_extensions() -> None:
     global _extension_registry
     if _extension_registry is not None:
         return
-    registry = get_default_registry()
-    loaded_instances = list(registry._extensions.values()) if hasattr(registry, '_extensions') else []
-    if loaded_instances:
-        for inst in loaded_instances:
-            typer.echo(f"  loaded extension: {inst.name}", err=True)
-            for t in inst.tools:
-                typer.echo(f"    tool: {t.name}", err=True)
-            for c in inst.commands:
-                typer.echo(f"    command: /{c.name}", err=True)
-    _extension_registry = registry
+    _extension_registry = get_default_registry()
 
 
 def get_extension_registry():
     """Return the global extension registry, loading if needed."""
     if _extension_registry is None:
         _load_extensions()
-        if rpc:
-            from tau_coding.rpc import run_rpc_mode
-            try:
-                anyio.run(run_rpc_mode, cwd=cwd)
-            except RuntimeError as exc:
-                raise typer.BadParameter(str(exc)) from exc
-            raise typer.Exit()
     return _extension_registry
 
 
@@ -207,6 +191,10 @@ def main(
         bool,
         typer.Option("--list-harnesses", help="List available harnesses."),
     ] = False,
+    list_extensions: Annotated[
+        bool,
+        typer.Option("--list-extensions", help="List loaded extensions and their tools/commands."),
+    ] = False,
     resume: Annotated[
         str | None,
         typer.Option("--resume", help="Resume a session id in TUI mode."),
@@ -259,6 +247,24 @@ def main(
     if list_harnesses:
         for h in list_available_harnesses():
             typer.echo(f"  {h['name']:20s} {h['description']}")
+        raise typer.Exit()
+
+    if list_extensions:
+        registry = get_extension_registry()
+        ext_list = list(registry._extensions.values()) if hasattr(registry, '_extensions') else []
+        if not ext_list:
+            typer.echo("No extensions loaded.")
+        else:
+            for inst in ext_list:
+                status = "enabled" if inst.enabled else "disabled"
+                typer.echo(f"  {inst.name:20s} {inst.path:40s} [{status}]")
+                for t in inst.tools:
+                    typer.echo(f"    tool: {t.name}")
+                for c in inst.commands:
+                    typer.echo(f"    command: /{c.name}")
+                if inst.handlers:
+                    for evt in inst.handlers:
+                        typer.echo(f"    handler: {evt}")
         raise typer.Exit()
 
     active_harness = load_harness(harness)

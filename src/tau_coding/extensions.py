@@ -17,7 +17,7 @@ Extensions are Python files placed in ``~/.tau/extensions/`` or
 
         @on("tool_call")
         def block_rm(self, event) -> dict | None:
-            if event.get("tool_name") == "bash" \\
+            if event.get("tool_name") == "bash" \
                and "rm -rf" in event.get("input", {}).get("command", ""):
                 return {"block": True, "reason": "Blocked by safety check"}
 """
@@ -166,6 +166,7 @@ class ExtensionInstance:
     name: str
     path: str
     instance: Extension
+    enabled: bool = True
     tools: list[ToolRegistration] = field(default_factory=list)
     commands: list[CommandRegistration] = field(default_factory=list)
     handlers: dict[str, list[Callable[..., Any]]] = field(default_factory=dict)
@@ -258,6 +259,7 @@ class ExtensionRegistry:
                     name=obj.__name__,
                     path=str(path),
                     instance=ext,
+                    enabled=True,
                     tools=tools,
                     commands=commands,
                     handlers=handlers,
@@ -323,36 +325,46 @@ class ExtensionRegistry:
             event_name = getattr(method, "__tau_handler__", None)
             if event_name is None:
                 continue
-            handlers.setdefault(event_name, []).append(method)
+            func = method.__func__
+            handlers.setdefault(event_name, []).append(func)
         return handlers
 
     def get_tools(self) -> list[ToolRegistration]:
         """Return all registered tools from all loaded extensions."""
         result: list[ToolRegistration] = []
         for ext in self._extensions.values():
-            result.extend(ext.tools)
+            if ext.enabled:
+                result.extend(ext.tools)
         return result
 
     def get_commands(self) -> list[CommandRegistration]:
         """Return all registered commands from all loaded extensions."""
         result: list[CommandRegistration] = []
         for ext in self._extensions.values():
-            result.extend(ext.commands)
+            if ext.enabled:
+                result.extend(ext.commands)
         return result
 
     def get_ui_widgets(self, zone: str = "status-bar") -> list[UIWidget]:
         """Return all registered UI widgets for a given zone."""
         result: list[UIWidget] = []
         for ext in self._extensions.values():
-            for w in ext.ui_widgets:
-                if w.zone == zone:
-                    result.append(w)
+            if ext.enabled:
+                for w in ext.ui_widgets:
+                    if w.zone == zone:
+                        result.append(w)
         return result
 
     def dispatch_event(self, event_name: str, event_data: dict[str, Any]) -> list[Any]:
-        """Dispatch an event to all extension handlers and return results."""
+        """Dispatch an event to all enabled extension handlers and return results.
+
+        Handlers are stored as unbound functions, so they are called with
+        the extension instance as self and the event data as the argument.
+        """
         results: list[Any] = []
         for ext in self._extensions.values():
+            if not ext.enabled:
+                continue
             handlers = ext.handlers.get(event_name, [])
             for handler in handlers:
                 try:
@@ -362,6 +374,33 @@ class ExtensionRegistry:
                     import traceback
                     traceback.print_exc()
         return results
+
+    def enable_extension(self, name: str) -> None:
+        """Enable a loaded extension by name.
+
+        Raises KeyError if the extension is not loaded.
+        """
+        if name not in self._extensions:
+            raise KeyError(f"Extension {name!r} not found")
+        self._extensions[name].enabled = True
+
+    def disable_extension(self, name: str) -> None:
+        """Disable a loaded extension by name.
+
+        Raises KeyError if the extension is not loaded.
+        """
+        if name not in self._extensions:
+            raise KeyError(f"Extension {name!r} not found")
+        self._extensions[name].enabled = False
+
+    def is_extension_enabled(self, name: str) -> bool:
+        """Return whether a loaded extension is enabled.
+
+        Raises KeyError if the extension is not loaded.
+        """
+        if name not in self._extensions:
+            raise KeyError(f"Extension {name!r} not found")
+        return self._extensions[name].enabled
 
     def unload_all(self) -> None:
         """Unload all extensions."""

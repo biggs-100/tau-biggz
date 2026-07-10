@@ -2207,6 +2207,8 @@ async def test_session_switches_configured_provider(
         "tau_coding.provider_config.load_provider_settings",
         lambda paths=None: settings,
     )
+    import tau_coding.session as _session_mod
+    monkeypatch.setattr(_session_mod, "load_provider_settings", lambda paths=None: settings)
     session = await CodingSession.load(
         CodingSessionConfig(
             provider=FakeProvider([]),

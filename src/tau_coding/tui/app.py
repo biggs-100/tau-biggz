@@ -6,12 +6,9 @@ import asyncio
 from collections.abc import AsyncIterator, Sequence
 from contextlib import suppress
 from inspect import isawaitable
-from io import StringIO
 from pathlib import Path
 from typing import Any, ClassVar, Literal, cast
 
-from rich.console import Console, Group
-from rich.text import Text
 from textual import events, on
 from textual.app import App, ComposeResult
 from textual.binding import Binding, BindingsMap
@@ -47,7 +44,6 @@ from tau_agent.tools import AgentTool
 from tau_ai import ProviderErrorEvent, ProviderEvent
 from tau_ai.provider import CancellationToken
 from tau_coding.catalog_loader import save_user_catalog_entries
-from tau_coding.commands import CommandRegistry, create_default_command_registry
 from tau_coding.credentials import FileCredentialStore, OAuthCredential
 from tau_coding.extensions import get_default_registry
 from tau_coding.oauth import (  # noqa: F401 - re-exported for API compat
@@ -87,15 +83,11 @@ from tau_coding.shell_config import load_shell_settings
 from tau_coding.thinking import DEFAULT_THINKING_LEVEL, ThinkingLevel
 from tau_coding.tui.adapter import TuiEventAdapter
 from tau_coding.tui.autocomplete import (
-    CompletionItem,
-    CompletionOption,
     CompletionState,
     build_completion_state,
 )
 from tau_coding.tui.config import (
     BUILTIN_TUI_THEME_NAMES,
-    TAU_DARK_THEME,
-    TuiKeybindings,
     TuiSettings,
     TuiTheme,
     TuiThemeName,
@@ -104,8 +96,7 @@ from tau_coding.tui.config import (
 )
 from tau_coding.tui.input import (
     PromptInput,
-    SessionCompletionRecord,
-    _terminal_command_prefix_span,
+    _terminal_command_prefix_span,  # noqa: F401 - re-exported for API compat
 )
 from tau_coding.tui.screens import (  # noqa: F401 - re-exported for API compat
     BranchSummaryInstructionsScreen,
@@ -146,19 +137,6 @@ from tau_coding.tui.widgets import (
 )
 
 type BindingEntry = Binding | tuple[str, str] | tuple[str, str, str]
-SIDEBAR_MIN_WIDTH = 96
-SIDEBAR_MIN_HEIGHT = 24
-ACTIVITY_TICK_SECONDS = 0.15
-ACTIVITY_COLOR_FADE_STEPS = 24
-ACTIVITY_INDICATOR_HEIGHT = 3
-COMPLETION_MAX_VISIBLE_LINES = 16
-COMPLETION_INITIAL_TERMINAL_FRACTION = 3
-COMPLETION_MIN_TRANSCRIPT_LINES = 4
-COMPLETION_WIDGET_CHROME_LINES = 3
-NO_STORED_CREDENTIALS_MESSAGE = (
-    "No stored credentials to remove. /logout only removes credentials saved by /login; "
-    "environment variables and providers.json config are unchanged."
-)
 
 
 class LoginRequiredProvider:
@@ -2053,687 +2031,60 @@ class TauTuiApp(App[None]):
         self._apply_activity_indicator()
 
 
-def _activity_prompt_border_color(
-    theme: TuiTheme,
-    *,
-    frame: int,
-    running: bool,
-    shell_mode: bool,
-) -> str:
-    """Return the prompt border color for the current activity animation frame."""
-    del frame, running
-    if shell_mode:
-        return theme.accent
-    return theme.prompt_border
 
-
-def _render_activity_indicator(theme: TuiTheme, *, frame: int, running: bool) -> Text:
-    """Render the prompt prefix, turning Tau into a moving square while running."""
-    if not running:
-        return Text("τ", style=f"bold {theme.accent}")
-
-    cycle_length = (ACTIVITY_INDICATOR_HEIGHT - 1) * 2
-    cycle_position = frame % cycle_length
-    active_row = (
-        cycle_position
-        if cycle_position < ACTIVITY_INDICATOR_HEIGHT
-        else cycle_length - cycle_position
-    )
-    direction = 1 if cycle_position < ACTIVITY_INDICATOR_HEIGHT else -1
-    trail_rows = {
-        active_row: theme.accent,
-        active_row - direction: _blend_hex_colors(
-            theme.accent,
-            theme.screen_background,
-            fraction=0.35,
-        ),
-        active_row - (direction * 2): _blend_hex_colors(
-            theme.accent,
-            theme.screen_background,
-            fraction=0.65,
-        ),
-    }
-
-    rendered = Text()
-    for row in range(ACTIVITY_INDICATOR_HEIGHT):
-        color = trail_rows.get(row)
-        if color is None:
-            rendered.append(" ")
-        else:
-            rendered.append("■", style=color)
-        if row < ACTIVITY_INDICATOR_HEIGHT - 1:
-            rendered.append("\n")
-    return rendered
-
-
-def _is_terminal_command_prompt(text: str) -> bool:
-    """Return whether the prompt is currently in terminal-command mode."""
-    return _terminal_command_prefix_span(text) is not None
-
-
-def _should_optimistically_render_prompt(text: str) -> bool:
-    """Return whether submitted text can be safely shown before session expansion."""
-    stripped = text.strip()
-    return bool(stripped) and not stripped.startswith("/")
-
-
-def _is_user_message_end_event(event: AgentEvent) -> bool:
-    """Return whether an agent event closes a user message."""
-    return isinstance(event, MessageEndEvent) and isinstance(event.message, UserMessage)
-
-
-def _blend_hex_colors(start: str, end: str, *, fraction: float) -> str:
-    """Blend two ``#rrggbb`` colors by ``fraction``."""
-    start_rgb = _hex_to_rgb(start)
-    end_rgb = _hex_to_rgb(end)
-    blended = tuple(
-        round(start_channel + (end_channel - start_channel) * fraction)
-        for start_channel, end_channel in zip(start_rgb, end_rgb, strict=True)
-    )
-    return f"#{blended[0]:02x}{blended[1]:02x}{blended[2]:02x}"
-
-
-def _hex_to_rgb(color: str) -> tuple[int, int, int]:
-    value = color.removeprefix("#")
-    if len(value) != 6:
-        raise ValueError(f"Expected #rrggbb color, got {color!r}")
-    return (int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16))
-
-
-def _completion_visible_line_limit(suggestions: Static) -> int:
-    """Return the number of completion render lines that fit in the widget body."""
-    if suggestions.size.height > 0:
-        return max(min(COMPLETION_MAX_VISIBLE_LINES, suggestions.size.height), 1)
-    return COMPLETION_MAX_VISIBLE_LINES
-
-
-def _visible_completion_state(
-    state: CompletionState,
-    *,
-    max_lines: int,
-    width: int | None = None,
-) -> CompletionState:
-    """Return a completion-state window with the selected item visible."""
-    if not state.items or max_lines <= 0:
-        return CompletionState()
-
-    selected_line_limit = max(max_lines - 1, 1)
-    start = 0
-    while start < state.selected_index:
-        candidate = CompletionState(
-            items=state.items[start:],
-            selected_index=state.selected_index - start,
-        )
-        if _completion_selected_render_line(candidate, width=width) < selected_line_limit:
-            break
-        start += 1
-
-    end = len(state.items)
-    while end > state.selected_index + 1:
-        candidate = CompletionState(
-            items=state.items[start:end],
-            selected_index=state.selected_index - start,
-        )
-        if _completion_render_line_count(candidate, width=width) <= max_lines:
-            break
-        end -= 1
-
-    while start < state.selected_index:
-        candidate = CompletionState(
-            items=state.items[start:end],
-            selected_index=state.selected_index - start,
-        )
-        if _completion_render_line_count(candidate, width=width) <= max_lines:
-            break
-        start += 1
-
-    return CompletionState(
-        items=state.items[start:end],
-        selected_index=state.selected_index - start,
-    )
-
-
-def _completion_selected_render_line(state: CompletionState, *, width: int | None = None) -> int:
-    """Return the rendered line number for the selected completion item."""
-    line = 0
-    has_rendered_text = False
-    previous_category: str | None = None
-    for index, item in enumerate(state.items):
-        if item.category != previous_category:
-            if has_rendered_text:
-                line += 1
-            if item.category:
-                line += 1
-                has_rendered_text = True
-            previous_category = item.category
-        elif has_rendered_text:
-            line += 1
-        if index == state.selected_index:
-            return line
-        line += _completion_item_extra_wrapped_lines(item, width=width)
-        has_rendered_text = True
-    return line
-
-
-def _completion_render_line_count(state: CompletionState, *, width: int | None = None) -> int:
-    """Return how many lines the completion state renders into."""
-    if not state.items:
-        return 0
-    line_count = 0
-    previous_category: str | None = None
-    for index, item in enumerate(state.items):
-        if item.category != previous_category:
-            if index:
-                line_count += 1
-            if item.category:
-                line_count += 1
-            previous_category = item.category
-        line_count += 1 + _completion_item_extra_wrapped_lines(item, width=width)
-    return line_count
-
-
-def _completion_item_extra_wrapped_lines(
-    item: CompletionItem,
-    *,
-    width: int | None,
-) -> int:
-    """Return extra rendered lines used when a completion description wraps."""
-    if width is None or width <= 0 or not item.description:
-        return 0
-    output = StringIO()
-    console = Console(
-        file=output,
-        width=width,
-        force_terminal=False,
-        color_system=None,
-        legacy_windows=False,
-    )
-    console.print(
-        render_completion_suggestions(
-            CompletionState(items=(item,), selected_index=0),
-            theme=TAU_DARK_THEME,
-        ),
-        end="",
-    )
-    line_count = len(output.getvalue().splitlines())
-    return max(line_count - 1, 0)
-
-
-def _session_command_registry(session: CodingSession) -> CommandRegistry:
-    registry = getattr(session, "command_registry", None)
-    if isinstance(registry, CommandRegistry):
-        return registry
-    return create_default_command_registry()
-
-
-def _session_options(session: CodingSession) -> tuple[CompletionOption, ...]:
-    return tuple(_session_option(record) for record in _session_records(session))
-
-
-def _session_records(session: CodingSession) -> tuple[SessionCompletionRecord, ...]:
-    manager = getattr(session, "session_manager", None)
-    if manager is None:
-        return ()
-    try:
-        records = manager.list_sessions(session.cwd)
-    except TypeError:
-        records = manager.list_sessions()
-    return tuple(records)
-
-
-def _session_option(record: SessionCompletionRecord) -> CompletionOption:
-    description_parts = [record.title if record.title else "Untitled session"]
-    if record.model:
-        description_parts.append(record.model)
-    description_parts.append(_short_path(record.cwd))
-    return CompletionOption(value=record.id, description=" - ".join(description_parts))
-
-
-def _short_path(path: Path) -> str:
-    home = Path.home()
-    try:
-        return f"~/{path.relative_to(home)}"
-    except ValueError:
-        return str(path)
-
-
-def _session_header_sub_title(session: CodingSession) -> str:
-    """Return the session label shown beside Tau in the TUI header."""
-    title = _named_session_title(getattr(session, "session_title", None))
-    return title or "Untitled session"
-
-
-def _subscription_login_providers(
-    providers: Sequence[ProviderCatalogEntry],
-) -> tuple[ProviderCatalogEntry, ...]:
-    return tuple(provider for provider in providers if provider.kind == "openai-codex")
-
-
-def _api_key_login_providers(
-    providers: Sequence[ProviderCatalogEntry],
-) -> tuple[ProviderCatalogEntry, ...]:
-    return tuple(provider for provider in providers if provider.kind != "openai-codex")
-
-
-def _stored_credential_providers(
-    providers: Sequence[ProviderCatalogEntry],
-) -> tuple[ProviderCatalogEntry, ...]:
-    credential_store = FileCredentialStore()
-    return tuple(
-        provider
-        for provider in providers
-        if provider.credential_name is not None
-        and _credential_store_has_entry(credential_store, provider.credential_name)
-    )
-
-
-def _credential_store_has_entry(
-    credential_store: FileCredentialStore,
-    credential_name: str,
-) -> bool:
-    return (
-        credential_store.get(credential_name) is not None
-        or credential_store.get_oauth(credential_name) is not None
-    )
-
-
-def _command_message_uses_transcript(command_text: str) -> bool:
-    """Return whether slash-command output should appear inline in the transcript."""
-    command_name = command_text.split(maxsplit=1)[0].casefold()
-    return command_name in {"/reload", "/system"}
-
-
-def _command_message_uses_notification(command_text: str, message: str) -> bool:
-    """Return whether slash-command output should appear as a notification."""
-    command_name = command_text.split(maxsplit=1)[0].casefold()
-    return command_name == "/name" and message.startswith("Session renamed: ")
-
-
-def _command_output_title(command_text: str) -> str:
-    command_name = command_text.split(maxsplit=1)[0].removeprefix("/")
-    return f"/{command_name or 'help'}"
-
-
-def _theme_css_variables(theme: TuiTheme) -> dict[str, str]:
-    return {
-        "tau-screen-background": theme.screen_background,
-        "tau-screen-text": theme.screen_text,
-        "tau-chrome-background": theme.chrome_background,
-        "tau-chrome-text": theme.chrome_text,
-        "tau-muted-text": theme.muted_text,
-        "tau-sidebar-background": theme.sidebar_background,
-        "tau-border": theme.border,
-        "tau-transcript-background": theme.transcript_background,
-        "tau-prompt-background": theme.prompt_background,
-        "tau-prompt-text": theme.prompt_text,
-        "tau-prompt-border": theme.prompt_border,
-        "tau-autocomplete-background": theme.autocomplete_background,
-        "tau-accent": theme.accent,
-        "tau-highlight-background": theme.highlight_background,
-        "tau-highlight-text": theme.highlight_text,
-        "tau-markdown-highlight": theme.markdown_heading,
-        "tau-markdown-table-header": theme.markdown_table_header,
-        "tau-markdown-table-border": theme.markdown_table_border,
-        "tau-markdown-inline-code": theme.markdown_inline_code,
-        "tau-markdown-code-block-background": theme.markdown_code_block_background,
-        "tau-markdown-link": theme.markdown_link,
-        "tau-markdown-bullet": theme.markdown_bullet,
-        "footer-background": theme.chrome_background,
-        "footer-foreground": theme.chrome_text,
-        "footer-description-background": theme.chrome_background,
-        "footer-description-foreground": theme.chrome_text,
-        "footer-key-background": theme.chrome_background,
-        "footer-key-foreground": theme.accent,
-        "footer-item-background": theme.chrome_background,
-    }
-
-
-def _render_queued_messages(state: TuiState, *, theme: TuiTheme) -> Group:
-    """Render queued prompts stacked above the prompt input."""
-    rows: list[Text] = []
-    for message in state.queued_steering:
-        row = Text("↪ steering · queued: ", style=theme.muted_text)
-        row.append(_queued_message_preview(message), style=theme.prompt_text)
-        rows.append(row)
-    for message in state.queued_follow_up:
-        row = Text("↳ follow-up · queued: ", style=theme.muted_text)
-        row.append(_queued_message_preview(message), style=theme.prompt_text)
-        rows.append(row)
-    return Group(*rows)
-
-
-def _queued_message_preview(message: str) -> str:
-    """Return the single-line preview shown above the prompt."""
-    lines = message.splitlines()
-    return lines[0] if lines else ""
-
-
-def _prompt_footer_mode(
-    state: TuiState,
-    completion_state: CompletionState,
-) -> Literal["normal", "completion", "running"]:
-    if completion_state.items:
-        return "completion"
-    if state.running:
-        return "running"
-    return "normal"
-
-
-def _app_bindings(keybindings: TuiKeybindings) -> list[Binding]:
-    return [
-        Binding(keybindings.cancel, "cancel", "Cancel"),
-        Binding(keybindings.command_palette, "open_command_palette", "Commands"),
-        Binding(keybindings.session_picker, "open_session_picker", "Sessions"),
-        Binding(keybindings.thinking_cycle, "cycle_thinking", "Thinking"),
-        Binding(keybindings.model_cycle, "cycle_model", "Model"),
-        Binding(
-            keybindings.accept_completion,
-            "accept_completion",
-            "Complete",
-            priority=True,
-        ),
-        Binding(
-            keybindings.queue_follow_up,
-            "submit_follow_up",
-            "Follow-up",
-            priority=True,
-        ),
-        Binding(
-            keybindings.completion_next,
-            "completion_next",
-            "Next completion",
-            priority=True,
-        ),
-        Binding(
-            keybindings.completion_previous,
-            "completion_previous",
-            "Previous completion",
-            priority=True,
-        ),
-        Binding(keybindings.toggle_tool_results, "toggle_tool_results", "Tool results"),
-        Binding(keybindings.toggle_thinking, "toggle_thinking", "Thinking tokens"),
-        Binding(keybindings.copy_message, "clear_prompt", "Clear input"),
-        Binding(keybindings.quit, "quit", "Quit"),
-    ]
-
-
-def _text_end_location(text: str) -> tuple[int, int]:
-    """Return the TextArea cursor location at the end of text."""
-    line, _, column_text = text.rpartition("\n")
-    return (line.count("\n") + 1 if line else 0, len(column_text))
-
-
-def _format_prompt_error(exc: BaseException, session: CodingSession) -> str:
-    detail = str(exc) or type(exc).__name__
-    message = f"Error: {detail}"
-    log_path = getattr(session, "last_diagnostic_log_path", None)
-    if isinstance(log_path, Path):
-        return f"{message}\nLog: {log_path}"
-    return message
-
-
-def _attach_diagnostic_log_path_to_error(state: TuiState, session: CodingSession) -> None:
-    log_path = getattr(session, "last_diagnostic_log_path", None)
-    if not isinstance(log_path, Path) or state.error is None:
-        return
-    message = f"Error: {state.error}\nLog: {log_path}"
-    state.error = message
-    for item in reversed(state.items):
-        if item.role == "error":
-            item.text = message
-            return
-    state.add_item("error", message)
-
-
-def _explicit_resume_record(
-    manager: SessionManager,
-    *,
-    session_id: str | None,
-) -> CodingSessionRecord | None:
-    if session_id is None:
-        return None
-    record = manager.get_session(session_id)
-    if record is None:
-        raise RuntimeError(f"Unknown session: {session_id}")
-    return record
-
-
-def _create_startup_session_record(
-    manager: SessionManager,
-    *,
-    cwd: Path,
-    selection: ProviderSelection,
-) -> CodingSessionRecord:
-    try:
-        return manager.prepare_session(
-            cwd=cwd,
-            model=selection.model,
-            provider_name=selection.provider.name,
-        )
-    except TypeError:
-        return manager.prepare_session(cwd=cwd, model=selection.model)
-
-
-def _resolve_tui_startup_selection(
-    settings: Any,
-    *,
-    record: Any | None,
-    provider_name: str | None,
-    model: str | None,
-    explicit_resume: bool,
-    manager: Any | None = None,
-    cwd: Path | None = None,
-) -> ProviderSelection:
-    if provider_name is not None or model is not None:
-        return resolve_provider_selection(settings, provider_name=provider_name, model=model)
-
-    if explicit_resume:
-        record_selection = _selection_from_session_record(settings, record)
-        if record_selection is not None:
-            return record_selection
-
-    default_selection = resolve_provider_selection(settings)
-    if provider_has_usable_credentials(
-        default_selection.provider,
-        credential_reader=FileCredentialStore(),
-    ):
-        return default_selection
-
-    # Try to restore provider/model from the latest session for this cwd
-    if manager is not None and cwd is not None and not explicit_resume:
-        latest = manager.latest_session_for_cwd(cwd)
-        if latest is not None:
-            latest_selection = _selection_from_session_record(settings, latest)
-            if latest_selection is not None and provider_has_usable_credentials(
-                latest_selection.provider,
-                credential_reader=FileCredentialStore(),
-            ):
-                return latest_selection
-
-    fallback_selection = _first_usable_startup_selection(settings)
-    return fallback_selection or default_selection
-
-
-
-def _resolve_startup_thinking_level(
-    provider: ProviderConfig,
-    model: str,
-) -> ThinkingLevel:
-    """Return a valid thinking level for the startup provider/model pair."""
-    from tau_coding.provider_config import provider_default_thinking_level, provider_thinking_levels
-    levels = provider_thinking_levels(provider, model=model)
-    if not levels:
-        return DEFAULT_THINKING_LEVEL
-    preferred = provider_default_thinking_level(provider, model=model)
-    if preferred and preferred in levels:
-        return preferred
-    if DEFAULT_THINKING_LEVEL in levels:
-        return DEFAULT_THINKING_LEVEL
-    return levels[0]
-
-
-def _first_usable_startup_selection(settings: Any) -> ProviderSelection | None:
-    credential_store = FileCredentialStore()
-    for provider in settings.providers:
-        if provider_has_usable_credentials(provider, credential_reader=credential_store):
-            return ProviderSelection(provider=provider, model=provider.default_model)
-    return None
-
-
-def _selection_from_session_record(settings: Any, record: Any | None) -> ProviderSelection | None:
-    if record is None:
-        return None
-    record_model = getattr(record, "model", None)
-    if not isinstance(record_model, str) or not record_model:
-        return None
-
-    record_provider = getattr(record, "provider_name", None)
-    if isinstance(record_provider, str) and record_provider:
-        try:
-            return resolve_provider_selection(
-                settings,
-                provider_name=record_provider,
-                model=record_model,
-            )
-        except Exception:
-            return None
-
-    for choice in _usable_scoped_startup_choices(settings):
-        if choice.model == record_model:
-            return resolve_provider_selection(
-                settings,
-                provider_name=choice.provider_name,
-                model=choice.model,
-            )
-
-    credential_store = FileCredentialStore()
-    for provider in settings.providers:
-        if record_model not in provider.models:
-            continue
-        if not provider_has_usable_credentials(provider, credential_reader=credential_store):
-            continue
-        return ProviderSelection(provider=provider, model=record_model)
-    return None
-
-
-def _usable_scoped_startup_choices(settings: Any) -> tuple[ModelChoice, ...]:
-    credential_store = FileCredentialStore()
-    choices: list[ModelChoice] = []
-    for item in settings.scoped_models:
-        try:
-            provider = settings.get_provider(item.provider)
-        except Exception:
-            continue
-        if item.model not in provider.models:
-            continue
-        if not provider_has_usable_credentials(provider, credential_reader=credential_store):
-            continue
-        choices.append(ModelChoice(provider_name=item.provider, model=item.model))
-    return tuple(choices)
-
-
-async def run_tui_app(
-    *,
-    model: str | None,
-    cwd: Path,
-    session_id: str | None = None,
-    new_session: bool = False,
-    provider_name: str | None = None,
-    auto_compact_token_threshold: int | None = None,
-    initial_prompt: str | None = None,
-    session_manager: SessionManager | None = None,
-    startup_notice: str | None = None,
-    startup_notices: Sequence[str] = (),
-    offline: bool = False,
-) -> None:
-    """Create the default provider/session and run the Textual app."""
-    if new_session and session_id is not None:
-        raise RuntimeError("--resume and --new-session cannot be used together")
-
-    provider_settings = load_provider_settings()
-    # Auto-sync model metadata from models.dev on startup
-    if not offline:
-        try:
-            from tau_coding.models_sync import sync_models
-            from tau_coding.provider_config import save_provider_settings
-            _sync_result, _updated_settings = sync_models(provider_settings)
-            if _updated_settings is not provider_settings:
-                save_provider_settings(_updated_settings, paths=None)
-                provider_settings = load_provider_settings()
-        except Exception:
-            pass
-    shell_settings = load_shell_settings()
-    manager = session_manager or SessionManager()
-    record = _explicit_resume_record(
-        manager,
-        session_id=session_id,
-    )
-    selection = _resolve_tui_startup_selection(
-        provider_settings,
-        record=record,
-        provider_name=provider_name,
-        model=model,
-        explicit_resume=session_id is not None,
-        manager=manager,
-        cwd=cwd,
-    )
-    startup_message: str | None = None
-    runtime_provider_config: ProviderConfig | None = selection.provider
-    try:
-        provider = create_model_provider(
-            selection.provider,
-            model=selection.model,
-            thinking_level=_resolve_startup_thinking_level(selection.provider, selection.model),
-        )
-    except RuntimeError:
-        login_required_message = (
-            "Login required. Run /login to choose a provider, "
-            f"or /login {selection.provider.name} to continue with the current provider."
-        )
-        startup_message = login_required_message
-        provider = LoginRequiredProvider(startup_message)
-        runtime_provider_config = None
-    session: CodingSession | None = None
-    try:
-        index_on_first_persist = False
-        if record is None:
-            record = _create_startup_session_record(
-                manager,
-                cwd=cwd,
-                selection=selection,
-            )
-            index_on_first_persist = manager.get_session(record.id) is None
-
-        session = await CodingSession.load(
-            CodingSessionConfig(
-                provider=provider,
-                model=record.model or selection.model,
-                cwd=record.cwd,
-                storage=jsonl_session_storage(record.path),
-                session_id=record.id,
-                session_manager=manager,
-                provider_name=selection.provider.name,
-                provider_settings=provider_settings,
-                runtime_provider_config=runtime_provider_config,
-                auto_compact_token_threshold=auto_compact_token_threshold,
-                index_on_first_persist=index_on_first_persist,
-                shell_command_prefix=shell_settings.shell_command_prefix,
-            )
-        )
-        legacy_notices = (startup_notice,) if startup_notice else ()
-        all_startup_notices = tuple((*startup_notices, *legacy_notices))
-        app = TauTuiApp(
-            session,
-            tui_settings=load_tui_settings(),
-            startup_message=startup_message,
-            startup_notices=all_startup_notices,
-            initial_prompt=initial_prompt,
-        )
-        await app.run_async()
-    finally:
-        if session is not None:
-            close_session = getattr(session, "aclose", None)
-            if close_session is not None:
-                await close_session()
-        await provider.aclose()
-
+# Re-export symbols moved to app_helpers and app_runner
+from tau_coding.tui.app_helpers import (  # noqa: E402, F401
+    SIDEBAR_MIN_WIDTH,
+    SIDEBAR_MIN_HEIGHT,
+    ACTIVITY_TICK_SECONDS,
+    ACTIVITY_COLOR_FADE_STEPS,
+    ACTIVITY_INDICATOR_HEIGHT,
+    COMPLETION_MAX_VISIBLE_LINES,
+    COMPLETION_INITIAL_TERMINAL_FRACTION,
+    COMPLETION_MIN_TRANSCRIPT_LINES,
+    COMPLETION_WIDGET_CHROME_LINES,
+    NO_STORED_CREDENTIALS_MESSAGE,
+    _activity_prompt_border_color,
+    _render_activity_indicator,
+    _is_terminal_command_prompt,
+    _should_optimistically_render_prompt,
+    _is_user_message_end_event,
+    _blend_hex_colors,
+    _hex_to_rgb,
+    _completion_visible_line_limit,
+    _visible_completion_state,
+    _completion_selected_render_line,
+    _completion_render_line_count,
+    _completion_item_extra_wrapped_lines,
+    _session_command_registry,
+    _session_options,
+    _session_records,
+    _session_option,
+    _short_path,
+    _session_header_sub_title,
+    _subscription_login_providers,
+    _api_key_login_providers,
+    _stored_credential_providers,
+    _credential_store_has_entry,
+    _command_message_uses_transcript,
+    _command_message_uses_notification,
+    _command_output_title,
+    _theme_css_variables,
+    _render_queued_messages,
+    _queued_message_preview,
+    _prompt_footer_mode,
+    _app_bindings,
+    _text_end_location,
+    _format_prompt_error,
+    _attach_diagnostic_log_path_to_error,
+)
+from tau_coding.tui.app_runner import (  # noqa: E402, F401
+    _explicit_resume_record,
+    _create_startup_session_record,
+    _resolve_tui_startup_selection,
+    _resolve_startup_thinking_level,
+    _first_usable_startup_selection,
+    _selection_from_session_record,
+    _usable_scoped_startup_choices,
+    run_tui_app,
+)

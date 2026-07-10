@@ -21,6 +21,8 @@ def set_terminal_title(title: str) -> None:
     """
     if not sys.stdout.isatty():
         return
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        return
     sanitized = _sanitize_title(title)
     try:
         sys.stdout.write(f"\x1b]0;{sanitized}\x07")

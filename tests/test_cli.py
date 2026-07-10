@@ -685,6 +685,7 @@ def test_tui_surfaces_bad_model_as_clean_error(
     ``ValueError`` subclass) raised while resolving the provider/model selection
     escaped the ``anyio`` event loop as an unhandled traceback.
     """
+    import tau_coding.provider_config as provider_config_mod
     import tau_coding.tui.app as tui_app
 
     settings = _constrained_provider_settings()
@@ -693,6 +694,7 @@ def test_tui_surfaces_bad_model_as_clean_error(
     monkeypatch.setattr(cli, "_startup_update_notice", lambda: None)
     monkeypatch.setattr(cli, "load_provider_settings", lambda *args, **kwargs: settings)
     monkeypatch.setattr(tui_app, "load_provider_settings", lambda *args, **kwargs: settings)
+    monkeypatch.setattr(provider_config_mod, "load_provider_settings", lambda *args, **kwargs: settings)
 
     result = CliRunner().invoke(app, ["--model", "llama", "--provider", "local"])
 

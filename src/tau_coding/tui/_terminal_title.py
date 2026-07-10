@@ -6,6 +6,7 @@ icon name and window title — what appears in the tab or window title bar.
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 

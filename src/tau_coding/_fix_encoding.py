@@ -20,4 +20,4 @@ def reconfigure_std_streams() -> None:
     """Force UTF-8 encoding on stdout and stderr with error replacement."""
     for stream in (sys.stdout, sys.stderr):
         with contextlib.suppress(AttributeError, ValueError):
-            stream.reconfigure(encoding="utf-8", errors="replace")
+            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]

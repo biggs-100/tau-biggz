@@ -4,7 +4,19 @@
 
 from __future__ import annotations
 
-
+__all__ = [
+    "CodingSession",
+    "CodingSessionConfig",
+    "ModelChoice",
+    "SessionTreeBranchResult",
+    "SessionTreeChoice",
+    "TerminalCommandResult",
+    "create_model_provider",
+    "default_session_path",
+    "jsonl_session_storage",
+    "load_provider_settings",
+    "parse_terminal_command",
+]
 
 from collections.abc import AsyncIterator
 
@@ -539,7 +551,7 @@ class CodingSession(_ProviderMixin, _ReloadResumeMixin, _CompactionMixin):
 
     @property
 
-    def cwd(self) -> Path:
+    def cwd(self) -> Path:  # type: ignore[override]
 
         """Return the session working directory."""
 
@@ -559,7 +571,7 @@ class CodingSession(_ProviderMixin, _ReloadResumeMixin, _CompactionMixin):
 
     @property
 
-    def model(self) -> str:
+    def model(self) -> str:  # type: ignore[override]
 
         """Return the active model for this session."""
 
@@ -569,7 +581,7 @@ class CodingSession(_ProviderMixin, _ReloadResumeMixin, _CompactionMixin):
 
     @property
 
-    def provider_name(self) -> str:
+    def provider_name(self) -> str:  # type: ignore[override]
 
         """Return the active provider name."""
 
@@ -619,7 +631,7 @@ class CodingSession(_ProviderMixin, _ReloadResumeMixin, _CompactionMixin):
 
     @property
 
-    def available_model_choices(self) -> tuple[ModelChoice, ...]:
+    def available_model_choices(self) -> tuple[ModelChoice, ...]:  # type: ignore[override]
 
         """Return provider/model choices Tau can call with available credentials."""
 
@@ -641,7 +653,7 @@ class CodingSession(_ProviderMixin, _ReloadResumeMixin, _CompactionMixin):
 
     @property
 
-    def scoped_model_choices(self) -> tuple[ModelChoice, ...]:
+    def scoped_model_choices(self) -> tuple[ModelChoice, ...]:  # type: ignore[override]
 
         """Return configured quick-switch model choices that are currently usable."""
 
@@ -965,7 +977,7 @@ class CodingSession(_ProviderMixin, _ReloadResumeMixin, _CompactionMixin):
 
     @property
 
-    def context_token_estimate(self) -> int:
+    def context_token_estimate(self) -> int:  # type: ignore[override]
 
         """Return a rough token estimate for the active provider context."""
 
@@ -1007,7 +1019,7 @@ class CodingSession(_ProviderMixin, _ReloadResumeMixin, _CompactionMixin):
 
     @property
 
-    def auto_compact_token_threshold(self) -> int | None:
+    def auto_compact_token_threshold(self) -> int | None:  # type: ignore[override]
 
         """Return the effective automatic compaction threshold, if any."""
 
@@ -1071,7 +1083,7 @@ class CodingSession(_ProviderMixin, _ReloadResumeMixin, _CompactionMixin):
 
     @property
 
-    def session_title(self) -> str | None:
+    def session_title(self) -> str | None:  # type: ignore[override]
 
         """Return this session's indexed human-friendly title, if named."""
 

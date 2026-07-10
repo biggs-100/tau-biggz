@@ -31,10 +31,10 @@ from textual.widgets import Static
 from textual.widgets.markdown import MarkdownBlock, MarkdownStream
 
 from tau_agent.tools import AgentTool
+from tau_coding.extensions import get_default_registry
 from tau_coding.prompt_templates import PromptTemplate
 from tau_coding.skills import Skill
 from tau_coding.system_prompt import ProjectContextFile
-from tau_coding.extensions import get_default_registry
 from tau_coding.tui.autocomplete import CompletionState
 from tau_coding.tui.config import TAU_DARK_THEME, TuiRoleStyle, TuiTheme
 from tau_coding.tui.state import ChatItem, TuiState

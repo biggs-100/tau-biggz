@@ -17,6 +17,7 @@ from tau_coding.session_manager import CodingSessionRecord, SessionManager
 from tau_coding.skills import Skill
 from tau_coding.system_prompt import ProjectContextFile
 from tau_coding.thinking import normalize_thinking_level
+from tau_coding.trust_store import TrustStore
 
 BUILTIN_TUI_THEME_NAMES = ("tau-dark", "tau-light", "high-contrast")
 
@@ -232,6 +233,15 @@ def create_default_command_registry() -> CommandRegistry:
     )
     registry.register(
         SlashCommand(
+            name="trust",
+            usage="/trust add|remove|list|help",
+            description="Manage trusted tools for approval policy.",
+            handler=_trust_command,
+            search_terms=("allow", "approve", "permit"),
+        )
+    )
+    registry.register(
+        SlashCommand(
             name="new",
             usage="/new",
             description="Start a new session.",
@@ -388,6 +398,66 @@ def _help_command(context: CommandContext) -> CommandResult:
     for command in context.registry.list_commands():
         lines.append(f"{command.usage}\t{command.description}")
     return CommandResult(handled=True, message="\n".join(lines))
+
+
+def _trust_command(context: CommandContext) -> CommandResult:
+    """Handle /trust add|remove|list|help."""
+    args = context.args.strip()
+    if not args or args == "help":
+        return CommandResult(
+            handled=True,
+            message=(
+                "Usage:\n"
+                "/trust add <tool>    Trust a tool (persistent)\n"
+                "/trust remove <tool> Remove trust for a tool\n"
+                "/trust list          Show all trusted tools\n"
+                "/trust help          Show this usage"
+            ),
+        )
+
+    parts = args.split()
+    subcommand = parts[0]
+
+    if subcommand == "list":
+        store = TrustStore.load()
+        trusted = store.list_trusted()
+        if not trusted:
+            return CommandResult(handled=True, message="No trusted tools.")
+        lines = ["Trusted tools:"]
+        for tool in sorted(trusted):
+            lines.append(f"- {tool}")
+        return CommandResult(handled=True, message="\n".join(lines))
+
+    if subcommand == "add":
+        if len(parts) < 2 or not parts[1]:
+            return CommandResult(handled=True, message="Usage: /trust add <tool-name>")
+        tool_name = parts[1]
+        store = TrustStore.load()
+        added = store.add(tool_name)
+        if added:
+            return CommandResult(handled=True, message=f"Tool '{tool_name}' is now trusted.")
+        return CommandResult(handled=True, message=f"Tool '{tool_name}' is already trusted.")
+
+    if subcommand == "remove":
+        if len(parts) < 2 or not parts[1]:
+            return CommandResult(handled=True, message="Usage: /trust remove <tool-name>")
+        tool_name = parts[1]
+        store = TrustStore.load()
+        removed = store.remove(tool_name)
+        if removed:
+            return CommandResult(handled=True, message=f"Tool '{tool_name}' is no longer trusted.")
+        return CommandResult(handled=True, message=f"Tool '{tool_name}' is not trusted.")
+
+    return CommandResult(
+        handled=True,
+        message=(
+            "Usage:\n"
+            "/trust add <tool>    Trust a tool (persistent)\n"
+            "/trust remove <tool> Remove trust for a tool\n"
+            "/trust list          Show all trusted tools\n"
+            "/trust help          Show this usage"
+        ),
+    )
 
 
 def _exit_command(context: CommandContext) -> CommandResult:

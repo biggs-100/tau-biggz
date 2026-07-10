@@ -104,11 +104,32 @@ def on(event: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     return decorator
 
 
+
+def ui_widget(zone: str = "status-bar") -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Decorator that marks a method as a UI widget provider."""
+
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        func.__tau_ui_widget__ = zone
+        return func
+
+    return decorator
+
+
+
 # ── runtime ─────────────────────────────────────────────────────────────
 
 
 class ExtensionError(RuntimeError):
     """Raised when an extension fails to load or run."""
+
+
+@dataclass
+class UIWidget:
+    """A UI widget registered by an extension."""
+
+    zone: str
+    name: str
+    text_fn: Callable[[], str]
 
 
 @dataclass
@@ -303,6 +324,15 @@ class ExtensionRegistry:
         result: list[CommandRegistration] = []
         for ext in self._extensions.values():
             result.extend(ext.commands)
+        return result
+
+    def get_ui_widgets(self, zone: str = "status-bar") -> list[UIWidget]:
+        """Return all registered UI widgets for a given zone."""
+        result: list[UIWidget] = []
+        for ext in self._extensions.values():
+            for w in ext.ui_widgets:
+                if w.zone == zone:
+                    result.append(w)
         return result
 
     def dispatch_event(self, event_name: str, event_data: dict[str, Any]) -> list[Any]:

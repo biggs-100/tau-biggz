@@ -24,12 +24,12 @@ material. The published docs distill the result; see
 ## Roadmap
 
 The roadmap and phase status are tracked in
-[GitHub issue #1](https://github.com/alejandro-ao/tau/issues/1).
+[GitHub issue #1](https://github.com/biggs-100/tau-biggz/issues/1).
 
 ## Running the project locally
 
 ```bash
-git clone https://github.com/alejandro-ao/tau.git
+git clone https://github.com/biggs-100/tau-biggz.git
 cd tau
 uv sync --dev
 uv run tau --version

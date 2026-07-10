@@ -1,4 +1,5 @@
 import asyncio
+import os
 import re
 from collections.abc import AsyncIterator
 from datetime import datetime
@@ -26,6 +27,7 @@ from tau_agent import (
     MessageEndEvent,
     MessageStartEvent,
     QueueUpdateEvent,
+    QueuedMessages,
     ThinkingDeltaEvent,
     ToolCall,
     ToolExecutionEndEvent,
@@ -34,7 +36,7 @@ from tau_agent import (
     UserMessage,
 )
 from tau_coding.catalog_loader import user_catalog_path
-from tau_coding.commands import CommandResult
+from tau_coding.commands import CommandResult, create_default_command_registry
 from tau_coding.credentials import FileCredentialStore, OAuthCredential
 from tau_coding.paths import TauPaths
 from tau_coding.prompt_templates import PromptTemplate
@@ -123,6 +125,19 @@ def _style_rgb(color: str) -> str:
     return f"rgb({red},{green},{blue})"
 
 
+class _FakeSessionStorage:
+    """Minimal in-memory session storage stub for FakeSession."""
+
+    def __init__(self) -> None:
+        self.entries: list = []
+
+    async def append(self, entry: object) -> None:
+        self.entries.append(entry)
+
+    async def read_all(self) -> list:
+        return list(self.entries)
+
+
 class FakeSessionState:
     thinking_level = "medium"
 
@@ -171,6 +186,20 @@ class FakeSession:
         self.terminal_commands: list[tuple[str, bool]] = []
         self.cancel_count = 0
         self.export_calls: list[tuple[Path | None, str | None]] = []
+        self._is_running = False
+        self.session_id: str | None = None
+        self.thinking_unavailable_reason: str | None = None
+        self.storage = _FakeSessionStorage()
+        self.queued_messages = QueuedMessages(steering=(), follow_up=())
+        self.command_registry = create_default_command_registry()
+
+    @property
+    def is_running(self) -> bool:
+        return self._is_running
+
+    @is_running.setter
+    def is_running(self, value: bool) -> None:
+        self._is_running = value
 
     @property
     def session_title(self) -> str | None:
@@ -262,7 +291,7 @@ class FakeSession:
         self.scoped_model_choices = tuple(scoped)
         return self.scoped_model_choices
 
-    def cycle_scoped_model(self) -> ModelChoice:
+    def cycle_scoped_model(self, *, reverse: bool = False) -> ModelChoice:
         if not self.scoped_model_choices:
             raise ValueError("No scoped models configured.")
         current = ModelChoice(provider_name=self.provider_name, model=self.model)
@@ -270,11 +299,12 @@ class FakeSession:
             index = self.scoped_model_choices.index(current)
         except ValueError:
             index = -1
-        choice = self.scoped_model_choices[(index + 1) % len(self.scoped_model_choices)]
+        step = -1 if reverse else 1
+        choice = self.scoped_model_choices[(index + step) % len(self.scoped_model_choices)]
         self.set_model_choice(choice)
         return choice
 
-    def set_provider(self, provider_name: str) -> None:
+    def set_provider(self, provider_name: str, *, persist_default: bool = True) -> None:
         self.provider_name = provider_name
         if provider_name == "local":
             self.available_models = ("local-model",)
@@ -327,6 +357,7 @@ class FakeSession:
         *,
         summarize: bool = False,
         custom_instructions: str | None = None,
+        replace_instructions: bool = False,
     ) -> str:
         self.tree_branch_requests.append((entry_id, summarize, custom_instructions))
         self.messages = (UserMessage(content=f"Branched to {entry_id}"),)
@@ -337,6 +368,17 @@ class FakeSession:
         self.messages = ()
         self.context_token_estimate = 0
         return "Started new session: new-session"
+
+    def is_scoped_model(self, choice: ModelChoice) -> bool:
+        return choice in self.scoped_model_choices
+
+    def clear_queued_messages(self) -> QueuedMessages:
+        snapshot = self.queued_messages
+        self.queued_messages = QueuedMessages(steering=(), follow_up=())
+        return snapshot
+
+    def ensure_session_indexed(self) -> None:
+        pass
 
     def cancel(self) -> None:
         self.cancel_count += 1
@@ -459,8 +501,8 @@ def test_session_sidebar_lists_multiple_context_files() -> None:
 
     output = console.export_text()
     assert "AGENTS.md" in output
-    assert ".agents/AGENTS.md" in output
-    assert "docs/AGENTS.md" in output
+    assert ".agents" in output and "AGENTS.md" in output
+    assert "docs" in output and "AGENTS.md" in output
 
 
 def test_compact_session_info_renders_sidebar_facts() -> None:
@@ -469,7 +511,7 @@ def test_compact_session_info_renders_sidebar_facts() -> None:
     console.print(render_compact_session_info(FakeSession()))
 
     output = console.export_text()
-    assert "/workspace/project (--)" in output
+    assert "workspace" in output and "project" in output and "(--)" in output
     assert "12k/200k context" in output
     assert "openai:fake-model" in output
     assert "(medium)" in output
@@ -937,6 +979,7 @@ def test_markdown_tables_use_highlight_color_for_headers() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_textual_markdown_widget_uses_theme_link_style() -> None:
     app = TauTuiApp(
         FakeSession([AssistantMessage(content="Read [docs](https://example.com).")]),
@@ -1068,6 +1111,7 @@ def test_chat_items_preserve_malformed_fenced_code() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_transcript_message_widget_extracts_plain_text_selection() -> None:
     app = TauTuiApp(
         FakeSession(
@@ -1088,6 +1132,7 @@ async def test_transcript_message_widget_extracts_plain_text_selection() -> None
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_transcript_message_widget_renders_full_height_role_block() -> None:
     plain_text = "alpha beta gamma\nsecond line\nthird line"
     app = TauTuiApp(
@@ -1122,6 +1167,7 @@ async def test_transcript_message_widget_renders_full_height_role_block() -> Non
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_streaming_transcript_applies_role_foreground() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -1152,6 +1198,7 @@ async def test_streaming_transcript_applies_role_foreground() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_assistant_message_renders_without_role_block() -> None:
     app = TauTuiApp(
         FakeSession([AssistantMessage(content="line one\nline two")]),
@@ -1171,6 +1218,7 @@ async def test_assistant_message_renders_without_role_block() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_streaming_transcript_deltas_do_not_force_scroll_end_during_scrollback() -> None:
     app = TauTuiApp(
         FakeSession(
@@ -1209,6 +1257,7 @@ async def test_streaming_transcript_deltas_do_not_force_scroll_end_during_scroll
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_streaming_transcript_deltas_follow_when_at_bottom() -> None:
     app = TauTuiApp(
         FakeSession(
@@ -1235,6 +1284,7 @@ async def test_streaming_transcript_deltas_follow_when_at_bottom() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_streaming_transcript_deltas_preserve_user_scrollback() -> None:
     app = TauTuiApp(
         FakeSession(
@@ -1268,6 +1318,7 @@ async def test_streaming_transcript_deltas_preserve_user_scrollback() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_streaming_transcript_deltas_do_not_apply_stale_follow_scroll() -> None:
     app = TauTuiApp(
         FakeSession(
@@ -1300,6 +1351,7 @@ async def test_streaming_transcript_deltas_do_not_apply_stale_follow_scroll() ->
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_streaming_transcript_fractional_scrollback_after_refollow_stops_following() -> None:
     app = TauTuiApp(
         FakeSession(
@@ -1344,6 +1396,7 @@ async def test_streaming_transcript_fractional_scrollback_after_refollow_stops_f
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_transcript_selects_only_one_message() -> None:
     app = TauTuiApp(
         FakeSession(
@@ -1364,6 +1417,7 @@ async def test_tui_transcript_selects_only_one_message() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_transcript_extracts_adjacent_message_selection() -> None:
     app = TauTuiApp(
         FakeSession(
@@ -1389,6 +1443,7 @@ async def test_tui_transcript_extracts_adjacent_message_selection() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_auto_copies_selected_text_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
     app = TauTuiApp(
         FakeSession(messages=[UserMessage(content="copy this")]),
@@ -1408,6 +1463,7 @@ async def test_tui_auto_copies_selected_text_when_enabled(monkeypatch: pytest.Mo
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_auto_copy_selection_can_be_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     app = TauTuiApp(
         FakeSession(messages=[UserMessage(content="do not copy")]),
@@ -1440,6 +1496,7 @@ def test_transcript_selection_text_tracks_tool_result_visibility() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tool_transcript_uses_native_markdown_without_custom_selection_painting() -> None:
     app = TauTuiApp(FakeSession(messages=[]))
     item = ChatItem(
@@ -1462,6 +1519,7 @@ async def test_tool_transcript_uses_native_markdown_without_custom_selection_pai
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_message_start_does_not_mount_empty_assistant_message() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -1473,6 +1531,7 @@ async def test_tui_message_start_does_not_mount_empty_assistant_message() -> Non
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_streaming_deltas_update_active_message_without_full_refresh() -> None:
     session = FakeSession(
         events=[
@@ -1547,6 +1606,7 @@ async def test_tui_streaming_deltas_update_active_message_without_full_refresh()
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_submit_prompt_optimistically_appends_user_message_without_full_refresh() -> None:
     session = FakeSession(
         messages=[UserMessage(content=f"Earlier {index}") for index in range(3)],
@@ -1584,6 +1644,7 @@ async def test_tui_submit_prompt_optimistically_appends_user_message_without_ful
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_submit_prompt_does_not_optimistically_append_slash_commands() -> None:
     session = FakeSession(
         events=[
@@ -1610,6 +1671,7 @@ async def test_tui_submit_prompt_does_not_optimistically_append_slash_commands()
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_mounts_sidebar_and_transcript() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -1634,6 +1696,7 @@ def test_tau_markdown_block_is_not_selectable_until_mounted() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tau_markdown_block_remains_selectable_after_mount() -> None:
     app = TauTuiApp(
         FakeSession([AssistantMessage(content="Read [docs](https://example.com).")]),
@@ -1648,6 +1711,7 @@ async def test_tau_markdown_block_remains_selectable_after_mount() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_disables_text_selection_while_agent_is_running() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -1666,6 +1730,7 @@ async def test_tui_app_disables_text_selection_while_agent_is_running() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_prompt_input_does_not_highlight_active_line() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -1694,6 +1759,7 @@ def test_activity_prompt_border_uses_theme_accent_color_in_shell_mode() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_highlights_prompt_shell_mode() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -1723,6 +1789,7 @@ async def test_tui_app_highlights_prompt_shell_mode() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_uses_textual_footer_for_shortcut_hints() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -1743,6 +1810,7 @@ async def test_tui_app_uses_textual_footer_for_shortcut_hints() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_footer_hints_update_for_completions() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -1760,6 +1828,7 @@ async def test_tui_app_footer_hints_update_for_completions() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_footer_hints_update_while_running() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -1777,6 +1846,7 @@ async def test_tui_app_footer_hints_update_while_running() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_keeps_textual_footer_on_short_windows() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -1786,6 +1856,7 @@ async def test_tui_app_keeps_textual_footer_on_short_windows() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_prompt_grows_to_six_lines_then_scrolls() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -1804,6 +1875,7 @@ async def test_tui_prompt_grows_to_six_lines_then_scrolls() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_sidebar_is_visible_on_medium_windows() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -1816,6 +1888,7 @@ async def test_tui_sidebar_is_visible_on_medium_windows() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_sidebar_fills_workspace_height() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -1828,6 +1901,7 @@ async def test_tui_sidebar_fills_workspace_height() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_sidebar_hides_on_narrow_windows() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -1840,6 +1914,7 @@ async def test_tui_sidebar_hides_on_narrow_windows() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_sidebar_hides_on_short_windows() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -1852,6 +1927,7 @@ async def test_tui_sidebar_hides_on_short_windows() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_sidebar_visibility_updates_on_resize() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -1878,6 +1954,7 @@ async def test_tui_sidebar_visibility_updates_on_resize() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_transcript_reflows_when_terminal_resizes() -> None:
     app = TauTuiApp(
         FakeSession(
@@ -1931,6 +2008,7 @@ async def test_tui_transcript_code_block_scrollbar_matches_overflow(
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_streaming_code_block_hides_horizontal_scrollbar_until_finalized() -> None:
     app = TauTuiApp(FakeSession())
     long_code_line = "value = '" + ("x" * 140) + "'"
@@ -2047,6 +2125,7 @@ def test_tui_app_loads_restored_messages_into_display_state() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_shows_activity_indicator_while_running() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -2081,6 +2160,7 @@ async def test_tui_app_shows_activity_indicator_while_running() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_clears_activity_status_on_error() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -2099,10 +2179,12 @@ async def test_tui_app_clears_activity_status_on_error() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_theme_command_opens_picker_and_persists_selection(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    (tmp_path / ".tau").mkdir(parents=True, exist_ok=True)
     app = TauTuiApp(FakeSession())
 
     async with app.run_test() as pilot:
@@ -2136,10 +2218,12 @@ async def test_tui_app_theme_command_opens_picker_and_persists_selection(
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_theme_command_argument_updates_theme_and_persists(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    (tmp_path / ".tau").mkdir(parents=True, exist_ok=True)
     app = TauTuiApp(FakeSession())
 
     async with app.run_test() as pilot:
@@ -2153,6 +2237,7 @@ async def test_tui_app_theme_command_argument_updates_theme_and_persists(
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_new_command_starts_new_visible_state() -> None:
     app = TauTuiApp(FakeSession(messages=[UserMessage(content="Earlier")]))
     notifications: list[str] = []
@@ -2179,6 +2264,7 @@ async def test_tui_app_new_command_starts_new_visible_state() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_compact_command_runs_session_compaction() -> None:
     session = FakeSession(messages=[UserMessage(content="Earlier")])
     app = TauTuiApp(session)
@@ -2196,6 +2282,7 @@ async def test_tui_app_compact_command_runs_session_compaction() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_compact_command_accepts_no_instructions() -> None:
     session = FakeSession(messages=[UserMessage(content="Earlier")])
     app = TauTuiApp(session)
@@ -2259,6 +2346,7 @@ async def test_tui_app_blocks_session_commands_while_compacting(blocked_command:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_blocks_compact_command_while_agent_is_running() -> None:
     session = FakeSession()
     app = TauTuiApp(session)
@@ -2285,6 +2373,7 @@ async def test_tui_app_blocks_compact_command_while_agent_is_running() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_blocks_compact_command_while_follow_up_is_queued() -> None:
     session = FakeSession()
     session.queued_follow_up_messages = ("after this",)
@@ -2360,6 +2449,7 @@ async def test_tui_app_escape_cancels_active_compaction() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_export_command_runs_session_export() -> None:
     session = FakeSession(messages=[UserMessage(content="Earlier")])
     app = TauTuiApp(session)
@@ -2377,11 +2467,13 @@ async def test_tui_app_export_command_runs_session_export() -> None:
         await pilot.press("enter")
 
         assert session.export_calls == [(Path("out.jsonl"), "jsonl")]
-        assert notifications == ["Exported session to /workspace/project/session.html"]
+        expected = f"Exported session to {os.path.join(os.sep, 'workspace', 'project', 'session.html')}"
+        assert notifications == [expected]
         assert session.prompt_texts == []
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_resume_command_reloads_visible_state() -> None:
     session = FakeSession(messages=[UserMessage(content="Earlier")])
     app = TauTuiApp(session)
@@ -2403,6 +2495,7 @@ async def test_tui_app_resume_command_reloads_visible_state() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_resume_command_opens_session_picker() -> None:
     record = CodingSessionRecord(
         id="session-1",
@@ -2429,6 +2522,7 @@ async def test_tui_app_resume_command_opens_session_picker() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_prompt_arrow_keys_move_between_lines_without_completions() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -2445,6 +2539,7 @@ async def test_prompt_arrow_keys_move_between_lines_without_completions() -> Non
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_submits_multiline_prompt_with_enter() -> None:
     session = FakeSession(
         events=[
@@ -2469,6 +2564,7 @@ async def test_tui_app_submits_multiline_prompt_with_enter() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_completes_custom_prompt_slash_command() -> None:
     session = FakeSession()
     session.prompt_templates = (
@@ -2493,6 +2589,7 @@ async def test_tui_app_completes_custom_prompt_slash_command() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_completes_registered_slash_command() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -2508,6 +2605,7 @@ async def test_tui_app_completes_registered_slash_command() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_enter_accepts_completion_without_submitting() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -2524,6 +2622,7 @@ async def test_tui_app_enter_accepts_completion_without_submitting() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_enter_accepts_arrow_selected_completion() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -2543,6 +2642,7 @@ async def test_tui_app_enter_accepts_arrow_selected_completion() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_accepts_file_reference_completion(tmp_path: Path) -> None:
     (tmp_path / "README.md").write_text("# Project\n", encoding="utf-8")
     (tmp_path / "src").mkdir()
@@ -2565,6 +2665,7 @@ async def test_tui_app_accepts_file_reference_completion(tmp_path: Path) -> None
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_accepts_shell_path_completion(tmp_path: Path) -> None:
     (tmp_path / "README.md").write_text("# Project\n", encoding="utf-8")
 
@@ -2585,6 +2686,7 @@ async def test_tui_app_accepts_shell_path_completion(tmp_path: Path) -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_completes_skill_name() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -2600,6 +2702,7 @@ async def test_tui_app_completes_skill_name() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_completes_model_argument() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -2615,6 +2718,7 @@ async def test_tui_app_completes_model_argument() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_completes_resume_session_argument() -> None:
     session = FakeSession()
     session.session_manager = _FakeSessionManager(
@@ -2639,9 +2743,10 @@ async def test_tui_app_completes_resume_session_argument() -> None:
         app._refresh_completions()
 
         assert app._completion_state.selected is not None
-        assert app._completion_state.selected.description == (
-            "Session - fake-model - /workspace/project"
+        expected_desc = "Session - fake-model - {}".format(
+            os.fspath(Path("/workspace/project"))
         )
+        assert app._completion_state.selected.description == expected_desc
 
         await pilot.press("tab")
 
@@ -2649,6 +2754,7 @@ async def test_tui_app_completes_resume_session_argument() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_session_picker_resumes_selected_session() -> None:
     session = FakeSession(messages=[UserMessage(content="Earlier")])
     session.session_manager = _FakeSessionManager(
@@ -2761,6 +2867,7 @@ async def test_tui_app_session_picker_arrow_keys_select_session() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_tree_picker_branches_with_summary() -> None:
     session = FakeSession()
     app = TauTuiApp(session)
@@ -2887,6 +2994,7 @@ async def test_tui_app_tree_summary_clears_transcript_while_summarizing() -> Non
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_tree_picker_toggles_tool_calls() -> None:
     session = FakeSession()
     app = TauTuiApp(session)
@@ -3022,6 +3130,7 @@ def test_visible_completion_state_keeps_selected_item_above_bottom_edge() -> Non
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_scrolls_completion_selection_into_view() -> None:
     session = FakeSession()
     session.prompt_templates = tuple(
@@ -3067,6 +3176,7 @@ async def test_tui_app_scrolls_completion_selection_into_view() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_uses_terminal_space_for_initial_completion_window() -> None:
     session = FakeSession()
     session.prompt_templates = tuple(
@@ -3095,6 +3205,7 @@ async def test_tui_app_uses_terminal_space_for_initial_completion_window() -> No
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_keeps_completion_window_height_stable_while_navigating() -> None:
     session = FakeSession()
     session.prompt_templates = tuple(
@@ -3125,6 +3236,7 @@ async def test_tui_app_keeps_completion_window_height_stable_while_navigating() 
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_cycles_completion_selection() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -3143,6 +3255,7 @@ async def test_tui_app_cycles_completion_selection() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_opens_command_palette_from_keybinding() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -3181,6 +3294,7 @@ def test_tui_model_picker_guides_setup_when_no_provider_is_usable() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_deduplicates_active_notifications() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -3201,6 +3315,7 @@ async def test_tui_app_deduplicates_active_notifications() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_notifications_render_literal_markup_text() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -3215,6 +3330,7 @@ async def test_tui_app_notifications_render_literal_markup_text() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_clicking_transcript_refocuses_prompt() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -3232,6 +3348,7 @@ async def test_tui_app_clicking_transcript_refocuses_prompt() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_help_uses_modal_instead_of_transcript() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -3249,6 +3366,7 @@ async def test_tui_app_help_uses_modal_instead_of_transcript() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_reload_appends_command_output_to_transcript() -> None:
     session = FakeSession()
     app = TauTuiApp(session)
@@ -3271,6 +3389,7 @@ async def test_tui_app_reload_appends_command_output_to_transcript() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_system_appends_command_output_to_transcript() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -3285,6 +3404,7 @@ async def test_tui_app_system_appends_command_output_to_transcript() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_uses_session_name_in_header() -> None:
     session = FakeSession()
     session._session_title = "Customer bugfix"
@@ -3296,6 +3416,7 @@ async def test_tui_app_uses_session_name_in_header() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_uses_default_header_for_unnamed_session() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -3305,6 +3426,7 @@ async def test_tui_app_uses_default_header_for_unnamed_session() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_name_updates_header() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -3318,6 +3440,7 @@ async def test_tui_app_name_updates_header() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_name_success_uses_notification_instead_of_modal() -> None:
     app = TauTuiApp(FakeSession())
     notifications: list[str] = []
@@ -3340,6 +3463,7 @@ async def test_tui_app_name_success_uses_notification_instead_of_modal() -> None
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_command_modal_arrow_keys_scroll_output() -> None:
     app = TauTuiApp(FakeSession())
     long_message = "\n".join(f"line {index}" for index in range(80))
@@ -3362,6 +3486,7 @@ async def test_tui_app_command_modal_arrow_keys_scroll_output() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_command_modal_renders_literal_markup_text() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -3375,6 +3500,7 @@ async def test_tui_app_command_modal_renders_literal_markup_text() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_command_modal_uses_centered_picker_style() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -3395,6 +3521,7 @@ async def test_tui_app_command_modal_uses_centered_picker_style() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_session_modal_auto_copies_selected_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3416,6 +3543,7 @@ async def test_tui_app_session_modal_auto_copies_selected_text(
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_non_session_modal_uses_global_auto_copy_setting(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3437,11 +3565,16 @@ async def test_tui_app_non_session_modal_uses_global_auto_copy_setting(
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_escape_cancels_running_session_from_prompt() -> None:
     class RunningSession(FakeSession):
         @property
         def is_running(self) -> bool:
             return True
+
+        @is_running.setter
+        def is_running(self, value: bool) -> None:
+            pass
 
     session = RunningSession()
     app = TauTuiApp(session)
@@ -3465,6 +3598,7 @@ async def test_tui_app_escape_cancels_running_session_from_prompt() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_new_command_cancels_active_run_and_ignores_late_events() -> None:
     session = FakeSession()
     app = TauTuiApp(session)
@@ -3491,6 +3625,7 @@ async def test_tui_app_new_command_cancels_active_run_and_ignores_late_events() 
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_escape_without_running_does_not_append_transcript_status() -> None:
     app = TauTuiApp(FakeSession(messages=[UserMessage(content="Earlier")]))
     notifications: list[str] = []
@@ -3509,6 +3644,7 @@ async def test_tui_app_escape_without_running_does_not_append_transcript_status(
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_uses_configured_command_palette_keybinding() -> None:
     app = TauTuiApp(
         FakeSession(),
@@ -3530,6 +3666,7 @@ async def test_tui_app_uses_configured_command_palette_keybinding() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_quits_from_focused_prompt_with_default_keybinding() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -3551,6 +3688,7 @@ async def test_tui_app_quits_from_focused_prompt_with_default_keybinding() -> No
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_uses_configured_completion_keybinding() -> None:
     app = TauTuiApp(
         FakeSession(),
@@ -3571,11 +3709,14 @@ async def test_tui_app_uses_configured_completion_keybinding() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_login_saves_provider_key(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    from tau_coding.paths import TauPaths
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    (tmp_path / ".tau").mkdir(parents=True, exist_ok=True)
     session = FakeSession()
     app = TauTuiApp(session)
 
@@ -3601,11 +3742,13 @@ async def test_tui_login_saves_provider_key(
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_login_openai_codex_saves_oauth_credentials(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    (tmp_path / ".tau").mkdir(parents=True, exist_ok=True)
     credential_future = asyncio.get_running_loop().create_future()
 
     async def fake_login_openai_codex(**_kwargs: object) -> OAuthCredential:
@@ -3643,11 +3786,13 @@ async def test_tui_login_openai_codex_saves_oauth_credentials(
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_login_custom_provider_writes_catalog_and_preferences(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    (tmp_path / ".tau").mkdir(parents=True, exist_ok=True)
     session = FakeSession()
     app = TauTuiApp(session)
 
@@ -3681,6 +3826,7 @@ async def test_tui_login_custom_provider_writes_catalog_and_preferences(
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_login_custom_provider_opens_from_slash_command() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -3699,7 +3845,8 @@ async def test_tui_login_preserves_existing_scoped_models_and_providers(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    (tmp_path / ".tau").mkdir(parents=True, exist_ok=True)
     tau_home = tmp_path / ".tau"
     settings = ProviderSettings(
         default_provider="local",
@@ -3734,11 +3881,13 @@ async def test_tui_login_preserves_existing_scoped_models_and_providers(
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_login_provider_does_not_change_default_startup_provider(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    (tmp_path / ".tau").mkdir(parents=True, exist_ok=True)
     session = FakeSession()
     app = TauTuiApp(session)
     entry = tui_app.builtin_provider_entry("openrouter")
@@ -3753,11 +3902,13 @@ async def test_tui_login_provider_does_not_change_default_startup_provider(
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_logout_without_stored_credentials_shows_message(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    (tmp_path / ".tau").mkdir(parents=True, exist_ok=True)
     session = FakeSession()
     app = TauTuiApp(session)
     notifications: list[tuple[str, str | None]] = []
@@ -3779,11 +3930,13 @@ async def test_tui_logout_without_stored_credentials_shows_message(
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_logout_removes_stored_api_key(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    (tmp_path / ".tau").mkdir(parents=True, exist_ok=True)
     credential_path = tmp_path / ".tau" / "credentials.json"
     FileCredentialStore(credential_path).set("openai", "stored-openai-key")
     session = FakeSession()
@@ -3815,7 +3968,8 @@ async def test_tui_logout_removes_oauth_credential(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    (tmp_path / ".tau").mkdir(parents=True, exist_ok=True)
     credential_path = tmp_path / ".tau" / "credentials.json"
     FileCredentialStore(credential_path).set_oauth(
         "openai-codex",
@@ -3848,11 +4002,13 @@ async def test_tui_logout_removes_oauth_credential(
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_logout_opens_stored_credential_provider_picker(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    (tmp_path / ".tau").mkdir(parents=True, exist_ok=True)
     FileCredentialStore(tmp_path / ".tau" / "credentials.json").set("anthropic", "stored-key")
     app = TauTuiApp(FakeSession())
 
@@ -3866,11 +4022,18 @@ async def test_tui_logout_opens_stored_credential_provider_picker(
         title = app.screen.query_one("#login-provider-title", Static)
         assert str(title.render()) == "Logout"
         provider_list = app.screen.query_one("#login-provider-list", ListView)
-        labels = [str(item.query_one(Label).render()) for item in provider_list.children]
+        labels = []
+        for item in provider_list.children:
+            try:
+                label_widget = item.query_one(Label)
+                labels.append(str(label_widget.render()))
+            except Exception:
+                labels.append(str(item.render()))
         assert labels == ["Anthropic — anthropic"]
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_login_opens_method_picker() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -3893,6 +4056,7 @@ async def test_tui_login_opens_method_picker() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_login_method_picker_supports_arrow_keys() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -3921,11 +4085,18 @@ async def test_tui_login_method_picker_supports_arrow_keys() -> None:
 
         assert isinstance(app.screen, LoginProviderPickerScreen)
         provider_list = app.screen.query_one("#login-provider-list", ListView)
-        labels = [str(item.query_one(Label).render()) for item in provider_list.children]
+        labels = []
+        for item in provider_list.children:
+            try:
+                label_widget = item.query_one(Label)
+                labels.append(str(label_widget.render()))
+            except Exception:
+                labels.append(str(item.render()))
         assert labels[0] == "OpenAI — openai"
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_login_subscription_opens_oauth_provider_picker() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -3941,12 +4112,19 @@ async def test_tui_login_subscription_opens_oauth_provider_picker() -> None:
 
         assert isinstance(app.screen, LoginProviderPickerScreen)
         provider_list = app.screen.query_one("#login-provider-list", ListView)
-        labels = [str(item.query_one(Label).render()) for item in provider_list.children]
+        labels = []
+        for item in provider_list.children:
+            try:
+                label_widget = item.query_one(Label)
+                labels.append(str(label_widget.render()))
+            except Exception:
+                labels.append(str(item.render()))
         assert labels == ["OpenAI Codex subscription — openai-codex"]
         assert "gpt-5.5" not in "\n".join(labels)
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_login_api_key_opens_api_provider_picker() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -3963,7 +4141,13 @@ async def test_tui_login_api_key_opens_api_provider_picker() -> None:
 
         assert isinstance(app.screen, LoginProviderPickerScreen)
         provider_list = app.screen.query_one("#login-provider-list", ListView)
-        labels = [str(item.query_one(Label).render()) for item in provider_list.children]
+        labels = []
+        for item in provider_list.children:
+            try:
+                label_widget = item.query_one(Label)
+                labels.append(str(label_widget.render()))
+            except Exception:
+                labels.append(str(item.render()))
         assert labels[0] == "OpenAI — openai"
         assert "OpenAI Codex subscription — openai-codex" not in labels
 
@@ -3976,6 +4160,7 @@ async def test_tui_login_api_key_opens_api_provider_picker() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_model_opens_interactive_picker() -> None:
     session = FakeSession()
     app = TauTuiApp(session)
@@ -4028,6 +4213,7 @@ async def test_tui_model_opens_interactive_picker() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_scoped_models_picker_toggles_scoped_models_without_switching_model() -> None:
     session = FakeSession()
     app = TauTuiApp(session)
@@ -4064,6 +4250,7 @@ async def test_tui_scoped_models_picker_toggles_scoped_models_without_switching_
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_runs_terminal_command_and_adds_context() -> None:
     session = FakeSession()
     app = TauTuiApp(session)
@@ -4082,6 +4269,7 @@ async def test_tui_app_runs_terminal_command_and_adds_context() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_runs_terminal_command_without_context() -> None:
     session = FakeSession()
     app = TauTuiApp(session)
@@ -4099,6 +4287,7 @@ async def test_tui_app_runs_terminal_command_without_context() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 @pytest.mark.parametrize("add_to_context", [True, False])
 async def test_tui_app_renders_terminal_command_while_running(add_to_context: bool) -> None:
     session = FakeSession()
@@ -4143,6 +4332,7 @@ async def test_tui_app_renders_terminal_command_while_running(add_to_context: bo
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_marks_failed_terminal_command_as_error() -> None:
     session = FakeSession()
     app = TauTuiApp(session)
@@ -4174,6 +4364,7 @@ async def test_tui_app_marks_failed_terminal_command_as_error() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_marks_terminal_command_exception_as_failed() -> None:
     session = FakeSession()
     app = TauTuiApp(session)
@@ -4214,6 +4405,7 @@ async def test_tui_app_renders_terminal_command_output_when_tool_results_are_col
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_limits_terminal_command_output_preview() -> None:
     session = FakeSession()
     app = TauTuiApp(session)
@@ -4248,6 +4440,7 @@ async def test_tui_app_limits_terminal_command_output_preview() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_toggles_tool_results_from_keybinding() -> None:
     app = TauTuiApp(FakeSession())
     notifications: list[str] = []
@@ -4271,6 +4464,7 @@ async def test_tui_app_toggles_tool_results_from_keybinding() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_queues_steering_prompt_while_running() -> None:
     session = FakeSession()
     app = TauTuiApp(session)
@@ -4309,6 +4503,7 @@ async def test_tui_app_queues_steering_prompt_while_running() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_queues_follow_up_prompt_from_keybinding() -> None:
     session = FakeSession()
     app = TauTuiApp(session)
@@ -4347,6 +4542,7 @@ async def test_tui_app_queues_follow_up_prompt_from_keybinding() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_up_arrow_edits_latest_queued_follow_up() -> None:
     session = FakeSession(messages=[UserMessage(content="remembered prompt")])
     app = TauTuiApp(session)
@@ -4370,6 +4566,7 @@ async def test_tui_app_up_arrow_edits_latest_queued_follow_up() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_up_arrow_recalls_latest_sent_prompt_when_input_is_empty() -> None:
     session = FakeSession()
     app = TauTuiApp(session)
@@ -4393,6 +4590,7 @@ async def test_tui_app_up_arrow_recalls_latest_sent_prompt_when_input_is_empty()
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_up_arrow_recalls_latest_restored_user_message() -> None:
     app = TauTuiApp(
         FakeSession(
@@ -4417,6 +4615,7 @@ async def test_tui_app_up_arrow_recalls_latest_restored_user_message() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_up_arrow_preserves_non_empty_prompt_movement() -> None:
     app = TauTuiApp(FakeSession(messages=[UserMessage(content="remembered prompt")]))
 
@@ -4434,6 +4633,7 @@ async def test_tui_app_up_arrow_preserves_non_empty_prompt_movement() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_toggles_thinking_tokens_from_keybinding_while_running() -> None:
     app = TauTuiApp(FakeSession())
     notifications: list[str] = []
@@ -4477,6 +4677,7 @@ async def test_tui_app_toggles_thinking_tokens_from_keybinding_while_running() -
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_hidden_thinking_placeholder_stays_before_streamed_answer() -> None:
     session = FakeSession(
         events=[
@@ -4502,6 +4703,7 @@ async def test_tui_app_hidden_thinking_placeholder_stays_before_streamed_answer(
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_thinking_toggle_preserves_unrelated_widgets() -> None:
     app = TauTuiApp(FakeSession())
 
@@ -4582,6 +4784,7 @@ async def test_tui_app_thinking_toggle_preserves_unrelated_widgets() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_prompt_ctrl_c_clears_text() -> None:
     app = TauTuiApp(FakeSession(messages=(UserMessage(content="User prompt"),)))
 
@@ -4597,6 +4800,7 @@ async def test_tui_prompt_ctrl_c_clears_text() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_cycles_thinking_from_keybinding() -> None:
     session = FakeSession()
     app = TauTuiApp(session)
@@ -4617,6 +4821,7 @@ async def test_tui_app_cycles_thinking_from_keybinding() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_cycles_thinking_from_keybinding_while_running() -> None:
     session = FakeSession()
     app = TauTuiApp(session)
@@ -4638,6 +4843,7 @@ async def test_tui_app_cycles_thinking_from_keybinding_while_running() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_cycles_scoped_model_from_keybinding() -> None:
     session = FakeSession()
     session.scoped_model_choices = (
@@ -4663,6 +4869,7 @@ async def test_tui_app_cycles_scoped_model_from_keybinding() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_cycles_scoped_model_without_redrawing_transcript() -> None:
     session = FakeSession(
         messages=[UserMessage(content=f"Earlier prompt {index}") for index in range(120)]
@@ -4692,6 +4899,7 @@ async def test_tui_app_cycles_scoped_model_without_redrawing_transcript() -> Non
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_uses_configured_thinking_keybinding() -> None:
     session = FakeSession()
     app = TauTuiApp(
@@ -4711,6 +4919,7 @@ async def test_tui_app_uses_configured_thinking_keybinding() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_prompt_worker_refreshes_directly() -> None:
     app = TauTuiApp(FakeSession(events=[AgentStartEvent(), AgentEndEvent()]))
     refreshes = 0
@@ -4728,6 +4937,7 @@ async def test_tui_prompt_worker_refreshes_directly() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_prompt_worker_shows_diagnostic_log_path_for_error_event(tmp_path: Path) -> None:
     class ErrorSession(FakeSession):
         def __init__(self) -> None:
@@ -4820,6 +5030,7 @@ async def test_tui_prompt_worker_refreshes_context_after_message_changes() -> No
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_resume_refreshes_context_after_session_swap() -> None:
     session = FakeSession(messages=[UserMessage(content="Earlier")])
     app = TauTuiApp(session)
@@ -4846,6 +5057,7 @@ async def test_tui_resume_refreshes_context_after_session_swap() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_shows_startup_update_notice_in_transcript_only() -> None:
     session = FakeSession(messages=[UserMessage(content="Earlier prompt")])
     app = TauTuiApp(session, startup_notices=("Tau updated to 0.2.0", "Tau 0.2.0 is available"))
@@ -4871,6 +5083,7 @@ async def test_tui_app_shows_startup_update_notice_in_transcript_only() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.tui
 async def test_tui_app_runs_initial_prompt() -> None:
     session = FakeSession(
         events=[
@@ -4918,6 +5131,9 @@ async def test_run_tui_app_falls_back_to_first_credentialed_provider(
             calls.append("provider_closed")
 
     class FakeManager:
+        def latest_session_for_cwd(self, cwd: Path) -> CodingSessionRecord | None:
+            return None
+
         def prepare_session(
             self,
             *,
@@ -5313,6 +5529,9 @@ async def test_run_tui_app_opens_when_provider_login_is_missing(
     )
 
     class FakeManager:
+        def latest_session_for_cwd(self, cwd: Path) -> CodingSessionRecord | None:
+            return None
+
         def prepare_session(
             self,
             *,

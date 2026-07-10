@@ -15,56 +15,107 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  python:
-    name: Python checks
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v5
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
+  # ── Lint (parallel, fast) ─────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version-file: .python-version
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
+      - run: uv sync --dev --locked
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy .
 
-      - name: Install dependencies
-        run: uv sync --dev --locked
+  # ── Test Matrix ─────────────────────────────────────────
+  test:
+    name: test (${{ matrix.os }}, py${{ matrix.python-version }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.12", "3.13"]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync --dev --locked
 
-      - name: Run tests
-        run: uv run pytest
+      # Install xvfb on Linux for TUI tests
+      - name: Install xvfb
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb
 
-      - name: Run Ruff lint
-        run: uv run ruff check .
+      # Coverage run on ubuntu + 3.13 (primary target)
+      - name: Run tests with coverage (ubuntu 3.13)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        run: |
+          xvfb-run -a uv run pytest \
+            --cov=tau_ai --cov=tau_agent --cov=tau_coding \
+            --cov-report=xml --cov-report=term-missing \
+            -x -q
 
-      - name: Check formatting
-        run: uv run ruff format --check .
+      # Full test run on ubuntu 3.12 (no coverage upload)
+      - name: Run tests (ubuntu 3.12)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: xvfb-run -a uv run pytest -x -q
 
-      - name: Run mypy
-        run: uv run mypy
+      # Non-Linux: skip TUI + integration tests
+      - name: Run unit tests (non-Linux)
+        if: runner.os != 'Linux'
+        run: uv run pytest -x -q --ignore=tests/integration/ -k 'not tui'
 
+      # Upload coverage (ubuntu 3.13 only)
+      - name: Upload coverage to Codecov
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./coverage.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  # ── Integration Tests ───────────────────────────────────
+  integration:
+    name: Integration tests
+    needs: [test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync --dev --locked
+      - run: uv run pytest tests/integration/ -x -q
+
+  # ── Docs (preserved from existing workflow) ─────────────
   docs:
     name: Documentation build
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     defaults:
       run:
         working-directory: website
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v5
-
-      - name: Setup Hugo
-        uses: peaceiris/actions-hugo@v3
+      - uses: actions/checkout@v5
+      - uses: peaceiris/actions-hugo@v3
         with:
           hugo-version: "0.152.2"
           extended: true
-
-      - name: Build documentation
-        run: hugo --minify
-
-      - name: Build search index
-        run: npx --yes pagefind@latest --site public
+      - run: hugo --minify
+      - run: npx --yes pagefind@latest --site public

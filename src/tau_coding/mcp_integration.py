@@ -81,7 +81,7 @@ class McpRegistry:
                         "args": list(config.args),
                         "env": env,
                     })()
-                    streams = await stdio_client(params)
+                    streams = await stdio_client(params)  # type: ignore[misc]
                     session = await ClientSession(streams[0], streams[1]).__aenter__()
                     self._sessions[name] = (session, streams)
                     await session.initialize()
@@ -96,7 +96,7 @@ class McpRegistry:
                     connected.append(name)
                 elif config.transport == "http" and config.url:
                     # HTTP transport - simplified for now
-                    from mcp.client.http import http_client
+                    from mcp.client.http import http_client  # type: ignore[import-not-found]
                     session = await http_client(config.url)
                     await session.initialize()
                     self._sessions[name] = (session, None)

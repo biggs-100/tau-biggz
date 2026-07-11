@@ -22,7 +22,10 @@ def _wrap_tool_with_events(
     """Wrap a tool's executor to fire extension events before/after execution."""
     original_executor = tool.executor
 
-    async def event_dispatched_executor(arguments, signal=None):
+    async def event_dispatched_executor(
+        arguments: Mapping[str, JSONValue],
+        signal: ToolCancellationToken | None = None,
+    ) -> AgentToolResult:
         # 1. Approval chain check
         denial = _check_tool_approval(tool.name, approval, arguments=dict(arguments))
         if denial is not None:
@@ -75,7 +78,7 @@ def _wrap_tool_with_events(
 def _extension_tool_to_agent_tool(ext_tool: ToolRegistration) -> AgentTool:
     """Convert an extension tool registration into an AgentTool."""
     properties: dict[str, JSONValue] = {}
-    required: list[str] = []
+    required: list[JSONValue] = []
     for param in ext_tool.parameters:
         properties[param["name"]] = {"type": "string", "description": f"Parameter {param['name']}"}
         required.append(param["name"])

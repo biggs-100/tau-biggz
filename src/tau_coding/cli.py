@@ -21,7 +21,7 @@ from tau_coding import __version__
 from tau_coding._fix_encoding import reconfigure_std_streams
 from tau_coding.catalog_loader import user_catalog_path
 from tau_coding.credentials import FileCredentialStore
-from tau_coding.extensions import get_default_registry
+from tau_coding.extensions import ExtensionRegistry, get_default_registry
 from tau_coding.harness import list_available_harnesses, load_harness, set_active_harness
 from tau_coding.models_sync import models_sync_command
 from tau_coding.provider_add import providers_add_command
@@ -74,10 +74,11 @@ def _load_extensions() -> None:
     _extension_registry = get_default_registry()
 
 
-def get_extension_registry():
+def get_extension_registry() -> ExtensionRegistry:
     """Return the global extension registry, loading if needed."""
     if _extension_registry is None:
         _load_extensions()
+    assert _extension_registry is not None
     return _extension_registry
 
 

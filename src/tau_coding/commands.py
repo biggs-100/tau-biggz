@@ -12,7 +12,7 @@ from tau_coding.prompt_templates import PromptTemplate
 from tau_coding.provider_catalog import BUILTIN_PROVIDER_CATALOG, builtin_provider_entry
 from tau_coding.reload import CodingReloadSummary, ReloadCategorySummary
 from tau_coding.resources import ResourceDiagnostic
-from tau_coding.extensions import get_default_registry
+from tau_coding.extensions import CommandRegistration, get_default_registry
 from tau_coding.session_manager import CodingSessionRecord, SessionManager
 from tau_coding.skills import Skill
 from tau_coding.system_prompt import ProjectContextFile
@@ -202,7 +202,10 @@ class CommandRegistry:
 
 
 
-def _extension_command_handler(context: CommandContext, cmd) -> CommandResult:
+def _extension_command_handler(
+    context: CommandContext,
+    cmd: CommandRegistration,
+) -> CommandResult:
     """Route a slash command to its extension handler."""
     try:
         result = cmd.handler(cmd, context.args.strip())
@@ -386,7 +389,7 @@ def create_default_command_registry() -> CommandRegistry:
                 name=ext_cmd.name,
                 usage=f"/{ext_cmd.name}",
                 description=ext_cmd.description,
-                handler=lambda ctx, cmd=ext_cmd: _extension_command_handler(ctx, cmd),
+                handler=lambda ctx, cmd=ext_cmd: _extension_command_handler(ctx, cmd),  # type: ignore[misc]
             )
         )
 

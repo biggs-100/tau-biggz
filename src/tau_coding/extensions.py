@@ -32,7 +32,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 # ── public API ──────────────────────────────────────────────────────────
 
@@ -57,7 +57,7 @@ class Extension:
 def tool(name: str, description: str = "") -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator that marks a method as a custom tool."""
 
-    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+    def decorator(func: Any) -> Callable[..., Any]:
         sig = inspect.signature(func)
         params = [
             {"name": p.name,
@@ -71,7 +71,7 @@ def tool(name: str, description: str = "") -> Callable[[Callable[..., Any]], Cal
             "parameters": params,
             "func": func,
         }
-        return func
+        return cast(Callable[..., Any], func)
 
     return decorator
 
@@ -81,13 +81,13 @@ def command(
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator that marks a method as a slash command."""
 
-    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+    def decorator(func: Any) -> Callable[..., Any]:
         func.__tau_command__ = {
             "name": name,
             "description": description or func.__doc__ or "",
             "func": func,
         }
-        return func
+        return cast(Callable[..., Any], func)
 
     return decorator
 
@@ -95,9 +95,9 @@ def command(
 def on(event: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator that marks a method as an event handler."""
 
-    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+    def decorator(func: Any) -> Callable[..., Any]:
         func.__tau_handler__ = event
-        return func
+        return cast(Callable[..., Any], func)
 
     return decorator
 
@@ -106,9 +106,9 @@ def on(event: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
 def ui_widget(zone: str = "status-bar") -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator that marks a method as a UI widget provider."""
 
-    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+    def decorator(func: Any) -> Callable[..., Any]:
         func.__tau_ui_widget__ = zone
-        return func
+        return cast(Callable[..., Any], func)
 
     return decorator
 

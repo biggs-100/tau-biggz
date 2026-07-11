@@ -33,6 +33,18 @@ from tau_coding.provider_catalog import (
 )
 from tau_coding.thinking import ThinkingLevel, ThinkingParameter
 
+__all__ = [
+    "CATALOG_SCHEMA_VERSION",
+    "CatalogError",
+    "ProviderCatalogEntry",
+    "USER_CATALOG_FILENAME",
+    "builtin_catalog",
+    "builtin_catalog_resource_text",
+    "effective_catalog",
+    "save_user_catalog_entries",
+    "user_catalog_path",
+]
+
 CATALOG_SCHEMA_VERSION = 1
 USER_CATALOG_FILENAME = "catalog.toml"
 

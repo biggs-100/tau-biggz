@@ -41,6 +41,46 @@ from tau_coding.thinking import (
     reasoning_effort_for_level,
 )
 
+__all__ = [
+    "AnthropicProviderConfig",
+    "CredentialReader",
+    "DEFAULT_MODEL",
+    "DEFAULT_PROVIDER_NAME",
+    "OpenAICodexProviderConfig",
+    "OpenAICompatibleProviderConfig",
+    "ProviderConfig",
+    "ProviderConfigError",
+    "ProviderModelMetadata",
+    "ProviderSelection",
+    "ProviderSettings",
+    "ScopedModelConfig",
+    "anthropic_config_from_provider",
+    "builtin_provider_configs",
+    "default_openai_provider_config",
+    "load_provider_settings",
+    "openai_compatible_config_from_provider",
+    "provider_config_from_catalog_entry",
+    "provider_config_from_entry",
+    "provider_default_thinking_level",
+    "provider_has_usable_credentials",
+    "provider_kind",
+    "provider_settings_from_json",
+    "provider_settings_path",
+    "provider_thinking_levels",
+    "provider_thinking_unavailable_reason",
+    "resolve_provider_selection",
+    "save_default_provider_model",
+    "save_provider_settings",
+    "save_provider_thinking_level",
+    "set_default_provider_model",
+    "set_provider_thinking_level",
+    "toggle_saved_scoped_model",
+    "upsert_openai_compatible_provider",
+    "upsert_provider",
+    "upsert_saved_provider",
+    "validate_provider_model",
+]
+
 DEFAULT_PROVIDER_NAME = "openai"
 DEFAULT_MODEL = "gpt-5.4"
 

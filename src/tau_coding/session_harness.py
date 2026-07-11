@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+from typing import Any
 
-def _harness_filtered_tools(config):
+from tau_agent.tools import AgentTool
+
+from tau_coding.session_models import CodingSessionConfig
+
+
+def _harness_filtered_tools(config: CodingSessionConfig) -> list[AgentTool]:
     """Return tools filtered by the active harness."""
 
     from tau_coding.extensions import get_default_registry
@@ -30,7 +36,11 @@ def _harness_filtered_tools(config):
     return [t for t in all_tools if t.name in allowed]
 
 
-def _harness_system_prompt(config, tools, resources):
+def _harness_system_prompt(
+    config: CodingSessionConfig,
+    tools: list[AgentTool],
+    resources: Any,
+) -> str:
     """Build system prompt using harness personality."""
 
     from tau_coding.harness import get_active_harness

@@ -97,7 +97,7 @@ def _default_cache_path() -> Path:
     return Path.home() / ".tau" / "models" / "cache.json"
 
 
-def _read_cache(path: Path) -> dict | None:
+def _read_cache(path: Path) -> dict[str, Any] | None:
     """Read and validate the cache file at *path*.
 
     * Missing file → ``None``
@@ -210,7 +210,7 @@ def _merge_model_data(
         ext_reasoning = external.get("reasoning")
         ext_max_output = external.get("limit", {}).get("output") if isinstance(external.get("limit"), dict) else None
 
-        existing_metadata: dict[str, ProviderModelMetadata] = provider.model_metadata  # type: ignore[attr-defined]
+        existing_metadata: dict[str, ProviderModelMetadata] = getattr(provider, "model_metadata", {})
         new_model_metadata = dict(existing_metadata)
 
         md_kwargs: dict[str, Any] = {}

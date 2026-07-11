@@ -33,6 +33,11 @@ from tau_coding.thinking import (
 
 if TYPE_CHECKING:
     from tau_coding.session import CodingSession
+    from tau_agent import AgentHarness
+    from tau_coding.credentials import FileCredentialStore
+    from tau_coding.provider_runtime import ClosableModelProvider
+    from tau_coding.resources import TauResourcePaths
+    from tau_coding.session_models import CodingSessionConfig
 
 
 class _ProviderMixin:
@@ -43,6 +48,22 @@ class _ProviderMixin:
     Calls persistence methods through MRO (``self._append_session_entry()``,
     ``self._refresh_persisted_state()``).
     """
+
+    # Attributes accessed from CodingSession — declared for mypy strict
+    _config: CodingSessionConfig
+    _provider_settings: ProviderSettings | None
+    _runtime_provider_config: ProviderConfig | None
+    _harness: AgentHarness
+    _provider_name: str
+    _resource_paths: TauResourcePaths
+    _thinking_level: ThinkingLevel
+    model: str
+    _credential_store: FileCredentialStore
+    _last_parent_id: str | None
+    _owned_providers: list[ClosableModelProvider]
+    provider_name: str
+    scoped_model_choices: tuple[ModelChoice, ...]
+    available_model_choices: tuple[ModelChoice, ...]
 
     # -- thinking properties ---------------------------------------------------
 
@@ -73,7 +94,7 @@ class _ProviderMixin:
         normalized = normalize_thinking_level(level)
         available = self.available_thinking_levels
         if not available:
-            raise ValueError(_unavailable_thinking_message(self))
+            raise ValueError(_unavailable_thinking_message(self))  # type: ignore[arg-type]
         if normalized not in available:
             modes = ", ".join(available)
             raise ValueError(
@@ -95,13 +116,13 @@ class _ProviderMixin:
             parent_id=self._last_parent_id,
             thinking_level=normalized,
         )
-        await self._append_session_entry(entry)
+        await self._append_session_entry(entry)  # type: ignore[attr-defined]
         leaf = LeafEntry(parent_id=entry.id, entry_id=entry.id)
-        await self._append_session_entry(leaf)
+        await self._append_session_entry(leaf)  # type: ignore[attr-defined]
         self._last_parent_id = entry.id
 
         self._persist_thinking_level_choice()
-        await self._refresh_persisted_state(leaf_id=entry.id)
+        await self._refresh_persisted_state(leaf_id=entry.id)  # type: ignore[attr-defined]
         return f"Thinking mode: {normalized}"
 
     async def cycle_thinking_level(self) -> str:

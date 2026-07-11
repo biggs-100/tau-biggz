@@ -9,6 +9,8 @@ Prompts for provider details and saves to ``~/.tau/catalog.toml``.
 
 from __future__ import annotations
 
+from typing import cast
+
 import typer
 
 from tau_coding.catalog_loader import (
@@ -18,7 +20,7 @@ from tau_coding.catalog_loader import (
 )
 from tau_coding.credentials import FileCredentialStore, credentials_path
 from tau_coding.paths import TauPaths
-from tau_coding.provider_catalog import ProviderKind
+from tau_coding.provider_catalog import ProviderApi, ProviderKind
 from tau_coding.provider_config import (
     AnthropicProviderConfig,
     DEFAULT_MODEL,
@@ -80,7 +82,7 @@ def providers_add_command(paths: TauPaths | None = None) -> None:
     api_key: str | None = typer.prompt(
         "API key (optional, stored in credential store)", default="", show_default=False
     )
-    api_key = api_key.strip() or None
+    api_key = api_key.strip() or None if api_key else None
 
     _save_provider(
         name=name,
@@ -116,7 +118,7 @@ def _prompt_kind() -> str:
     except ValueError:
         pass
     if choice in _KIND_HELP:
-        return choice
+        return str(choice)
     raise typer.BadParameter(f"Invalid kind. Choose from: {', '.join(kinds)}")
 
 
@@ -171,7 +173,7 @@ def _save_provider(
             base_url=base_url.rstrip("/"),
             api_key_env=api_key_env,
             credential_name=name,
-            api=_KIND_DEFAULT_API.get(kind, "openai-completions"),
+            api=cast(ProviderApi, _KIND_DEFAULT_API.get(kind, "openai-completions")),
             models=models,
             default_model=default_model,
         )

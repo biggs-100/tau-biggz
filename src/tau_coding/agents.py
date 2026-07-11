@@ -68,14 +68,14 @@ def _parse_yaml_like(text: str) -> dict[str, Any]:
         line = line.strip()
         if not line or ":" not in line:
             continue
-        key, _, value = line.partition(":")
+        key, _, raw = line.partition(":")
         key = key.strip()
-        value = value.strip()
-        if value.startswith("[") and value.endswith("]"):
-            value = [v.strip().strip("\"'") for v in value[1:-1].split(",") if v.strip()]
+        parsed: Any = raw.strip()
+        if parsed.startswith("[") and parsed.endswith("]"):
+            parsed = [v.strip().strip("\"'") for v in parsed[1:-1].split(",") if v.strip()]
         else:
-            value = value.strip("\"'")
-        result[key] = value
+            parsed = parsed.strip("\"'")
+        result[key] = parsed
     return result
 
 

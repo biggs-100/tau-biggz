@@ -299,7 +299,27 @@ class CodingSession(_ProviderMixin, _ReloadResumeMixin, _CompactionMixin):
 
     """
 
-
+    # Attribute type declarations — mirroring mixin annotations for mypy strict
+    _config: CodingSessionConfig
+    _state: SessionState
+    _harness: AgentHarness
+    _pending_initial_entries: tuple[SessionEntry, ...]
+    _skills: tuple[Skill, ...]
+    _prompt_templates: tuple[PromptTemplate, ...]
+    _context_files: tuple[ProjectContextFile, ...]
+    _resource_diagnostics: tuple[ResourceDiagnostic, ...]
+    _command_registry: CommandRegistry
+    _provider_name: str
+    _provider_settings: ProviderSettings | None
+    _runtime_provider_config: ProviderConfig | None
+    _resource_paths: TauResourcePaths
+    _auto_compact_token_threshold: int | None
+    _auto_compact_enabled: bool
+    _thinking_level: ThinkingLevel
+    _context_usage_cache: ContextUsageEstimate | None
+    _owned_providers: list[ClosableModelProvider]
+    _diagnostic_logger: AgentCallDiagnosticLogger
+    _credential_store: FileCredentialStore
 
     def __init__(
 
@@ -337,7 +357,7 @@ class CodingSession(_ProviderMixin, _ReloadResumeMixin, _CompactionMixin):
 
         self._last_parent_id = last_parent_id
 
-        self._pending_initial_entries = pending_initial_entries
+        self._pending_initial_entries: tuple[SessionEntry, ...] = pending_initial_entries
 
         self._skills = skills
 
@@ -349,11 +369,11 @@ class CodingSession(_ProviderMixin, _ReloadResumeMixin, _CompactionMixin):
 
         self._command_registry = command_registry or create_default_command_registry()
 
-        self._provider_name = config.provider_name
+        self._provider_name: str = config.provider_name or "openai"
 
-        self._provider_settings = config.provider_settings
+        self._provider_settings: ProviderSettings | None = config.provider_settings
 
-        self._runtime_provider_config = config.runtime_provider_config
+        self._runtime_provider_config: ProviderConfig | None = config.runtime_provider_config
 
         self._resource_paths = resource_paths_with_cwd(config.resource_paths, config.cwd)
 

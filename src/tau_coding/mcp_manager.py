@@ -10,6 +10,7 @@ Usage::
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 import tomllib
 
 
@@ -84,10 +85,10 @@ def _package_to_name(package: str) -> str:
     return name
 
 
-def _entry_for_package(package: str, name: str) -> dict:
+def _entry_for_package(package: str, name: str) -> dict[str, Any]:
     """Create an MCP server config entry for a package."""
     package = package.strip()
-    entry = {
+    entry: dict[str, Any] = {
         "name": name,
         "transport": "stdio",
         "command": "npx",
@@ -101,19 +102,19 @@ def _mcp_config_path() -> Path:
     return Path.cwd() / ".tau" / "mcp.toml"
 
 
-def _load_configs() -> list[dict]:
+def _load_configs() -> list[dict[str, Any]]:
     """Load existing MCP server configs."""
     path = _mcp_config_path()
     if not path.exists():
         return []
     try:
-        raw = tomllib.loads(path.read_text(encoding="utf-8"))
-        return raw.get("servers", [])
+        raw: dict[str, Any] = tomllib.loads(path.read_text(encoding="utf-8"))
+        return list(raw.get("servers", []))
     except Exception:
         return []
 
 
-def _save_configs(configs: list[dict]) -> None:
+def _save_configs(configs: list[dict[str, Any]]) -> None:
     """Save MCP server configs to TOML."""
     path = _mcp_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)

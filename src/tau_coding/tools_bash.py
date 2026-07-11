@@ -73,7 +73,7 @@ async def _wait_for_cancel(signal: ToolCancellationToken) -> None:
 def _kill_process_tree(process: asyncio.subprocess.Process) -> None:
     if os.name == "posix":
         try:
-            os.killpg(process.pid, signal.SIGKILL)
+            os.killpg(process.pid, signal.SIGKILL)  # type: ignore[attr-defined]
         except ProcessLookupError:
             return
     else:

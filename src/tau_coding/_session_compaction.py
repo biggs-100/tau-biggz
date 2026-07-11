@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import TYPE_CHECKING
+
 from tau_agent.messages import AgentMessage, UserMessage
 
 from tau_coding.diagnostics import AgentCallDiagnosticContext
@@ -23,6 +26,13 @@ from tau_coding.context_window import summarize_messages_for_compaction
 from tau_ai.events import ProviderErrorEvent, ProviderResponseEndEvent, ProviderTextDeltaEvent
 from tau_coding._session_persistence import _PersistenceMixin
 
+if TYPE_CHECKING:
+    from tau_coding.session import CodingSession
+    from tau_agent import AgentHarness
+    from tau_agent.session import SessionState
+    from tau_coding.diagnostics import AgentCallDiagnosticLogger
+    from tau_coding.session_models import CodingSessionConfig
+
 
 class _CompactionMixin(_PersistenceMixin):
     """Compaction operations for CodingSession.
@@ -32,6 +42,16 @@ class _CompactionMixin(_PersistenceMixin):
 
     Mixin — accesses ``self`` for CodingSession internals set in ``__init__``.
     """
+
+    # Attributes accessed from CodingSession — declared for mypy strict
+    _diagnostic_logger: AgentCallDiagnosticLogger
+    model: str
+    _config: CodingSessionConfig
+    _harness: AgentHarness
+    _state: SessionState
+    auto_compact_token_threshold: int | None
+    context_token_estimate: int
+    _last_diagnostic_log_path: Path | None
 
     async def compact(self, instructions: str | None = None) -> str:
         """Generate a manual compaction summary and rebuild active context."""
@@ -205,5 +225,5 @@ class _CompactionMixin(_PersistenceMixin):
 
         await self._refresh_persisted_state(leaf_id=compaction.id)
         self._harness.replace_messages(self._state.messages)
-        self._invalidate_context_usage_cache()
+        self._invalidate_context_usage_cache()  # type: ignore[attr-defined]
         return compaction

@@ -47,13 +47,14 @@ from tau_coding.catalog_loader import save_user_catalog_entries
 from tau_coding.credentials import FileCredentialStore, OAuthCredential
 from tau_coding.extensions import get_default_registry
 from tau_coding.oauth import (  # noqa: F401 - re-exported for API compat
-    OAuthAuthInfo,
-    OAuthPrompt,
-    login_openai_codex,
+    OAuthAuthInfo as OAuthAuthInfo,
+    OAuthPrompt as OAuthPrompt,
+    login_openai_codex as login_openai_codex,
 )
 from tau_coding.provider_catalog import (
     BUILTIN_PROVIDER_CATALOG,
     ProviderCatalogEntry,
+    ProviderKind,
     builtin_provider_entry,
 )
 from tau_coding.provider_config import (
@@ -1524,7 +1525,7 @@ class TauTuiApp(App[None]):
         catalog_entry = ProviderCatalogEntry(
             name=provider.name,
             display_name=result.display_name,
-            kind=kind,
+            kind=cast(ProviderKind, kind),
             base_url=provider.base_url,
             api_key_env=provider.api_key_env,
             credential_name=provider.credential_name,
@@ -1536,7 +1537,7 @@ class TauTuiApp(App[None]):
             save_user_catalog_entries((catalog_entry,))
             FileCredentialStore().set(provider.credential_name or provider.name, result.api_key)
             settings = load_provider_settings()
-            updated = upsert_openai_compatible_provider(settings, provider, set_default=False)
+            updated = upsert_openai_compatible_provider(settings, provider, set_default=False)  # type: ignore[arg-type]
             save_provider_settings(updated)
             self.session.reload_provider_settings()
             try:
@@ -2079,12 +2080,12 @@ from tau_coding.tui.app_helpers import (  # noqa: E402, F401
     _attach_diagnostic_log_path_to_error,
 )
 from tau_coding.tui.app_runner import (  # noqa: E402, F401
-    _explicit_resume_record,
-    _create_startup_session_record,
-    _resolve_tui_startup_selection,
-    _resolve_startup_thinking_level,
-    _first_usable_startup_selection,
-    _selection_from_session_record,
-    _usable_scoped_startup_choices,
-    run_tui_app,
+    _explicit_resume_record as _explicit_resume_record,
+    _create_startup_session_record as _create_startup_session_record,
+    _resolve_tui_startup_selection as _resolve_tui_startup_selection,
+    _resolve_startup_thinking_level as _resolve_startup_thinking_level,
+    _first_usable_startup_selection as _first_usable_startup_selection,
+    _selection_from_session_record as _selection_from_session_record,
+    _usable_scoped_startup_choices as _usable_scoped_startup_choices,
+    run_tui_app as run_tui_app,
 )

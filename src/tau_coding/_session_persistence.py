@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from typing import TYPE_CHECKING
 
 from tau_agent import AgentHarness, AgentHarnessConfig
@@ -19,6 +21,7 @@ from tau_coding.session_utils import _auto_session_name_from_text
 
 if TYPE_CHECKING:
     from tau_coding.session import CodingSession
+    from tau_coding.session_models import CodingSessionConfig
 
 
 class _PersistenceMixin:
@@ -27,6 +30,17 @@ class _PersistenceMixin:
     Mixin — accesses ``self`` for CodingSession internals (``self._config``,
     ``self._state``, ``self._harness``, etc.) set in ``__init__``.
     """
+
+    # Attributes accessed from CodingSession — declared for mypy strict
+    _config: CodingSessionConfig
+    _state: SessionState
+    _harness: AgentHarness
+    model: str
+    provider_name: str
+    _pending_initial_entries: tuple[SessionEntry, ...]
+    session_title: str | None
+    cwd: Path
+    _last_parent_id: str | None
 
     # -- session-name helpers --------------------------------------------------
 
@@ -152,5 +166,5 @@ class _PersistenceMixin:
             await self._append_session_entry(leaf)
 
         await self._refresh_persisted_state(leaf_id=self._last_parent_id)
-        self._invalidate_context_usage_cache()
+        self._invalidate_context_usage_cache()  # type: ignore[attr-defined]
         return persisted_count + len(new_messages)

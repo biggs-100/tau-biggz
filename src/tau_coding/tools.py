@@ -82,6 +82,27 @@ from tau_coding.tools_edit import (
 )
 from tau_coding.tools_file_lock import _file_lock, _FileLockContext
 
+__all__ = [
+    "DEFAULT_MAX_OUTPUT_BYTES",
+    "DEFAULT_MAX_OUTPUT_LINES",
+    "SUPPORTED_IMAGE_MIME_TYPES",
+    "ToolDefinition",
+    "ToolInputError",
+    "TruncationResult",
+    "UTF8_BOM",
+    "create_bash_tool",
+    "create_bash_tool_definition",
+    "create_coding_tools",
+    "create_edit_tool",
+    "create_edit_tool_definition",
+    "create_read_tool",
+    "create_read_tool_definition",
+    "create_subagent_tool",
+    "create_web_search_tool",
+    "create_write_tool",
+    "create_write_tool_definition",
+]
+
 
 # ── create_coding_tools ──────────────────────────────────────────────────
 
@@ -777,7 +798,7 @@ def create_subagent_tool() -> AgentTool:
                 from tau_agent import AgentEndEvent, ErrorEvent
 
                 if isinstance(event, AgentEndEvent):
-                    text_parts.append(event.message.content or "")
+                    text_parts.append(getattr(event, "message", event).content or "")  # type: ignore[union-attr]
                 elif isinstance(event, ErrorEvent) and not event.recoverable:
                     await provider.aclose()
                     return AgentToolResult(

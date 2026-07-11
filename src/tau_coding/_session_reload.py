@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tau_agent.session import LeafEntry
@@ -36,6 +37,17 @@ from tau_coding.system_prompt import (
 
 if TYPE_CHECKING:
     from tau_coding.session import CodingSession
+    from tau_agent import AgentHarness
+    from tau_agent.session import SessionState
+    from tau_coding.commands import CommandRegistry
+    from tau_coding.credentials import FileCredentialStore
+    from tau_coding.provider_config import ProviderConfig, ProviderSettings
+    from tau_coding.provider_runtime import ClosableModelProvider
+    from tau_coding.prompt_templates import PromptTemplate
+    from tau_coding.resources import ResourceDiagnostic, TauResourcePaths
+    from tau_coding.skills import Skill
+    from tau_coding.system_prompt import ProjectContextFile
+    from tau_coding.thinking import ThinkingLevel
 
 
 class _ReloadResumeMixin:
@@ -45,6 +57,28 @@ class _ReloadResumeMixin:
     ``self._harness``, etc.) set in ``__init__``.
     Calls provider and persistence methods through MRO.
     """
+
+    # Attributes accessed from CodingSession — declared for mypy strict
+    _config: CodingSessionConfig
+    _harness: AgentHarness
+    _provider_settings: ProviderSettings | None
+    _provider_name: str
+    _runtime_provider_config: ProviderConfig | None
+    _skills: tuple[Skill, ...]
+    _prompt_templates: tuple[PromptTemplate, ...]
+    _context_files: tuple[ProjectContextFile, ...]
+    _resource_diagnostics: tuple[ResourceDiagnostic, ...]
+    _resource_paths: TauResourcePaths
+    _state: SessionState
+    _thinking_level: ThinkingLevel
+    model: str
+    _last_parent_id: str | None
+    _owned_providers: list[ClosableModelProvider]
+    _credential_store: FileCredentialStore
+    _command_registry: CommandRegistry
+    _auto_compact_token_threshold: int | None
+    _auto_compact_enabled: bool
+    cwd: Path
 
     def reload(self) -> CodingReloadSummary:
         """Reload local coding resources and project context for future turns."""
@@ -92,7 +126,7 @@ class _ReloadResumeMixin:
         self._resource_diagnostics = resources.diagnostics
         if rebuilt_system_prompt is not None:
             self._harness.config.system = rebuilt_system_prompt
-            self._invalidate_context_usage_cache()
+            self._invalidate_context_usage_cache()  # type: ignore[attr-defined]
 
         return CodingReloadSummary(
             skills=_category_summary(before_skills, after_skills),
@@ -113,8 +147,8 @@ class _ReloadResumeMixin:
         previous_thinking_level = self._thinking_level
         self._provider_settings = _session_mod.load_provider_settings(self._resource_paths.paths)
         try:
-            self._sync_thinking_level_to_active_model()
-            self._refresh_runtime_provider()
+            self._sync_thinking_level_to_active_model()  # type: ignore[attr-defined]
+            self._refresh_runtime_provider()  # type: ignore[attr-defined]
         except ProviderConfigError:
             self._provider_settings = previous_settings
             self._thinking_level = previous_thinking_level
@@ -150,7 +184,7 @@ class _ReloadResumeMixin:
             restore_record_model = True
             validate_provider_model(runtime_provider_config, model)
 
-        replacement = await type(self).load(
+        replacement = await type(self).load(  # type: ignore[attr-defined]
             CodingSessionConfig(
                 provider=self._harness.config.provider,
                 model=model,
@@ -186,7 +220,7 @@ class _ReloadResumeMixin:
         self._config = replacement._config
         self._state = replacement._state
         self._harness = replacement._harness
-        self._invalidate_context_usage_cache()
+        self._invalidate_context_usage_cache()  # type: ignore[attr-defined]
         self._last_parent_id = replacement._last_parent_id
         self._skills = replacement._skills
         self._prompt_templates = replacement._prompt_templates
@@ -228,7 +262,7 @@ class _ReloadResumeMixin:
             model=model,
             provider_name=provider_name,
         )
-        replacement = await type(self).load(
+        replacement = await type(self).load(  # type: ignore[attr-defined]
             replace(
                 self._config,
                 provider=self._harness.config.provider,
@@ -246,7 +280,7 @@ class _ReloadResumeMixin:
         self._config = replacement._config
         self._state = replacement._state
         self._harness = replacement._harness
-        self._invalidate_context_usage_cache()
+        self._invalidate_context_usage_cache()  # type: ignore[attr-defined]
         self._last_parent_id = replacement._last_parent_id
         self._skills = replacement._skills
         self._prompt_templates = replacement._prompt_templates

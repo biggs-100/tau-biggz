@@ -14,11 +14,9 @@ import asyncio
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
 
 from tau_agent.tools import AgentTool, ToolExecutor
 from tau_agent.types import JSONValue
-
 
 DEFAULT_MAX_OUTPUT_BYTES = 50 * 1024
 DEFAULT_MAX_OUTPUT_LINES = 2_000

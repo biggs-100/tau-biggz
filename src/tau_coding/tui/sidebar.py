@@ -11,7 +11,6 @@ from rich.align import Align
 from rich.console import Group, RenderableType
 from rich.padding import Padding
 from rich.rule import Rule
-from rich.style import Style
 from rich.table import Table
 from rich.text import Text
 from textual.widgets import Static

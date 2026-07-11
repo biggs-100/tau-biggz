@@ -20,10 +20,9 @@ import json
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
-
 
 PACKAGES_DIR_NAME = "packages"
 PACKAGES_REGISTRY_NAME = "tau_packages.json"

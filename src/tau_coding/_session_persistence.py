@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-
 from typing import TYPE_CHECKING
 
 from tau_agent import AgentHarness, AgentHarnessConfig
@@ -13,14 +12,12 @@ from tau_agent.session import (
     SessionState,
 )
 from tau_agent.session.entries import SessionEntry
-
 from tau_coding.session_storage import _append_session_entry_sync
-from tau_coding.session_tree import _detach_missing_parents
 from tau_coding.session_tool_repair import _interrupted_tool_repair_plan
+from tau_coding.session_tree import _detach_missing_parents
 from tau_coding.session_utils import _auto_session_name_from_text
 
 if TYPE_CHECKING:
-    from tau_coding.session import CodingSession
     from tau_coding.session_models import CodingSessionConfig
 
 
@@ -49,7 +46,11 @@ class _PersistenceMixin:
         if self.session_title is not None:
             return
         name = _auto_session_name_from_text(first_message)
-        if name and self._config.session_id is not None and self._config.session_manager is not None:
+        if (
+            name
+            and self._config.session_id is not None
+            and self._config.session_manager is not None
+        ):
             self._config.session_manager.touch_session(
                 self._config.session_id,
                 title=name,

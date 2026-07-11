@@ -9,7 +9,6 @@ from collections.abc import Mapping
 
 from tau_agent.tools import AgentTool, AgentToolResult, ToolCancellationToken
 from tau_agent.types import JSONValue
-
 from tau_coding.extensions import ToolRegistration, get_default_registry
 from tau_coding.harness import HarnessApproval
 from tau_coding.tools_security import _check_tool_approval
@@ -58,11 +57,14 @@ def _wrap_tool_with_events(
 
         # 3. Actual execution
         result = await original_executor(arguments, signal=signal)
-        registry.dispatch_event("after_tool_call", {
-            "tool_name": tool.name,
-            "input": dict(arguments),
-            "result": {"ok": result.ok, "content": result.content},
-        })
+        registry.dispatch_event(
+            "after_tool_call",
+            {
+                "tool_name": tool.name,
+                "input": dict(arguments),
+                "result": {"ok": result.ok, "content": result.content},
+            },
+        )
         return result
 
     return AgentTool(

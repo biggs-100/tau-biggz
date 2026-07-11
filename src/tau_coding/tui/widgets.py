@@ -5,26 +5,12 @@ Re-exports symbols from focused sub-modules for backward compatibility.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Any
-
 from rich.console import RenderableType
 from rich.table import Table
 from rich.text import Text
 
 from tau_coding.tui.autocomplete import CompletionState
 from tau_coding.tui.chat_item import (
-    _chat_item_role_style,
-    _render_chat_body,
-    _render_patch_body,
-    _render_tool_chat_body,
-    _render_tool_invocation,
-    _split_tool_invocation,
-    _tool_accent_style,
-    _tool_error_style,
-    _tool_success_color,
-    _tool_success_style,
-    _visible_chat_text,
     render_chat_item,
 )
 from tau_coding.tui.config import TAU_DARK_THEME, TuiTheme
@@ -32,35 +18,15 @@ from tau_coding.tui.markdown import (
     LeftAlignedMarkdownHeading,
     ThemedCodeBlock,
     ThemedMarkdown,
-    _append_plain,
-    _fence_language,
-    _has_unclosed_fence,
-    _markdown_highlight_style,
-    _markdown_inline_code_style,
-    _markdown_theme,
-    _plain_text,
-    _render_fenced_body,
-    _syntax_language,
+    _syntax_language,  # noqa: F401 — re-exported for tests
 )
 from tau_coding.tui.sidebar import (
     CompactSessionInfo,
     SessionSidebar,
-    SessionSummarySource,
-    TAU_SIDEBAR_LOGO,
-    _bullet_list,
-    _compact_token_count,
-    _context_file_label,
-    _context_file_labels,
-    _context_usage,
-    _git_branch,
-    _short_path,
-    _sidebar_section,
-    _sidebar_separator,
-    _thinking_level,
+    _compact_token_count,  # noqa: F401 — re-exported for tests
     render_compact_session_info,
     render_session_sidebar,
 )
-from tau_coding.tui.state import ChatItem, TuiState
 from tau_coding.tui.transcript import (
     StreamingTranscriptMessageWidget,
     TauMarkdownBlock,
@@ -68,20 +34,8 @@ from tau_coding.tui.transcript import (
     TranscriptLine,
     TranscriptMessageWidget,
     TranscriptView,
-    _BORDERLESS_TRANSCRIPT_ROLES,
-    _HIDDEN_THINKING_PLACEHOLDER,
-    _clip_selection_offset,
-    _clip_selection_to_text,
-    _escape_plain_markdown_line,
-    _extract_text_selection,
-    _last_transcript_child_is_hidden_thinking_placeholder,
-    _plain_markdown,
-    _render_transcript_tool_invocation,
-    _split_rich_style_colors,
-    _transcript_item_markdown,
-    _transcript_plain_body_text,
-    _transcript_widget,
-    _use_plain_transcript_body,
+    _split_rich_style_colors,  # noqa: F401 — re-exported for tests
+    _transcript_plain_body_text,  # noqa: F401 — re-exported for tests
     transcript_item_selection_text,
 )
 

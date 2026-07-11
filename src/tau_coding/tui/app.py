@@ -6,8 +6,7 @@ import asyncio
 from collections.abc import AsyncIterator, Sequence
 from contextlib import suppress
 from inspect import isawaitable
-from pathlib import Path
-from typing import Any, ClassVar, Literal, cast
+from typing import ClassVar, Literal, cast
 
 from textual import events, on
 from textual.app import App, ComposeResult
@@ -48,7 +47,11 @@ from tau_coding.credentials import FileCredentialStore, OAuthCredential
 from tau_coding.extensions import get_default_registry
 from tau_coding.oauth import (  # noqa: F401 - re-exported for API compat
     OAuthAuthInfo as OAuthAuthInfo,
+)
+from tau_coding.oauth import (
     OAuthPrompt as OAuthPrompt,
+)
+from tau_coding.oauth import (
     login_openai_codex as login_openai_codex,
 )
 from tau_coding.provider_catalog import (
@@ -61,27 +64,18 @@ from tau_coding.provider_config import (
     AnthropicProviderConfig,
     OpenAICompatibleProviderConfig,
     ProviderConfig,
-    ProviderSelection,
     load_provider_settings,
     provider_config_from_catalog_entry,
-    provider_has_usable_credentials,
-    resolve_provider_selection,
     save_provider_settings,
     upsert_openai_compatible_provider,
     upsert_saved_provider,
 )
-from tau_coding.provider_runtime import create_model_provider
 from tau_coding.session import (
     CodingSession,
-    CodingSessionConfig,
     ModelChoice,
     SessionTreeBranchResult,
-    jsonl_session_storage,
     parse_terminal_command,
 )
-from tau_coding.session_manager import CodingSessionRecord, SessionManager
-from tau_coding.shell_config import load_shell_settings
-from tau_coding.thinking import DEFAULT_THINKING_LEVEL, ThinkingLevel
 from tau_coding.tui.adapter import TuiEventAdapter
 from tau_coding.tui.autocomplete import (
     CompletionState,
@@ -92,7 +86,6 @@ from tau_coding.tui.config import (
     TuiSettings,
     TuiTheme,
     TuiThemeName,
-    load_tui_settings,
     save_tui_settings,
 )
 from tau_coding.tui.input import (
@@ -127,8 +120,8 @@ from tau_coding.tui.screens import (  # noqa: F401 - re-exported for API compat
     _tree_choice_index,
     _tree_picker_label,
 )
-from tau_coding.tui.welcome_screen import WelcomeScreen
 from tau_coding.tui.state import TuiState, format_terminal_command_result_block
+from tau_coding.tui.welcome_screen import WelcomeScreen
 from tau_coding.tui.widgets import (
     CompactSessionInfo,
     SessionSidebar,
@@ -668,6 +661,7 @@ class TauTuiApp(App[None]):
             self._activity_timer.stop()
             self._activity_timer = None
         from tau_coding.tui._terminal_title import set_terminal_title
+
         set_terminal_title("Tau")
 
     def on_resize(self, event: Resize) -> None:
@@ -1855,6 +1849,7 @@ class TauTuiApp(App[None]):
         if _ext_widget_texts:
             from rich.table import Table
             from rich.text import Text as RichText
+
             _base = render_compact_session_info(self.session, theme=theme)
             _ext_line = RichText(" | ".join(_ext_widget_texts), style=theme.completion_description)
             _combined = Table.grid(expand=True)
@@ -1900,6 +1895,7 @@ class TauTuiApp(App[None]):
         prefix = "● " if self.state.running else ""
         title = f"{prefix}{session_name} — Tau" if session_name else f"{prefix}Tau"
         from tau_coding.tui._terminal_title import set_terminal_title
+
         set_terminal_title(title)
 
     def _tick_activity(self) -> None:
@@ -2032,59 +2028,58 @@ class TauTuiApp(App[None]):
         self._apply_activity_indicator()
 
 
-
 # Re-export symbols moved to app_helpers and app_runner
-from tau_coding.tui.app_helpers import (  # noqa: E402, F401
-    SIDEBAR_MIN_WIDTH,
-    SIDEBAR_MIN_HEIGHT,
-    ACTIVITY_TICK_SECONDS,
+from tau_coding.tui.app_helpers import (  # noqa: E402, F401, I001
     ACTIVITY_COLOR_FADE_STEPS,
     ACTIVITY_INDICATOR_HEIGHT,
-    COMPLETION_MAX_VISIBLE_LINES,
+    ACTIVITY_TICK_SECONDS,
     COMPLETION_INITIAL_TERMINAL_FRACTION,
+    COMPLETION_MAX_VISIBLE_LINES,
     COMPLETION_MIN_TRANSCRIPT_LINES,
     COMPLETION_WIDGET_CHROME_LINES,
     NO_STORED_CREDENTIALS_MESSAGE,
+    SIDEBAR_MIN_HEIGHT,
+    SIDEBAR_MIN_WIDTH,
     _activity_prompt_border_color,
-    _render_activity_indicator,
-    _is_terminal_command_prompt,
-    _should_optimistically_render_prompt,
-    _is_user_message_end_event,
+    _api_key_login_providers,
+    _app_bindings,
+    _attach_diagnostic_log_path_to_error,
     _blend_hex_colors,
-    _hex_to_rgb,
-    _completion_visible_line_limit,
-    _visible_completion_state,
-    _completion_selected_render_line,
-    _completion_render_line_count,
+    _command_message_uses_notification,
+    _command_message_uses_transcript,
+    _command_output_title,
     _completion_item_extra_wrapped_lines,
+    _completion_render_line_count,
+    _completion_selected_render_line,
+    _completion_visible_line_limit,
+    _credential_store_has_entry,
+    _format_prompt_error,
+    _hex_to_rgb,
+    _is_terminal_command_prompt,
+    _is_user_message_end_event,
+    _prompt_footer_mode,
+    _queued_message_preview,
+    _render_activity_indicator,
+    _render_queued_messages,
     _session_command_registry,
+    _session_header_sub_title,
+    _session_option,
     _session_options,
     _session_records,
-    _session_option,
     _short_path,
-    _session_header_sub_title,
-    _subscription_login_providers,
-    _api_key_login_providers,
+    _should_optimistically_render_prompt,
     _stored_credential_providers,
-    _credential_store_has_entry,
-    _command_message_uses_transcript,
-    _command_message_uses_notification,
-    _command_output_title,
-    _theme_css_variables,
-    _render_queued_messages,
-    _queued_message_preview,
-    _prompt_footer_mode,
-    _app_bindings,
+    _subscription_login_providers,
     _text_end_location,
-    _format_prompt_error,
-    _attach_diagnostic_log_path_to_error,
+    _theme_css_variables,
+    _visible_completion_state,
 )
-from tau_coding.tui.app_runner import (  # noqa: E402, F401
-    _explicit_resume_record as _explicit_resume_record,
+from tau_coding.tui.app_runner import (  # noqa: E402
     _create_startup_session_record as _create_startup_session_record,
-    _resolve_tui_startup_selection as _resolve_tui_startup_selection,
-    _resolve_startup_thinking_level as _resolve_startup_thinking_level,
+    _explicit_resume_record as _explicit_resume_record,
     _first_usable_startup_selection as _first_usable_startup_selection,
+    _resolve_startup_thinking_level as _resolve_startup_thinking_level,
+    _resolve_tui_startup_selection as _resolve_tui_startup_selection,
     _selection_from_session_record as _selection_from_session_record,
     _usable_scoped_startup_choices as _usable_scoped_startup_choices,
     run_tui_app as run_tui_app,

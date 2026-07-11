@@ -8,7 +8,6 @@ from typing import Any
 
 from rich.console import Group, RenderableType
 from rich.style import Style
-from rich.syntax import Syntax
 from rich.text import Text
 from textual.containers import Horizontal, VerticalScroll
 from textual.content import Style as TextualStyle  # type: ignore[attr-defined]

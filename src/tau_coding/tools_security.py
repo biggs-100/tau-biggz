@@ -8,7 +8,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from tau_agent.types import JSONValue
-
 from tau_coding.harness import HarnessApproval
 from tau_coding.trust_store import TrustStore, format_ask_message
 

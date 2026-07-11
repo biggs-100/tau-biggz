@@ -5,7 +5,11 @@ Extracted from tools.py to reduce module size.
 
 from __future__ import annotations
 
-from tau_coding.tools_types import DEFAULT_MAX_OUTPUT_BYTES, DEFAULT_MAX_OUTPUT_LINES, TruncationResult
+from tau_coding.tools_types import (
+    DEFAULT_MAX_OUTPUT_BYTES,
+    DEFAULT_MAX_OUTPUT_LINES,
+    TruncationResult,
+)
 
 
 def _truncation_result(

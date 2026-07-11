@@ -31,9 +31,6 @@ from tau_coding.provider_config import (
 )
 
 
-
-
-
 def upsert_openai_compatible_provider(
     settings: ProviderSettings,
     provider: OpenAICompatibleProviderConfig,
@@ -97,6 +94,7 @@ def _effective_provider_configs(paths: TauPaths | None = None) -> tuple[Provider
         return tuple(provider_config_from_entry(entry) for entry in effective_catalog(paths))
     except CatalogError:
         import sys
+
         from tau_coding.catalog_loader import user_catalog_path
 
         path = user_catalog_path(paths)
@@ -105,9 +103,7 @@ def _effective_provider_configs(paths: TauPaths | None = None) -> tuple[Provider
 
             sys.stderr.write(f"Warning: ignoring invalid user catalog at {path}\n")
             traceback.print_exc(file=sys.stderr)
-        return tuple(
-            provider_config_from_entry(entry) for entry in BUILTIN_PROVIDER_CATALOG
-        )
+        return tuple(provider_config_from_entry(entry) for entry in BUILTIN_PROVIDER_CATALOG)
 
 
 def _append_catalog_providers(

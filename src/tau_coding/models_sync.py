@@ -51,7 +51,7 @@ _PROVIDER_NAME_MAP: dict[str, str] = {
     "x-ai": "xai",
     "z-ai": "zai",
     "opencode-go": "opencode-go",
-        "opencode": "opencode-zen",
+    "opencode": "opencode-zen",
 }
 
 
@@ -194,7 +194,11 @@ def _merge_model_data(
         return provider
 
     # -- context_windows: updated for all provider types --
-    ext_context = external.get("limit", {}).get("context") if isinstance(external.get("limit"), dict) else None
+    ext_context = (
+        external.get("limit", {}).get("context")
+        if isinstance(external.get("limit"), dict)
+        else None
+    )
     new_context_windows = dict(provider.context_windows)
     if (
         ext_context is not None
@@ -208,9 +212,15 @@ def _merge_model_data(
     # -- model_metadata: only for providers that have the field --
     if update_model_metadata:
         ext_reasoning = external.get("reasoning")
-        ext_max_output = external.get("limit", {}).get("output") if isinstance(external.get("limit"), dict) else None
+        ext_max_output = (
+            external.get("limit", {}).get("output")
+            if isinstance(external.get("limit"), dict)
+            else None
+        )
 
-        existing_metadata: dict[str, ProviderModelMetadata] = getattr(provider, "model_metadata", {})
+        existing_metadata: dict[str, ProviderModelMetadata] = getattr(
+            provider, "model_metadata", {}
+        )
         new_model_metadata = dict(existing_metadata)
 
         md_kwargs: dict[str, Any] = {}
@@ -225,10 +235,7 @@ def _merge_model_data(
             if model_name in new_model_metadata:
                 base = new_model_metadata[model_name]
                 # Only replace when at least one value actually changes
-                needs_update = any(
-                    getattr(base, k, None) != v
-                    for k, v in md_kwargs.items()
-                )
+                needs_update = any(getattr(base, k, None) != v for k, v in md_kwargs.items())
                 if needs_update:
                     new_model_metadata[model_name] = replace(base, **md_kwargs)
                     changed = True
@@ -351,9 +358,7 @@ def _sync_from_cache(
     cached_data = cached.get("data", {})
     if not isinstance(cached_data, dict):
         return (
-            SyncResult(
-                False, 0, 0, "cache", "Cached data is not valid (expected dict)"
-            ),
+            SyncResult(False, 0, 0, "cache", "Cached data is not valid (expected dict)"),
             settings,
         )
 
@@ -409,13 +414,9 @@ def sync_models(
                 headers["If-Modified-Since"] = last_modified
 
             try:
-                resp = http_client.get(
-                    MODELS_DEV_URL, headers=headers, timeout=REQUEST_TIMEOUT
-                )
+                resp = http_client.get(MODELS_DEV_URL, headers=headers, timeout=REQUEST_TIMEOUT)
             except httpx.HTTPError as exc:
-                return _sync_from_cache(
-                    settings, cached, resolved_cache, reason=str(exc)
-                )
+                return _sync_from_cache(settings, cached, resolved_cache, reason=str(exc))
 
             if resp.status_code == 304:
                 cached_data = cached.get("data", {})
@@ -443,9 +444,7 @@ def sync_models(
 
         # -- Unconditional path: no cache --
         try:
-            resp = http_client.get(
-                MODELS_DEV_URL, headers=_BASE_HEADERS, timeout=REQUEST_TIMEOUT
-            )
+            resp = http_client.get(MODELS_DEV_URL, headers=_BASE_HEADERS, timeout=REQUEST_TIMEOUT)
         except httpx.HTTPError as exc:
             return SyncResult(False, 0, 0, "none", str(exc)), settings
 
@@ -467,9 +466,7 @@ def sync_models(
             return _merge_external_data(settings, data)
 
         return (
-            SyncResult(
-                False, 0, 0, "none", f"Unexpected HTTP {resp.status_code}"
-            ),
+            SyncResult(False, 0, 0, "none", f"Unexpected HTTP {resp.status_code}"),
             settings,
         )
     finally:
@@ -500,11 +497,7 @@ def models_sync_command() -> None:
 
     if result.success:
         # 304 Not Modified — just "Already up to date."
-        if (
-            result.source == "api"
-            and result.providers_updated == 0
-            and result.models_updated == 0
-        ):
+        if result.source == "api" and result.providers_updated == 0 and result.models_updated == 0:
             typer.echo("Already up to date.")
             return
 
@@ -512,10 +505,7 @@ def models_sync_command() -> None:
         if result.providers_updated > 0 or result.models_updated > 0:
             save_provider_settings(updated_settings)
 
-        typer.echo(
-            f"Updated {result.providers_updated} providers "
-            f"({result.models_updated} models)"
-        )
+        typer.echo(f"Updated {result.providers_updated} providers ({result.models_updated} models)")
         return
 
     # Hard failure

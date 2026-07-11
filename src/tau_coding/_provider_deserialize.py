@@ -10,19 +10,7 @@ from tau_ai import (
     DEFAULT_OPENAI_COMPATIBLE_MAX_RETRY_DELAY_SECONDS,
     DEFAULT_OPENAI_COMPATIBLE_TIMEOUT_SECONDS,
 )
-from tau_coding.paths import TauPaths
-from tau_coding.provider_config import (
-    _default_api_for_kind,
-    AnthropicProviderConfig,
-    OpenAICodexProviderConfig,
-    OpenAICompatibleProviderConfig,
-    ProviderConfig,
-    ProviderConfigError,
-    ProviderSettings,
-    ScopedModelConfig,
-    provider_thinking_levels,
-    validate_provider_model,
-)
+from tau_coding._provider_merge import _effective_provider_configs
 from tau_coding._provider_parsers import (
     _context_window_dict,
     _json_dict,
@@ -41,7 +29,19 @@ from tau_coding._provider_parsers import (
     _string_dict,
     _string_tuple,
 )
-from tau_coding._provider_merge import _effective_provider_configs
+from tau_coding.paths import TauPaths
+from tau_coding.provider_config import (
+    AnthropicProviderConfig,
+    OpenAICodexProviderConfig,
+    OpenAICompatibleProviderConfig,
+    ProviderConfig,
+    ProviderConfigError,
+    ProviderSettings,
+    ScopedModelConfig,
+    _default_api_for_kind,
+    provider_thinking_levels,
+    validate_provider_model,
+)
 from tau_coding.thinking import ThinkingLevel
 
 

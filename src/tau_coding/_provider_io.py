@@ -7,19 +7,17 @@ from json import dumps, loads
 from pathlib import Path
 from shutil import copy2
 from tempfile import NamedTemporaryFile
-from typing import Any
 
-from tau_coding.paths import TauPaths
-from tau_coding.provider_config import (
-    ProviderConfigError,
-    ProviderSettings,
-    provider_has_usable_credentials,
-)
 from tau_coding._provider_deserialize import provider_settings_from_json
 from tau_coding._provider_merge import (
     _effective_provider_configs,
     _save_provider_definitions_to_catalog,
     _with_builtin_catalog_models,
+)
+from tau_coding.paths import TauPaths
+from tau_coding.provider_config import (
+    ProviderConfigError,
+    ProviderSettings,
 )
 
 

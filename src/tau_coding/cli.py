@@ -237,7 +237,12 @@ def main(
         raise typer.Exit()
 
     # Offline mode: --offline flag or TAU_OFFLINE env var
-    _offline = offline or environ.get("TAU_OFFLINE", "").strip().lower() not in ("", "0", "false", "no")
+    _offline = offline or environ.get("TAU_OFFLINE", "").strip().lower() not in (
+        "",
+        "0",
+        "false",
+        "no",
+    )
 
     if ctx.invoked_subcommand is not None:
         return
@@ -252,7 +257,7 @@ def main(
 
     if list_extensions:
         registry = get_extension_registry()
-        ext_list = list(registry._extensions.values()) if hasattr(registry, '_extensions') else []
+        ext_list = list(registry._extensions.values()) if hasattr(registry, "_extensions") else []
         if not ext_list:
             typer.echo("No extensions loaded.")
         else:
@@ -322,6 +327,7 @@ def main(
 
     if prompt_option is None and command == "package":
         from tau_coding.package_manager import package_command
+
         package_command(positional_args[1:] if len(positional_args) >= 2 else [])
         raise typer.Exit()
 
@@ -367,7 +373,9 @@ def main(
             typer.echo(notice.message, err=True)
 
     try:
-        ok = anyio.run(run_openai_print_mode, prompt, model, cwd or Path.cwd(), output, provider, _offline)
+        ok = anyio.run(
+            run_openai_print_mode, prompt, model, cwd or Path.cwd(), output, provider, _offline
+        )
     except (RuntimeError, ValueError) as exc:
         raise typer.BadParameter(str(exc)) from exc
     if not ok:
@@ -571,6 +579,7 @@ async def run_openai_print_mode(
         try:
             from tau_coding.models_sync import sync_models
             from tau_coding.provider_config import save_provider_settings
+
             _sync_result, _updated_settings = sync_models(settings)
             if _updated_settings is not settings:
                 save_provider_settings(_updated_settings, paths=None)

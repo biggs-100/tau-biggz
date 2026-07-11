@@ -14,7 +14,6 @@ from textual.widgets import Static
 
 from tau_agent import AgentEvent, MessageEndEvent
 from tau_agent.messages import UserMessage
-
 from tau_coding.commands import CommandRegistry, create_default_command_registry
 from tau_coding.credentials import FileCredentialStore
 from tau_coding.provider_catalog import ProviderCatalogEntry

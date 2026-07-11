@@ -9,9 +9,9 @@ Usage::
 
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 from typing import Any
-import tomllib
 
 
 def mcp_install(package: str) -> str:
@@ -46,7 +46,11 @@ def mcp_remove(name: str) -> str:
 def mcp_list() -> list[dict[str, str]]:
     """List installed MCP servers."""
     return [
-        {"name": s.get("name", "?"), "transport": s.get("transport", "?"), "command": s.get("command", s.get("url", "?"))}
+        {
+            "name": s.get("name", "?"),
+            "transport": s.get("transport", "?"),
+            "command": s.get("command", s.get("url", "?")),
+        }
         for s in _load_configs()
     ]
 
@@ -54,9 +58,10 @@ def mcp_list() -> list[dict[str, str]]:
 def mcp_search(query: str) -> list[dict[str, str]]:
     """Search for MCP packages (stub - queries npm registry)."""
     import httpx
+
     try:
         resp = httpx.get(
-            f"https://registry.npmjs.org/-/v1/search",
+            "https://registry.npmjs.org/-/v1/search",
             params={"text": f"modelcontextprotocol {query}", "size": 10},
             timeout=10.0,
         )
@@ -65,14 +70,22 @@ def mcp_search(query: str) -> list[dict[str, str]]:
         results = []
         for obj in data.get("objects", []):
             pkg = obj.get("package", {})
-            results.append({
-                "name": pkg.get("name", ""),
-                "description": pkg.get("description", ""),
-                "version": pkg.get("version", ""),
-            })
+            results.append(
+                {
+                    "name": pkg.get("name", ""),
+                    "description": pkg.get("description", ""),
+                    "version": pkg.get("version", ""),
+                }
+            )
         return results
     except Exception:
-        return [{"name": f"npm:@modelcontextprotocol/server-{query}", "description": f"MCP server for {query}", "version": "latest"}]
+        return [
+            {
+                "name": f"npm:@modelcontextprotocol/server-{query}",
+                "description": f"MCP server for {query}",
+                "version": "latest",
+            }
+        ]
 
 
 def _package_to_name(package: str) -> str:

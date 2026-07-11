@@ -6,28 +6,23 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tau_agent.messages import AgentMessage, UserMessage
-
-from tau_coding.diagnostics import AgentCallDiagnosticContext
-
 from tau_agent.session import CompactionEntry, LeafEntry
-
+from tau_ai.events import ProviderErrorEvent, ProviderResponseEndEvent, ProviderTextDeltaEvent
+from tau_coding._session_persistence import _PersistenceMixin
+from tau_coding.branch_summary import summarize_branch_messages_with_model
 from tau_coding.context_window import (
     DEFAULT_COMPACTION_KEEP_RECENT_TOKENS,
     SUMMARIZATION_SYSTEM_PROMPT,
     build_compaction_summary_prompt,
+    summarize_messages_for_compaction,
 )
+from tau_coding.diagnostics import AgentCallDiagnosticContext
 from tau_coding.session_compaction import (
     _first_recent_context_index,
-    _is_context_overflow_error,
 )
 from tau_coding.session_models import CompactionPlan
-from tau_coding.branch_summary import summarize_branch_messages_with_model
-from tau_coding.context_window import summarize_messages_for_compaction
-from tau_ai.events import ProviderErrorEvent, ProviderResponseEndEvent, ProviderTextDeltaEvent
-from tau_coding._session_persistence import _PersistenceMixin
 
 if TYPE_CHECKING:
-    from tau_coding.session import CodingSession
     from tau_agent import AgentHarness
     from tau_agent.session import SessionState
     from tau_coding.diagnostics import AgentCallDiagnosticLogger

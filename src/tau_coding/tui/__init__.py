@@ -22,6 +22,7 @@ from tau_coding.tui.config import (
     tui_settings_path,
 )
 from tau_coding.tui.state import ChatItem, TuiState
+from tau_coding.tui.welcome_screen import WelcomeScreen
 from tau_coding.tui.widgets import (
     CompactSessionInfo,
     SessionSidebar,
@@ -33,7 +34,6 @@ from tau_coding.tui.widgets import (
     render_session_sidebar,
     transcript_item_selection_text,
 )
-from tau_coding.tui.welcome_screen import WelcomeScreen
 
 __all__ = [
     "BUILTIN_TUI_THEME_NAMES",

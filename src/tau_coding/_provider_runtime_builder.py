@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 from os import environ
-from typing import Any
 
 from tau_ai import (
     AnthropicConfig,
     OpenAICompatibleConfig,
 )
-from tau_coding.provider_catalog import ProviderKind
 from tau_coding.provider_config import (
     DEFAULT_PROVIDER_NAME,
     AnthropicProviderConfig,
@@ -17,12 +15,10 @@ from tau_coding.provider_config import (
     OpenAICompatibleProviderConfig,
     ProviderConfig,
     ProviderConfigError,
-    ProviderModelMetadata,
     _metadata_for_model,
     _model_base_url,
     _model_compat,
     _model_headers,
-    _model_max_tokens,
     _provider_api,
     provider_thinking_levels,
 )

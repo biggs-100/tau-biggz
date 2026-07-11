@@ -8,6 +8,7 @@ from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from tau_agent.messages import AssistantMessage, ToolResultMessage, UserMessage
 from tau_agent.session import (
@@ -20,13 +21,12 @@ from tau_agent.session import (
     ModelChangeEntry,
     SessionEntry,
     SessionInfoEntry,
-    SessionTreeError,
     SessionStorage,
+    SessionTreeError,
     ThinkingLevelChangeEntry,
     path_to_entry,
 )
 from tau_agent.types import JSONValue
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from tau_coding.session import CodingSession
@@ -676,57 +676,36 @@ def _storage_path(storage: SessionStorage) -> Path | None:
     return path if isinstance(path, Path) else None
 
 
-
 def _resolve_export_destination(
-
     destination: Path | None,
-
     *,
-
     cwd: Path,
-
     session_path: Path | None,
-
     format: str,
-
 ) -> Path:
 
     if destination is None:
-
         if session_path is not None:
-
             return default_session_export_artifact_path(
-
                 session_path,
-
                 destination_dir=cwd,
-
                 format=format,
-
             )
 
         return cwd / f"tau-session.{format}"
 
-
-
     resolved = destination if destination.is_absolute() else cwd / destination
 
     if resolved.suffix:
-
         return resolved
 
     name = session_path.stem if session_path is not None else "tau-session"
 
     return default_session_export_artifact_path(
-
         Path(name),
-
         destination_dir=resolved,
-
         format=format,
-
     )
-
 
 
 def _session_export_title(session: CodingSession) -> str:
@@ -736,12 +715,9 @@ def _session_export_title(session: CodingSession) -> str:
     session_id = session.session_id
 
     if manager is not None and session_id is not None:
-
         record = manager.get_session(session_id)
 
         if record is not None and record.title:
-
             return record.title
 
     return f"Tau session {session_id}" if session_id is not None else "Tau Session Export"
-

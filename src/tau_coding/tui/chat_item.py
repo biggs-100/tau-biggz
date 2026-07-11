@@ -223,4 +223,3 @@ def _render_patch_body(
             background_color=code_block_background,
         ),
     )
-

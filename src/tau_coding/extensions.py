@@ -60,8 +60,10 @@ def tool(name: str, description: str = "") -> Callable[[Callable[..., Any]], Cal
     def decorator(func: Any) -> Callable[..., Any]:
         sig = inspect.signature(func)
         params = [
-            {"name": p.name,
-                "kind": str(p.annotation) if p.annotation != inspect.Parameter.empty else "string"}
+            {
+                "name": p.name,
+                "kind": str(p.annotation) if p.annotation != inspect.Parameter.empty else "string",
+            }
             for p in sig.parameters.values()
             if p.name != "self"
         ]
@@ -102,7 +104,6 @@ def on(event: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     return decorator
 
 
-
 def ui_widget(zone: str = "status-bar") -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator that marks a method as a UI widget provider."""
 
@@ -111,7 +112,6 @@ def ui_widget(zone: str = "status-bar") -> Callable[[Callable[..., Any]], Callab
         return cast(Callable[..., Any], func)
 
     return decorator
-
 
 
 # ── runtime ─────────────────────────────────────────────────────────────
@@ -199,10 +199,7 @@ class ExtensionRegistry:
             if not d.is_dir():
                 continue
             for entry in sorted(d.iterdir()):
-                if (
-                    entry.suffix == ".py"
-                    and not entry.name.startswith("_")
-                ) or (
+                if (entry.suffix == ".py" and not entry.name.startswith("_")) or (
                     entry.is_dir() and (entry / "__init__.py").exists()
                 ):
                     candidates.append(entry)
@@ -218,6 +215,7 @@ class ExtensionRegistry:
                 self._extensions[inst.name] = inst
             except ExtensionError:
                 import traceback
+
                 traceback.print_exc()
         return instances
 
@@ -380,6 +378,7 @@ class ExtensionRegistry:
                     results.append(result)
                 except Exception:
                     import traceback
+
                     traceback.print_exc()
         return results
 
@@ -417,6 +416,7 @@ class ExtensionRegistry:
                 ext.instance.on_unload()
             except Exception:
                 import traceback
+
                 traceback.print_exc()
         self._extensions.clear()
 
@@ -447,9 +447,7 @@ class ExtensionRegistry:
 
         dest = ext_dir / src.name
         if dest.exists():
-            raise ExtensionError(
-                f"Extension already installed at {dest}"
-            )
+            raise ExtensionError(f"Extension already installed at {dest}")
 
         if src.is_dir():
             shutil.copytree(src, dest, dirs_exist_ok=False)
@@ -547,9 +545,7 @@ class ExtensionRegistry:
         spec_name = f"tau_ext_{file_stem}"
         sys.modules.pop(spec_name, None)
         # Remove any sub-modules if it was a package
-        keys_to_remove = [
-            k for k in sys.modules if k.startswith(f"{spec_name}.")
-        ]
+        keys_to_remove = [k for k in sys.modules if k.startswith(f"{spec_name}.")]
         for k in keys_to_remove:
             sys.modules.pop(k, None)
         # Clear bytecode cache so reload picks up changes

@@ -8,11 +8,11 @@ from pathlib import Path
 from typing import Protocol
 
 from tau_agent.tools import AgentTool
+from tau_coding.extensions import CommandRegistration, get_default_registry
 from tau_coding.prompt_templates import PromptTemplate
 from tau_coding.provider_catalog import BUILTIN_PROVIDER_CATALOG, builtin_provider_entry
 from tau_coding.reload import CodingReloadSummary, ReloadCategorySummary
 from tau_coding.resources import ResourceDiagnostic
-from tau_coding.extensions import CommandRegistration, get_default_registry
 from tau_coding.session_manager import CodingSessionRecord, SessionManager
 from tau_coding.skills import Skill
 from tau_coding.system_prompt import ProjectContextFile
@@ -200,8 +200,6 @@ class CommandRegistry:
         )
 
 
-
-
 def _extension_command_handler(
     context: CommandContext,
     cmd: CommandRegistration,
@@ -211,6 +209,7 @@ def _extension_command_handler(
         result = cmd.handler(cmd, context.args.strip())
         if hasattr(result, "__await__"):
             import asyncio
+
             result = asyncio.get_event_loop().run_until_complete(result)
         return CommandResult(
             handled=True,
@@ -221,6 +220,7 @@ def _extension_command_handler(
             handled=True,
             message=f"Extension command error: {exc}",
         )
+
 
 def create_default_command_registry() -> CommandRegistry:
     """Create Tau's built-in slash command registry."""

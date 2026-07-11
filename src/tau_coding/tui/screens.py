@@ -4,9 +4,20 @@ from __future__ import annotations
 
 from textual.binding import Binding
 
+from tau_coding.tui._screens_login import (
+    CustomProviderLoginResult,
+    CustomProviderLoginScreen,
+    LoginMethodListView,
+    LoginMethodPickerScreen,
+    LoginProviderPickerScreen,
+    LoginScreen,
+    OAuthLoginScreen,
+    _login_provider_label,
+)
+from tau_coding.tui._screens_output import CommandOutputScreen, CommandOutputScroll
+
 # Import everything from the focused screen modules.
 # Each module is self-contained with no circular import to screens.py.
-
 from tau_coding.tui._screens_session import (
     BranchSummaryInstructionsScreen,
     SessionPickerScreen,
@@ -18,17 +29,6 @@ from tau_coding.tui._screens_session import (
     _session_updated_at_label,
     _tree_choice_index,
     _tree_picker_label,
-)
-from tau_coding.tui._screens_output import CommandOutputScreen, CommandOutputScroll
-from tau_coding.tui._screens_login import (
-    CustomProviderLoginResult,
-    CustomProviderLoginScreen,
-    LoginMethodListView,
-    LoginMethodPickerScreen,
-    LoginProviderPickerScreen,
-    LoginScreen,
-    OAuthLoginScreen,
-    _login_provider_label,
 )
 from tau_coding.tui._screens_settings import (
     ModelPickerScreen,

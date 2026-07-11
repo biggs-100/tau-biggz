@@ -20,17 +20,11 @@ from tau_coding.catalog_loader import (
 )
 from tau_coding.credentials import FileCredentialStore, credentials_path
 from tau_coding.paths import TauPaths
-from tau_coding.provider_catalog import ProviderApi, ProviderKind
+from tau_coding.provider_catalog import ProviderApi
 from tau_coding.provider_config import (
     AnthropicProviderConfig,
-    DEFAULT_MODEL,
-    DEFAULT_PROVIDER_NAME,
     OpenAICompatibleProviderConfig,
     ProviderConfig,
-    ProviderSettings,
-    load_provider_settings,
-    save_provider_settings,
-    upsert_openai_compatible_provider,
     upsert_saved_provider,
 )
 
@@ -69,9 +63,7 @@ def providers_add_command(paths: TauPaths | None = None) -> None:
     api_key_env = typer.prompt("API key env variable", default=default_var).strip() or default_var
 
     models_raw = typer.prompt("Model IDs (comma-separated)")
-    models = tuple(
-        dict.fromkeys(m.strip() for m in models_raw.split(",") if m.strip())
-    )
+    models = tuple(dict.fromkeys(m.strip() for m in models_raw.split(",") if m.strip()))
     if not models:
         raise typer.BadParameter("At least one model ID is required.")
 

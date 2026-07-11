@@ -10,7 +10,6 @@ from tau_agent.messages import AgentMessage
 from tau_agent.session import SessionStorage
 from tau_agent.tools import AgentTool
 from tau_ai import ModelProvider
-
 from tau_coding.commands import CommandRegistry
 from tau_coding.harness import SandboxConfig
 from tau_coding.prompt_templates import PromptTemplate
@@ -20,7 +19,6 @@ from tau_coding.session_manager import SessionManager
 from tau_coding.skills import Skill
 from tau_coding.system_prompt import ProjectContextFile
 from tau_coding.thinking import DEFAULT_THINKING_LEVEL, ThinkingLevel
-
 
 StreamingBehavior = Literal["steer", "follow_up"]
 

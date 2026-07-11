@@ -24,8 +24,7 @@ from __future__ import annotations
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, NamedTuple
-
+from typing import NamedTuple
 
 # ── data model ──────────────────────────────────────────────────────────
 
@@ -116,10 +115,7 @@ def coding_harness() -> HarnessDefinition:
     Checks ``~/.tau/SYSTEM.md`` and ``~/.tau/APPEND_SYSTEM.md`` for
     custom system prompts (same convention as named harnesses).
     """
-    system_prompt = (
-        "You are Tau, a coding agent. "
-        "You help users read, write, edit, and debug code."
-    )
+    system_prompt = "You are Tau, a coding agent. You help users read, write, edit, and debug code."
 
     home_system = Path.home() / ".tau" / "SYSTEM.md"
     if home_system.exists():
@@ -129,7 +125,7 @@ def coding_harness() -> HarnessDefinition:
     if home_append.exists():
         append_text = home_append.read_text(encoding="utf-8").strip()
         if append_text:
-                system_prompt = (system_prompt + "\n\n" + append_text) if system_prompt else append_text
+            system_prompt = (system_prompt + "\n\n" + append_text) if system_prompt else append_text
 
     return HarnessDefinition(
         name="coding",

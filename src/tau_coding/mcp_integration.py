@@ -76,48 +76,58 @@ class McpRegistry:
                 if config.transport == "stdio" and config.command:
                     env = dict(os.environ)
                     env.update(config.env)
-                    params = type("Params", (), {
-                        "command": config.command,
-                        "args": list(config.args),
-                        "env": env,
-                    })()
+                    params = type(
+                        "Params",
+                        (),
+                        {
+                            "command": config.command,
+                            "args": list(config.args),
+                            "env": env,
+                        },
+                    )()
                     streams = await stdio_client(params)  # type: ignore[misc]
                     session = await ClientSession(streams[0], streams[1]).__aenter__()
                     self._sessions[name] = (session, streams)
                     await session.initialize()
                     result = await session.list_tools()
                     for tool in result.tools:
-                        self._tools.append(McpToolInfo(
-                            server_name=name,
-                            name=tool.name,
-                            description=tool.description or "",
-                            input_schema=tool.inputSchema or {},
-                        ))
+                        self._tools.append(
+                            McpToolInfo(
+                                server_name=name,
+                                name=tool.name,
+                                description=tool.description or "",
+                                input_schema=tool.inputSchema or {},
+                            )
+                        )
                     connected.append(name)
                 elif config.transport == "http" and config.url:
                     # HTTP transport - simplified for now
                     from mcp.client.http import http_client  # type: ignore[import-not-found]
+
                     session = await http_client(config.url)
                     await session.initialize()
                     self._sessions[name] = (session, None)
                     result = await session.list_tools()
                     for tool in result.tools:
-                        self._tools.append(McpToolInfo(
-                            server_name=name,
-                            name=tool.name,
-                            description=tool.description or "",
-                            input_schema=tool.inputSchema or {},
-                        ))
+                        self._tools.append(
+                            McpToolInfo(
+                                server_name=name,
+                                name=tool.name,
+                                description=tool.description or "",
+                                input_schema=tool.inputSchema or {},
+                            )
+                        )
                     connected.append(name)
-            except Exception as exc:
+            except Exception:
                 import traceback
+
                 traceback.print_exc()
         self._connected = True
         return connected
 
     async def disconnect_all(self) -> None:
         """Disconnect from all MCP servers."""
-        for name, (session, streams) in self._sessions.items():
+        for _name, (session, streams) in self._sessions.items():
             try:
                 await session.__aexit__(None, None, None)
                 if streams:
@@ -133,9 +143,7 @@ class McpRegistry:
         """Return all discovered MCP tools."""
         return list(self._tools)
 
-    async def call_tool(
-        self, server_name: str, tool_name: str, arguments: dict[str, Any]
-    ) -> Any:
+    async def call_tool(self, server_name: str, tool_name: str, arguments: dict[str, Any]) -> Any:
         """Call a tool on an MCP server."""
         session = self._sessions.get(server_name)
         if session is None:
@@ -175,14 +183,16 @@ def load_mcp_config(cwd: Path | None = None) -> list[McpServerConfig]:
         if path.exists():
             raw = tomllib.loads(path.read_text(encoding="utf-8"))
             for server_raw in raw.get("servers", []):
-                configs.append(McpServerConfig(
-                    name=server_raw.get("name", ""),
-                    transport=server_raw.get("transport", "stdio"),
-                    command=server_raw.get("command", ""),
-                    args=tuple(server_raw.get("args", [])),
-                    url=server_raw.get("url", ""),
-                    env=dict(server_raw.get("env", {})),
-                ))
+                configs.append(
+                    McpServerConfig(
+                        name=server_raw.get("name", ""),
+                        transport=server_raw.get("transport", "stdio"),
+                        command=server_raw.get("command", ""),
+                        args=tuple(server_raw.get("args", [])),
+                        url=server_raw.get("url", ""),
+                        env=dict(server_raw.get("env", {})),
+                    )
+                )
     return configs
 
 

@@ -5,11 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from tau_agent.session import SessionState
-
 from tau_coding.provider_config import (
     ProviderConfig,
     ProviderConfigError,
-    ProviderSettings,
     provider_default_thinking_level,
     provider_thinking_levels,
     validate_provider_model,

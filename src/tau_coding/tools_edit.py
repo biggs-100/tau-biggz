@@ -12,7 +12,6 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from tau_agent.types import JSONValue
-
 from tau_coding.tools_types import SUPPORTED_IMAGE_MIME_TYPES, UTF8_BOM, ToolInputError
 
 

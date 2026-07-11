@@ -14,8 +14,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from tau_coding.paths import TauPaths
 from tau_agent.types import JSONValue
+from tau_coding.paths import TauPaths
 
 
 @dataclass

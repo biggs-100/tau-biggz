@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from tau_agent import ErrorEvent
 from tau_agent.messages import AgentMessage
-
 from tau_coding.context_window import estimate_message_tokens
 
 

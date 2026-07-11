@@ -2,14 +2,9 @@
 
 from __future__ import annotations
 
-from contextlib import suppress
 from dataclasses import dataclass, field, replace
-from json import dumps, loads
 from os import environ
-from pathlib import Path
-from shutil import copy2
-from tempfile import NamedTemporaryFile
-from typing import Any, Protocol, cast
+from typing import Any, Protocol
 
 from tau_ai import (
     DEFAULT_ANTHROPIC_BASE_URL,
@@ -17,12 +12,8 @@ from tau_ai import (
     DEFAULT_OPENAI_COMPATIBLE_MAX_RETRIES,
     DEFAULT_OPENAI_COMPATIBLE_MAX_RETRY_DELAY_SECONDS,
     DEFAULT_OPENAI_COMPATIBLE_TIMEOUT_SECONDS,
-    AnthropicConfig,
-    OpenAICompatibleConfig,
 )
 from tau_ai.env import DEFAULT_OPENAI_COMPATIBLE_BASE_URL
-from tau_coding.catalog_loader import CatalogError, effective_catalog, save_user_catalog_entries
-from tau_coding.credentials import FileCredentialStore, credentials_path
 from tau_coding.paths import TauPaths
 from tau_coding.provider_catalog import (
     BUILTIN_PROVIDER_CATALOG,
@@ -35,10 +26,7 @@ from tau_coding.thinking import (
     DEFAULT_THINKING_LEVEL,
     ThinkingLevel,
     ThinkingParameter,
-    anthropic_thinking_budget_for_level,
     normalize_thinking_level,
-    normalize_thinking_levels,
-    reasoning_effort_for_level,
 )
 
 __all__ = [
@@ -670,10 +658,10 @@ def provider_thinking_levels(
             return ()
         return _levels_from_thinking_map(metadata.thinking_level_map)
     # Provider has thinking_levels - trust the provider
-    if provider.thinking_models and selected_model not in provider.thinking_models:
-        # If the model has reasoning=True in metadata, allow it anyway
-        if metadata is None or metadata.reasoning is not True:
-            return ()
+    if provider.thinking_models and selected_model not in provider.thinking_models and (
+        metadata is None or metadata.reasoning is not True
+    ):
+        return ()
     return tuple(
         level
         for level in provider.thinking_levels
@@ -858,6 +846,39 @@ def provider_has_usable_credentials(
 # Re-exports from sub-modules
 # ---------------------------------------------------------------------------
 
+from tau_coding._provider_deserialize import (  # noqa: E402, F401
+    _apply_provider_preference,
+    _provider_from_json,
+    _providers_with_preferences,
+    _raw_thinking_defaults_dict,
+    _scoped_models_from_json,
+    _thinking_defaults_dict,
+    provider_settings_from_json,
+)
+from tau_coding._provider_io import (  # noqa: E402, F401
+    _atomic_write_text,
+    _load_provider_settings_for_write,
+    load_provider_settings,
+    provider_settings_path,
+    save_provider_settings,
+)
+from tau_coding._provider_merge import (  # noqa: E402, F401
+    _append_catalog_providers,
+    _catalog_entry_from_provider,
+    _catalog_model_metadata_from_provider,
+    _effective_provider_configs,
+    _merge_anthropic_provider,
+    _merge_openai_compatible_provider,
+    _merge_provider_config,
+    _merge_provider_model_metadata,
+    _provider_definition_differs_from_catalog,
+    _provider_preference_to_json,
+    _save_provider_definitions_to_catalog,
+    _unique_strings,
+    _with_builtin_catalog_models,
+    upsert_openai_compatible_provider,
+    upsert_provider,
+)
 from tau_coding._provider_parsers import (  # noqa: E402, F401
     _context_window_dict,
     _float_dict,
@@ -889,43 +910,6 @@ from tau_coding._provider_parsers import (  # noqa: E402, F401
     _validate_thinking_config,
     _validate_thinking_defaults,
 )
-
-from tau_coding._provider_merge import (  # noqa: E402, F401
-    _append_catalog_providers,
-    _catalog_entry_from_provider,
-    _catalog_model_metadata_from_provider,
-    _effective_provider_configs,
-    _merge_anthropic_provider,
-    _merge_openai_compatible_provider,
-    _merge_provider_config,
-    _merge_provider_model_metadata,
-    _provider_definition_differs_from_catalog,
-    _provider_preference_to_json,
-    _save_provider_definitions_to_catalog,
-    _unique_strings,
-    _with_builtin_catalog_models,
-    upsert_openai_compatible_provider,
-    upsert_provider,
-)
-
-from tau_coding._provider_deserialize import (  # noqa: E402, F401
-    _apply_provider_preference,
-    _provider_from_json,
-    _providers_with_preferences,
-    _raw_thinking_defaults_dict,
-    _scoped_models_from_json,
-    _thinking_defaults_dict,
-    provider_settings_from_json,
-)
-
-from tau_coding._provider_io import (  # noqa: E402, F401
-    _atomic_write_text,
-    _load_provider_settings_for_write,
-    load_provider_settings,
-    provider_settings_path,
-    save_provider_settings,
-)
-
 from tau_coding._provider_runtime_builder import (  # noqa: E402, F401
     _anthropic_thinking_budget_from_provider,
     _anthropic_thinking_mode,

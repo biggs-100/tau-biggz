@@ -65,3 +65,18 @@ addopts = "-ra"
 markers = [
     "tui: Textual TUI tests that require a display server (use xvfb-run on Linux).",
 ]
+
+[tool.coverage.run]
+source = ["tau_ai", "tau_agent", "tau_coding"]
+omit = ["*/tests/*"]
+
+[tool.coverage.report]
+fail_under = 65
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "class .*\\bProtocol\\b:",
+    "def __repr__",
+    "def __str__",
+]

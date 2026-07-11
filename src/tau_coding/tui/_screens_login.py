@@ -421,7 +421,6 @@ class LoginScreen(ModalScreen[str | None]):
 class OAuthLoginScreen(ModalScreen[OAuthCredential | None]):
     """OAuth login flow for providers backed by subscription auth."""
 
-
     BINDINGS: ClassVar[list[BindingEntry]] = [
         Binding("escape", "cancel", "Cancel"),
     ]
@@ -453,6 +452,7 @@ class OAuthLoginScreen(ModalScreen[OAuthCredential | None]):
     async def _run_login(self) -> None:
         # Lazy import so tests can monkeypatch tau_coding.tui.app.login_openai_codex
         from tau_coding.tui.app import login_openai_codex as _login_openai_codex
+
         try:
             credential = await _login_openai_codex(
                 on_auth=self._show_auth,

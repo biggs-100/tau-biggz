@@ -6,21 +6,16 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from tau_agent.session import LeafEntry
-
-from tau_coding.extensions import get_default_registry
 import tau_coding.session as _session_mod
-
+from tau_coding.extensions import get_default_registry
 from tau_coding.provider_config import (
     ProviderConfigError,
     resolve_provider_selection,
     validate_provider_model,
 )
+from tau_coding.reload import CodingReloadSummary
 from tau_coding.session_models import CodingSessionConfig
 from tau_coding.session_provider import _coerced_thinking_level
-from tau_coding.session_storage import jsonl_session_storage
-from tau_coding.reload import CodingReloadSummary
-from tau_coding.resources import resource_paths_with_cwd
 from tau_coding.session_resources import (
     _category_summary,
     _context_file_signatures,
@@ -30,20 +25,20 @@ from tau_coding.session_resources import (
     _skill_signatures,
     _system_prompt_resource_signatures,
 )
+from tau_coding.session_storage import jsonl_session_storage
 from tau_coding.system_prompt import (
     BuildSystemPromptOptions,
     build_system_prompt,
 )
 
 if TYPE_CHECKING:
-    from tau_coding.session import CodingSession
     from tau_agent import AgentHarness
     from tau_agent.session import SessionState
     from tau_coding.commands import CommandRegistry
     from tau_coding.credentials import FileCredentialStore
+    from tau_coding.prompt_templates import PromptTemplate
     from tau_coding.provider_config import ProviderConfig, ProviderSettings
     from tau_coding.provider_runtime import ClosableModelProvider
-    from tau_coding.prompt_templates import PromptTemplate
     from tau_coding.resources import ResourceDiagnostic, TauResourcePaths
     from tau_coding.skills import Skill
     from tau_coding.system_prompt import ProjectContextFile
@@ -302,6 +297,8 @@ class _ReloadResumeMixin:
         for provider in self._owned_providers:
             await provider.aclose()
         self._owned_providers.clear()
-        mcp_reg = __import__("tau_coding.mcp_integration", fromlist=["get_mcp_registry"]).get_mcp_registry()
+        mcp_reg = __import__(
+            "tau_coding.mcp_integration", fromlist=["get_mcp_registry"]
+        ).get_mcp_registry()
         if mcp_reg.connected:
             await mcp_reg.disconnect_all()

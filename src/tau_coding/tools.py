@@ -19,16 +19,42 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 from time import monotonic
-from typing import Any
 
 from tau_agent.tools import AgentTool, AgentToolResult, ToolCancellationToken
 from tau_agent.types import JSONValue
-
-from tau_coding.extensions import ToolRegistration, get_default_registry
+from tau_coding.extensions import ToolRegistration
 from tau_coding.harness import HarnessApproval, SandboxConfig
-from tau_coding.mcp_integration import get_mcp_registry, mcp_tool_to_agent_tool
+from tau_coding.tools_bash import (
+    _communicate_with_cancellation,
+    _prefixed_shell_command,
+    _write_temp_output,
+)
+from tau_coding.tools_edit import (
+    _base64_text,
+    _detect_supported_image_mime_type,
+    _edits_arg,
+    _prepare_edit_arguments,
+    _strip_bom,
+    apply_edits_to_normalized_content,
+    detect_line_ending,
+    generate_diff_string,
+    generate_unified_patch,
+    normalize_to_lf,
+    restore_line_endings,
+)
+from tau_coding.tools_events import _extension_tool_to_agent_tool, _wrap_tool_with_events
+from tau_coding.tools_file_lock import _file_lock
 
 # ── imports from refactored modules ──────────────────────────────────────
+from tau_coding.tools_security import (
+    _check_tool_approval,  # noqa: F401 — re-exported for test access
+)
+from tau_coding.tools_truncation import (
+    append_status_block,
+    format_size,
+    truncate_head,
+    truncate_tail,
+)
 from tau_coding.tools_types import (
     DEFAULT_MAX_OUTPUT_BYTES,
     DEFAULT_MAX_OUTPUT_LINES,
@@ -37,7 +63,6 @@ from tau_coding.tools_types import (
     ToolDefinition,
     ToolInputError,
     TruncationResult,
-    _file_locks,
 )
 from tau_coding.tools_validation import (
     _optional_float_arg,
@@ -46,41 +71,6 @@ from tau_coding.tools_validation import (
     _str_arg,
     _validate_path_in_sandbox,
 )
-from tau_coding.tools_truncation import (
-    append_status_block,
-    format_size,
-    truncate_head,
-    truncate_tail,
-)
-from tau_coding.tools_security import _check_tool_approval, _check_trust_store
-from tau_coding.tools_events import _extension_tool_to_agent_tool, _wrap_tool_with_events
-from tau_coding.tools_bash import (
-    _communicate_with_cancellation,
-    _kill_process_tree,
-    _prefixed_shell_command,
-    _wait_for_cancel,
-    _write_temp_output,
-)
-from tau_coding.tools_edit import (
-    _base64_text,
-    _count_occurrences,
-    _detect_supported_image_mime_type,
-    _duplicate_error,
-    _edits_arg,
-    _empty_old_text_error,
-    _no_change_error,
-    _not_found_error,
-    _prepare_edit_arguments,
-    _strip_bom,
-    _validate_non_overlapping,
-    apply_edits_to_normalized_content,
-    detect_line_ending,
-    generate_diff_string,
-    generate_unified_patch,
-    normalize_to_lf,
-    restore_line_endings,
-)
-from tau_coding.tools_file_lock import _file_lock, _FileLockContext
 
 __all__ = [
     "DEFAULT_MAX_OUTPUT_BYTES",
@@ -647,8 +637,9 @@ def create_bash_tool(
 
 def create_web_search_tool() -> AgentTool:
     """Create an AgentTool for web searching via DuckDuckGo."""
-    import httpx
     import re
+
+    import httpx
 
     input_schema: dict[str, JSONValue] = {
         "type": "object",
@@ -718,7 +709,7 @@ def create_web_search_tool() -> AgentTool:
 
     return AgentTool(
         name="web_search",
-        description="Search the web using DuckDuckGo. Returns up to 8 results with titles and URLs.",
+        description="Search the web using DuckDuckGo. Returns up to 8 results with titles and URLs.",  # noqa: E501
         input_schema=input_schema,
         executor=search_executor,
         prompt_snippet="Search the web for information.",
@@ -782,7 +773,9 @@ def create_subagent_tool() -> AgentTool:
             settings = load_provider_settings()
             if not settings or not settings.providers:
                 return AgentToolResult(
-                    tool_call_id="sub", name="subagent_run", ok=False,
+                    tool_call_id="sub",
+                    name="subagent_run",
+                    ok=False,
                     content="No provider configured. Login with /login first.",
                 )
 
@@ -802,19 +795,26 @@ def create_subagent_tool() -> AgentTool:
                 elif isinstance(event, ErrorEvent) and not event.recoverable:
                     await provider.aclose()
                     return AgentToolResult(
-                        tool_call_id="sub", name="subagent_run", ok=False,
+                        tool_call_id="sub",
+                        name="subagent_run",
+                        ok=False,
                         content=f"Sub-agent error: {event.message}",
                     )
             result_text = "".join(text_parts).strip()
             await provider.aclose()
             return AgentToolResult(
-                tool_call_id="sub", name="subagent_run", ok=True,
+                tool_call_id="sub",
+                name="subagent_run",
+                ok=True,
                 content=result_text or "(no response)",
             )
         except Exception as exc:
             return AgentToolResult(
-                tool_call_id="sub", name="subagent_run", ok=False,
-                content=f"Sub-agent failed: {exc}", error=str(exc),
+                tool_call_id="sub",
+                name="subagent_run",
+                ok=False,
+                content=f"Sub-agent failed: {exc}",
+                error=str(exc),
             )
 
     return AgentTool(

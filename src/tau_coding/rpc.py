@@ -15,12 +15,13 @@ Supported commands: ``prompt``, ``cancel``, ``get_state``, ``set_model``.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import sys
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from tau_agent.events import (
     AgentEndEvent,
@@ -29,19 +30,17 @@ from tau_agent.events import (
     MessageDeltaEvent,
     MessageEndEvent,
     MessageStartEvent,
+    ThinkingDeltaEvent,
     ToolExecutionEndEvent,
     ToolExecutionStartEvent,
-    ThinkingDeltaEvent,
 )
 from tau_coding.provider_config import (
-    ProviderConfig,
     load_provider_settings,
     resolve_provider_selection,
 )
 from tau_coding.provider_runtime import create_model_provider
 from tau_coding.session import CodingSession, CodingSessionConfig
 from tau_coding.session_manager import SessionManager
-
 
 # ── protocol types ─────────────────────────────────────────────────────
 
@@ -100,11 +99,13 @@ async def _read_stdin() -> AsyncIterator[RpcCommand]:
         try:
             obj = json.loads(line)
         except json.JSONDecodeError as exc:
-            _write_json({
-                "type": "response",
-                "error": f"Invalid JSON: {exc}",
-                "success": False,
-            })
+            _write_json(
+                {
+                    "type": "response",
+                    "error": f"Invalid JSON: {exc}",
+                    "success": False,
+                }
+            )
             continue
 
         yield RpcCommand(
@@ -157,11 +158,13 @@ async def _run_prompt(session: CodingSession, prompt: str) -> None:
         async for event in session.prompt(prompt):
             _write_json(_event_to_dict(event))
     except Exception as exc:
-        _write_json({
-            "type": "event",
-            "event": "error",
-            "error": str(exc),
-        })
+        _write_json(
+            {
+                "type": "event",
+                "event": "error",
+                "error": str(exc),
+            }
+        )
 
 
 # ── main RPC loop ───────────────────────────────────────────────────────
@@ -175,11 +178,13 @@ async def run_rpc_mode(*, cwd: Path | None = None) -> None:
     session: CodingSession | None = None
     current_task: asyncio.Task[None] | None = None
 
-    _write_json({
-        "type": "event",
-        "event": "ready",
-        "cwd": str(resolved_cwd),
-    })
+    _write_json(
+        {
+            "type": "event",
+            "event": "ready",
+            "cwd": str(resolved_cwd),
+        }
+    )
 
     async for cmd in _read_stdin():
         # ── cancel ──────────────────────────────────────────────────────
@@ -190,10 +195,8 @@ async def run_rpc_mode(*, cwd: Path | None = None) -> None:
 
             # Cancel the session's current run
             if session is not None:
-                try:
+                with contextlib.suppress(Exception):
                     session.cancel()
-                except Exception:
-                    pass
 
             _write_json(RpcResponse(id=cmd.id, command="cancel", success=True).__dict__)
             continue
@@ -201,8 +204,11 @@ async def run_rpc_mode(*, cwd: Path | None = None) -> None:
         # ── get_state ────────────────────────────────────────────────────
         if cmd.type == "get_state":
             if session is None:
-                _write_json(RpcResponse(id=cmd.id, command="get_state", success=False,
-                                        error="No active session").__dict__)
+                _write_json(
+                    RpcResponse(
+                        id=cmd.id, command="get_state", success=False, error="No active session"
+                    ).__dict__
+                )
                 continue
 
             state = {
@@ -212,8 +218,9 @@ async def run_rpc_mode(*, cwd: Path | None = None) -> None:
                 "running": session.is_running,
                 "session_id": session.session_id,
             }
-            _write_json(RpcResponse(id=cmd.id, command="get_state", success=True,
-                                    data=state).__dict__)
+            _write_json(
+                RpcResponse(id=cmd.id, command="get_state", success=True, data=state).__dict__
+            )
             continue
 
         # ── set_model ───────────────────────────────────────────────────
@@ -256,16 +263,22 @@ async def run_rpc_mode(*, cwd: Path | None = None) -> None:
 
                 _write_json(RpcResponse(id=cmd.id, command="set_model", success=True).__dict__)
             except Exception as exc:
-                _write_json(RpcResponse(id=cmd.id, command="set_model", success=False,
-                                        error=str(exc)).__dict__)
+                _write_json(
+                    RpcResponse(
+                        id=cmd.id, command="set_model", success=False, error=str(exc)
+                    ).__dict__
+                )
             continue
 
         # ── prompt ──────────────────────────────────────────────────────
         if cmd.type == "prompt":
             message = cmd.data.get("message", "")
             if not message:
-                _write_json(RpcResponse(id=cmd.id, command="prompt", success=False,
-                                        error="Empty message").__dict__)
+                _write_json(
+                    RpcResponse(
+                        id=cmd.id, command="prompt", success=False, error="Empty message"
+                    ).__dict__
+                )
                 continue
 
             try:
@@ -307,17 +320,19 @@ async def run_rpc_mode(*, cwd: Path | None = None) -> None:
                     current_task = asyncio.create_task(_run_prompt(session, message))
 
             except Exception as exc:
-                _write_json(RpcResponse(id=cmd.id, command="prompt", success=False,
-                                        error=str(exc)).__dict__)
+                _write_json(
+                    RpcResponse(id=cmd.id, command="prompt", success=False, error=str(exc)).__dict__
+                )
             continue
 
         # ── unknown command ─────────────────────────────────────────────
-        _write_json(RpcResponse(id=cmd.id, command=cmd.type, success=False,
-                                error=f"Unknown command: {cmd.type}").__dict__)
+        _write_json(
+            RpcResponse(
+                id=cmd.id, command=cmd.type, success=False, error=f"Unknown command: {cmd.type}"
+            ).__dict__
+        )
 
     # Wait for any running task on EOF
     if current_task is not None and not current_task.done():
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await current_task
-        except asyncio.CancelledError:
-            pass

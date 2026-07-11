@@ -7,7 +7,6 @@ from pathlib import Path
 from tau_agent.session import JsonlSessionStorage, SessionStorage
 from tau_agent.session.entries import SessionEntry
 from tau_agent.session.jsonl import entry_to_json_line
-
 from tau_coding.paths import TauPaths
 
 

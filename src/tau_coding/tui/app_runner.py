@@ -14,7 +14,12 @@ from tau_coding.provider_config import (
     resolve_provider_selection,
 )
 from tau_coding.provider_runtime import create_model_provider
-from tau_coding.session import CodingSession, CodingSessionConfig, ModelChoice, jsonl_session_storage
+from tau_coding.session import (
+    CodingSession,
+    CodingSessionConfig,
+    ModelChoice,
+    jsonl_session_storage,
+)
 from tau_coding.session_manager import CodingSessionRecord, SessionManager
 from tau_coding.shell_config import load_shell_settings
 from tau_coding.thinking import DEFAULT_THINKING_LEVEL, ThinkingLevel
@@ -188,6 +193,7 @@ async def run_tui_app(
         raise RuntimeError("--resume and --new-session cannot be used together")
 
     from tau_coding.provider_config import load_provider_settings
+
     provider_settings = load_provider_settings()
     # Auto-sync model metadata from models.dev on startup
     if not offline:
@@ -197,6 +203,7 @@ async def run_tui_app(
             _sync_result, _updated_settings = sync_models(provider_settings)
             if _updated_settings is not provider_settings:
                 from tau_coding.provider_config import save_provider_settings
+
                 save_provider_settings(_updated_settings, paths=None)
                 provider_settings = load_provider_settings()
         except Exception:

@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from tau_agent.tools import AgentTool
-
 from tau_coding.session_models import CodingSessionConfig
 
 

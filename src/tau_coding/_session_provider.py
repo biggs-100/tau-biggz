@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from tau_agent.session import LeafEntry, ModelChangeEntry, ThinkingLevelChangeEntry
-
+import tau_coding.session as _session_mod
+from tau_agent.session import LeafEntry, ThinkingLevelChangeEntry
 from tau_coding.provider_config import (
     ProviderConfig,
     ProviderConfigError,
@@ -18,7 +18,6 @@ from tau_coding.provider_config import (
     toggle_saved_scoped_model,
     validate_provider_model,
 )
-import tau_coding.session as _session_mod
 from tau_coding.session_models import ModelChoice
 from tau_coding.session_provider import (
     _coerced_thinking_level,
@@ -32,7 +31,6 @@ from tau_coding.thinking import (
 )
 
 if TYPE_CHECKING:
-    from tau_coding.session import CodingSession
     from tau_agent import AgentHarness
     from tau_coding.credentials import FileCredentialStore
     from tau_coding.provider_runtime import ClosableModelProvider

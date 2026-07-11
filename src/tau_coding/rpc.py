@@ -300,7 +300,7 @@ async def run_rpc_mode(*, cwd: Path | None = None) -> None:
 
                 # Run prompt and stream events (in background if already running)
                 if session.is_running:
-                    session.steer(message)  # type: ignore[attr-defined]  # FIXME: add steer() to CodingSession or delegate to _harness
+                    session.steer(message)
                 else:
                     if current_task is not None and not current_task.done():
                         current_task.cancel()

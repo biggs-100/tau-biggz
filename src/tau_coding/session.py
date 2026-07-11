@@ -1205,6 +1205,14 @@ class CodingSession(_ProviderMixin, _ReloadResumeMixin, _CompactionMixin):
 
 
 
+    def steer(self, content: str) -> QueueUpdateEvent:
+
+        """Queue a steering message while the session is already running."""
+
+        return self._harness.steer(content)
+
+
+
     def pop_latest_follow_up_message(self) -> str | None:
 
         """Remove and return the most recently queued follow-up message."""

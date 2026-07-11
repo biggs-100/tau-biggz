@@ -72,7 +72,7 @@ source = ["tau_ai", "tau_agent", "tau_coding"]
 omit = ["*/tests/*"]
 
 [tool.coverage.report]
-fail_under = 65
+fail_under = 70
 show_missing = true
 exclude_lines = [
     "pragma: no cover",

@@ -3,12 +3,20 @@
 All notable changes to tau-biggz are documented in this file.
 
 ## [Unreleased]
+### Added
+- CI pipeline with lint, typecheck, and test jobs (GitHub Actions).
+- Release workflow with PyPI trusted publishing.
+- Code coverage reporting (target 65%).
+
 ### Changed
 - Split `tui/app.py` into `tui/input.py` and `tui/screens.py`.
 
 
 ### Fixed
 - 22 pre-existing test failures across CLI, provider config, and platform compatibility.
+- 272 mypy --strict errors to 0 across 22 files.
+- 250+ ruff lint violations.
+- Missing `steer()` method on CodingSession (runtime bug in RPC handler).
 
 ## 0.1.7
 _Released 2026-07-09_

@@ -51,40 +51,51 @@ or rendering. Frontends consume events.
 ## Install
 
 Tau is published on PyPI as `tau-biggz` and installs a `tau` command.
-It requires Python 3.12 or newer.
+It requires **Python 3.12 or newer**.
+
+### Install with uv (recommended)
 
 ```bash
 uv tool install tau-biggz
 tau --version
 ```
 
-Don't have `uv`? Install with `pipx` or `pip` instead:
-
-```bash
-pipx install tau-biggz
-# or
-python -m pip install tau-biggz
-```
-
-You can also use the install script for a single-command setup:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/biggs-100/tau-biggz/main/install.sh | sh
-```
-
-PowerShell (Windows):
-
-```powershell
-irm https://raw.githubusercontent.com/biggs-100/tau-biggz/main/install.ps1 | iex
-```
-
-If you prefer `uv`, install it with:
+Don't have `uv`? Install it first:
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-For local development:
+### Install with pipx
+
+```bash
+pipx install tau-biggz
+```
+
+### Install with pip
+
+```bash
+python -m pip install tau-biggz
+```
+
+### One-command install script
+
+Linux / macOS:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/biggs-100/tau-biggz/main/install.sh | sh
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/biggs-100/tau-biggz/main/install.ps1 | iex
+```
+
+The script detects your Python, installs with pip, and adds `tau` to your PATH
+if needed.
+
+### Install from source (local development)
 
 ```bash
 git clone https://github.com/biggs-100/tau-biggz.git
@@ -92,6 +103,64 @@ cd tau-biggz
 uv sync --dev
 uv run tau --version
 ```
+
+Or install the local checkout as a regular package:
+
+```bash
+pip install .
+# or
+uv tool install --reinstall .
+```
+
+---
+
+### Update / Upgrade
+
+**From PyPI** (latest published version):
+
+```bash
+# With uv tool
+uv tool upgrade tau-biggz
+
+# With pip
+python -m pip install --upgrade tau-biggz
+
+# With pipx
+pipx upgrade tau-biggz
+```
+
+**From source** (after `git pull`):
+
+```bash
+pip install --upgrade .
+# or
+uv tool install --reinstall .
+```
+
+The install scripts always pull the latest version, so you can re-run them:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/biggs-100/tau-biggz/main/install.sh | sh
+```
+
+---
+
+### Uninstall
+
+```bash
+# If installed with uv tool
+uv tool uninstall tau-biggz
+
+# If installed with pip
+python -m pip uninstall tau-biggz
+
+# If installed with pipx
+pipx uninstall tau-biggz
+```
+
+All methods remove the `tau` command and the tau-biggz package from your system.
+Session history and configuration under `~/.tau/` are preserved — delete that
+directory manually if you want a full cleanup.
 
 ## Quickstart
 

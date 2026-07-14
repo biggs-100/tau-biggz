@@ -15,7 +15,7 @@ def test_ui_widget_decorator_sets_zone() -> None:
 
     inst = TestExt()
     assert hasattr(inst.my_widget, "__tau_ui_widget__")
-    assert getattr(inst.my_widget, "__tau_ui_widget__") == "status-bar"
+    assert inst.my_widget.__tau_ui_widget__ == "status-bar"
 
 
 def test_ui_widget_default_zone() -> None:
@@ -27,7 +27,7 @@ def test_ui_widget_default_zone() -> None:
             return "hello"
 
     inst = TestExt()
-    assert getattr(inst.my_widget, "__tau_ui_widget__") == "status-bar"
+    assert inst.my_widget.__tau_ui_widget__ == "status-bar"
 
 
 def test_ui_widget_multiple_widgets() -> None:
@@ -43,8 +43,8 @@ def test_ui_widget_multiple_widgets() -> None:
             return "B"
 
     inst = TestExt()
-    assert getattr(inst.widget_a, "__tau_ui_widget__") == "status-bar"
-    assert getattr(inst.widget_b, "__tau_ui_widget__") == "status-bar"
+    assert inst.widget_a.__tau_ui_widget__ == "status-bar"
+    assert inst.widget_b.__tau_ui_widget__ == "status-bar"
 
 
 def test_ui_widget_different_zones() -> None:
@@ -60,8 +60,8 @@ def test_ui_widget_different_zones() -> None:
             return "B"
 
     inst = TestExt()
-    assert getattr(inst.widget_a, "__tau_ui_widget__") == "status-bar"
-    assert getattr(inst.widget_b, "__tau_ui_widget__") == "sidebar"
+    assert inst.widget_a.__tau_ui_widget__ == "status-bar"
+    assert inst.widget_b.__tau_ui_widget__ == "sidebar"
 
 
 def test_ui_widget_method_returns_string() -> None:

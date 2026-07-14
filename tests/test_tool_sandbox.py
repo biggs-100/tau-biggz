@@ -10,7 +10,6 @@ import pytest
 from tau_coding.harness import SandboxConfig
 from tau_coding.tools import ToolInputError, _validate_path_in_sandbox
 
-
 # ── SandboxConfig tests ─────────────────────────────────────────────
 
 

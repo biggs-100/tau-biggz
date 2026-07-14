@@ -7,18 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from collections.abc import AsyncIterator, Callable
-from pathlib import Path
-
-import pytest
-
 from tau_agent.session import JsonlSessionStorage, SessionStorage
 from tau_agent.tools import AgentTool
 from tau_ai import FakeProvider
 from tau_ai.events import ProviderEvent
 from tau_coding.session import CodingSession, CodingSessionConfig
 from tau_coding.tools import create_coding_tools
-
 
 # ── Fixtures ─────────────────────────────────────────────────
 

@@ -156,6 +156,7 @@ def test_event_dispatch() -> None:
 
 def test_tool_blocking() -> None:
     """Register an extension with @on('tool_call') that returns {"block": True}."""
+
     class TestExt(Extension):
         @on("tool_call")
         def blocker(self, event: object) -> dict:
@@ -182,6 +183,7 @@ def test_tool_blocking() -> None:
 
 def test_command_routing() -> None:
     """Extension @command() appears in get_commands() and handler works."""
+
     class TestExt(Extension):
         @command("test_cmd", description="A test command")
         def my_cmd(self, args: str) -> str:
@@ -209,6 +211,7 @@ def test_command_routing() -> None:
 
 def test_enable_disable() -> None:
     """Disable an extension, verify get_tools() empty, re-enable, verify tools return."""
+
     class TestExt(Extension):
         @tool("greet", "A test tool")
         def greet(self, name: str = "world") -> str:
@@ -254,6 +257,7 @@ def test_enable_disable_unknown_extension() -> None:
 
 def test_ui_widget_collection() -> None:
     """Create an extension with @ui_widget(), call get_ui_widgets(), verify the widget."""
+
     class TestExt(Extension):
         @ui_widget("status-bar")
         def clock(self) -> str:

@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from tau_coding.harness import (
-    HarnessDefinition,
     coding_harness,
     list_available_harnesses,
     load_harness,
@@ -138,4 +137,5 @@ system_prompt = "You are permissive."
     finally:
         # Clean up
         import shutil
+
         shutil.rmtree(harness_dir, ignore_errors=True)

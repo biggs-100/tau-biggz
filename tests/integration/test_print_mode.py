@@ -9,7 +9,6 @@ import pytest
 from tau_agent import AssistantMessage
 from tau_agent.tools import ToolCall
 from tau_ai import ProviderResponseEndEvent, ProviderResponseStartEvent, ProviderTextDeltaEvent
-from tau_ai.events import ProviderEvent
 from tau_coding.cli import run_print_mode
 
 

@@ -71,10 +71,10 @@ def test_builtin_catalog_matches_expected_providers() -> None:
         "xiaomi-token-plan-cn",
         "xiaomi-token-plan-ams",
         "xiaomi-token-plan-sgp",
-    "opencode-zen",
-    "opencode-zen-anthropic",
-    "opencode-go",
-    "opencode-go-anthropic",
+        "opencode-zen",
+        "opencode-zen-anthropic",
+        "opencode-go",
+        "opencode-go-anthropic",
     ]
 
 

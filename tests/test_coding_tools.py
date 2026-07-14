@@ -1,9 +1,9 @@
 import asyncio
 import shlex
+import sys
 from pathlib import Path
 from time import monotonic
 
-import sys
 import pytest
 
 from tau_coding import (
@@ -32,7 +32,14 @@ class FakeCancellationToken:
 async def test_create_coding_tools_returns_initial_tool_set(tmp_path: Path) -> None:
     tools = create_coding_tools(cwd=tmp_path)
 
-    assert [tool.name for tool in tools] == ["read", "write", "edit", "bash", "web_search", "subagent_run"]
+    assert [tool.name for tool in tools] == [
+        "read",
+        "write",
+        "edit",
+        "bash",
+        "web_search",
+        "subagent_run",
+    ]
     edit_tool = tools[2]
     assert edit_tool.prompt_snippet is not None
     assert "Use edit for precise changes" in edit_tool.prompt_guidelines[0]

@@ -34,7 +34,9 @@ def test_default_prompt_includes_tools_guidelines_date_and_cwd(tmp_path: Path) -
     assert "Available tools:\n- read: Read file contents" in prompt
     assert "- Use bash for file operations like ls, rg, find" in prompt
     assert "- Use read to examine files instead of cat or sed." in prompt
-    assert prompt.endswith(f"Current date: 2026-06-17\nCurrent working directory: {tmp_path.as_posix()}")
+    assert prompt.endswith(
+        f"Current date: 2026-06-17\nCurrent working directory: {tmp_path.as_posix()}"
+    )
 
 
 def test_tool_without_prompt_snippet_is_hidden_from_available_tools() -> None:

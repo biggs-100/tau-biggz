@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from tau_agent.messages import AssistantMessage, ToolResultMessage, UserMessage
 from tau_agent.session import JsonlSessionStorage, MessageEntry
 from tau_agent.tools import AgentTool
 from tau_ai import FakeProvider
@@ -80,6 +79,6 @@ async def test_reload_from_storage(
     )
 
     assert len(session2.messages) == len(original_messages)
-    for m1, m2 in zip(original_messages, session2.messages):
+    for m1, m2 in zip(original_messages, session2.messages, strict=False):
         assert type(m1) is type(m2)
         assert m1.role == m2.role

@@ -1,7 +1,7 @@
 import re
+import sys
 from pathlib import Path
 
-import sys
 import pytest
 from typer.testing import CliRunner
 
@@ -292,7 +292,14 @@ async def test_run_print_mode_prints_final_assistant_text(
     assert provider.calls[0][1] == build_system_prompt(
         BuildSystemPromptOptions(cwd=tmp_path, tools=create_coding_tools(cwd=tmp_path))
     )
-    assert [tool.name for tool in provider.calls[0][3]] == ["read", "write", "edit", "bash", "web_search", "subagent_run"]
+    assert [tool.name for tool in provider.calls[0][3]] == [
+        "read",
+        "write",
+        "edit",
+        "bash",
+        "web_search",
+        "subagent_run",
+    ]
 
 
 @pytest.mark.anyio
@@ -694,7 +701,9 @@ def test_tui_surfaces_bad_model_as_clean_error(
     monkeypatch.setattr(cli, "_startup_update_notice", lambda: None)
     monkeypatch.setattr(cli, "load_provider_settings", lambda *args, **kwargs: settings)
     monkeypatch.setattr(tui_app, "load_provider_settings", lambda *args, **kwargs: settings)
-    monkeypatch.setattr(provider_config_mod, "load_provider_settings", lambda *args, **kwargs: settings)
+    monkeypatch.setattr(
+        provider_config_mod, "load_provider_settings", lambda *args, **kwargs: settings
+    )
 
     result = CliRunner().invoke(app, ["--model", "llama", "--provider", "local"])
 
@@ -903,7 +912,9 @@ def test_export_command_accepts_format_option(
     assert calls == [("session-1", None, "jsonl")]
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="provider config test uses real provider catalog")
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="provider config test uses real provider catalog"
+)
 def test_providers_command_lists_default_provider(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

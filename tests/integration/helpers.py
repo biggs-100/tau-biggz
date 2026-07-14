@@ -7,7 +7,12 @@ from __future__ import annotations
 
 from tau_agent.messages import AssistantMessage
 from tau_agent.tools import ToolCall
-from tau_ai.events import ProviderEvent, ProviderResponseEndEvent, ProviderResponseStartEvent, ProviderTextDeltaEvent
+from tau_ai.events import (
+    ProviderEvent,
+    ProviderResponseEndEvent,
+    ProviderResponseStartEvent,
+    ProviderTextDeltaEvent,
+)
 
 
 def text_stream(content: str) -> list[ProviderEvent]:
@@ -32,7 +37,6 @@ def tool_call_stream(
     The first stream produces a tool-call response.
     The second stream produces a plain-text response.
     """
-    from tau_agent.tools import ToolCall
     tool_call = ToolCall(
         id="call-1",
         name=tool_name,

@@ -1,6 +1,6 @@
 """Example Tau extension — greet tool and /hello command."""
 
-from tau_coding.extensions import Extension, tool, command, on
+from tau_coding.extensions import Extension, command, on, tool
 
 
 class HelloExtension(Extension):
@@ -15,7 +15,7 @@ class HelloExtension(Extension):
 
     @on("session_start")
     def on_session_start(self, event: dict) -> None:
-        print(f"  [HelloExtension] Session started!")
+        print("  [HelloExtension] Session started!")
 
     @on("tool_call")
     def on_tool_call(self, event: dict) -> dict | None:

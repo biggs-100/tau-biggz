@@ -36,6 +36,7 @@ FIXTURE_PATH = Path(__file__).parent / "fixtures" / "models.dev.api.json"
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _load_fixture() -> dict[str, Any]:
     """Load the truncated models.dev API snapshot."""
     return json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
@@ -143,7 +144,9 @@ class TestMergeModelData:
         """External context value updates context_windows."""
         provider = _make_openai_provider()
         result = _merge_model_data(
-            provider, "gpt-5.4", {"limit": {"context": 2000000}},
+            provider,
+            "gpt-5.4",
+            {"limit": {"context": 2000000}},
             update_model_metadata=True,
         )
         assert result.context_windows["gpt-5.4"] == 2000000
@@ -154,7 +157,8 @@ class TestMergeModelData:
         """All three external fields update model_metadata."""
         provider = _make_openai_provider()
         result = _merge_model_data(
-            provider, "gpt-5.4",
+            provider,
+            "gpt-5.4",
             {"limit": {"context": 2000000, "output": 131072}, "reasoning": True},
             update_model_metadata=True,
         )
@@ -169,7 +173,8 @@ class TestMergeModelData:
         # o4-mini is in models but not in model_metadata for the default provider
         assert "o4-mini" not in provider.model_metadata
         result = _merge_model_data(
-            provider, "o4-mini",
+            provider,
+            "o4-mini",
             {"limit": {"context": 1000000, "output": 65536}, "reasoning": True},
             update_model_metadata=True,
         )
@@ -184,7 +189,8 @@ class TestMergeModelData:
         """Returns same object when no external data matches."""
         provider = _make_openai_provider()
         result = _merge_model_data(
-            provider, "nonexistent-model",
+            provider,
+            "nonexistent-model",
             {"limit": {"context": 100000}},
             update_model_metadata=True,
         )
@@ -194,7 +200,8 @@ class TestMergeModelData:
         """OpenAICodexProviderConfig updates only context_windows."""
         provider = _make_codex_provider()
         result = _merge_model_data(
-            provider, "gpt-5.5",
+            provider,
+            "gpt-5.5",
             {"limit": {"context": 200000, "output": 99999}, "reasoning": True},
             update_model_metadata=False,
         )
@@ -207,7 +214,8 @@ class TestMergeModelData:
         provider = _make_openai_provider()
         # Reasoning="yes" (not bool), context="not-a-number" (not int)
         result = _merge_model_data(
-            provider, "gpt-5.4",
+            provider,
+            "gpt-5.4",
             {"limit": {"context": "not-a-number", "output": 99999}, "reasoning": "yes"},
             update_model_metadata=True,
         )
@@ -224,7 +232,8 @@ class TestMergeModelData:
         """When all external data is invalid, returns same object."""
         provider = _make_openai_provider()
         result = _merge_model_data(
-            provider, "gpt-5.4",
+            provider,
+            "gpt-5.4",
             {"limit": {"context": -1, "output": 0}, "reasoning": "yes"},
             update_model_metadata=True,
         )
@@ -235,7 +244,8 @@ class TestMergeModelData:
         provider = _make_openai_provider()
         # Only context provided, no reasoning or max_output
         result = _merge_model_data(
-            provider, "gpt-5.4",
+            provider,
+            "gpt-5.4",
             {"limit": {"context": 2000000}},
             update_model_metadata=True,
         )
@@ -249,7 +259,8 @@ class TestMergeModelData:
         """reasoning=null (None) is not a bool, so it should be skipped."""
         provider = _make_openai_provider()
         result = _merge_model_data(
-            provider, "gpt-5.4",
+            provider,
+            "gpt-5.4",
             {"limit": {"context": 2000000, "output": 131072}, "reasoning": None},
             update_model_metadata=True,
         )
@@ -263,7 +274,8 @@ class TestMergeModelData:
         provider = _make_openai_provider()
         # Same values as existing
         result = _merge_model_data(
-            provider, "gpt-5.4",
+            provider,
+            "gpt-5.4",
             {"limit": {"context": 128000, "output": 4096}, "reasoning": False},
             update_model_metadata=True,
         )
@@ -281,10 +293,12 @@ class TestMergeExternalData:
     def test_snapshot_merge_full(self):
         """Full fixture merge produces correct counts and values."""
         fixture = _load_fixture()
-        settings = ProviderSettings(providers=(
-            _make_openai_provider(),
-            _make_anthropic_provider(),
-        ))
+        settings = ProviderSettings(
+            providers=(
+                _make_openai_provider(),
+                _make_anthropic_provider(),
+            )
+        )
 
         result, updated = _merge_external_data(settings, fixture)
 
@@ -311,13 +325,15 @@ class TestMergeExternalData:
 
     def test_no_providers_match(self):
         """When no provider names match external data, nothing changes."""
-        settings = ProviderSettings(providers=(
-            OpenAICompatibleProviderConfig(
-                name="custom-provider",
-                models=("model-x",),
-                default_model="model-x",
-            ),
-        ))
+        settings = ProviderSettings(
+            providers=(
+                OpenAICompatibleProviderConfig(
+                    name="custom-provider",
+                    models=("model-x",),
+                    default_model="model-x",
+                ),
+            )
+        )
         fixture = _load_fixture()
         result, updated = _merge_external_data(settings, fixture)
         assert result.providers_updated == 0
@@ -357,10 +373,14 @@ class TestCacheRoundTrip:
     def test_round_trip(self, tmp_path: Path):
         """Write then read preserves all fields."""
         cache_path = tmp_path / "cache.json"
-        resp = httpx.Response(200, json={}, headers={
-            "etag": '"abc123"',
-            "last-modified": "Wed, 08 Jul 2026 12:00:00 GMT",
-        })
+        resp = httpx.Response(
+            200,
+            json={},
+            headers={
+                "etag": '"abc123"',
+                "last-modified": "Wed, 08 Jul 2026 12:00:00 GMT",
+            },
+        )
         data = {"openai": {"models": {"gpt-4": {"limit": {"context": 100000}}}}}
 
         _write_cache(cache_path, resp, data)
@@ -399,17 +419,22 @@ class TestCacheRoundTrip:
     def test_cache_not_written_on_304(self, tmp_path: Path):
         """304 response does NOT write cache."""
         cache_path = tmp_path / "cache.json"
-        settings = ProviderSettings(providers=(
-            OpenAICompatibleProviderConfig(name="test", models=("m1",), default_model="m1"),
-        ))
+        settings = ProviderSettings(
+            providers=(
+                OpenAICompatibleProviderConfig(name="test", models=("m1",), default_model="m1"),
+            )
+        )
 
         def handler_304(request: httpx.Request) -> httpx.Response:
             return httpx.Response(304)
 
         with httpx.Client(transport=httpx.MockTransport(handler_304)) as client:
             # Pre-write a cache so it takes the conditional path
-            _write_cache(cache_path, httpx.Response(200, json={}, headers={"etag": '"old"'}),
-                         {"test": {"models": {"m1": {"limit": {"context": 1000}}}}})
+            _write_cache(
+                cache_path,
+                httpx.Response(200, json={}, headers={"etag": '"old"'}),
+                {"test": {"models": {"m1": {"limit": {"context": 1000}}}}},
+            )
 
             old_mtime = cache_path.stat().st_mtime_ns
             result, updated = sync_models(settings, http_client=client, cache_path=cache_path)
@@ -433,7 +458,8 @@ class TestCacheRoundTrip:
             if request.headers.get("If-None-Match") == '"abc123"':
                 return httpx.Response(304)
             return httpx.Response(
-                200, json={"test": {}},
+                200,
+                json={"test": {}},
                 headers={"etag": '"abc123"', "last-modified": "Wed, 08 Jul 2026 12:00:00 GMT"},
             )
 
@@ -620,11 +646,15 @@ class TestOfflineFallback:
         cache_path = tmp_path / "cache.json"
 
         def handler_200(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(200, json={"test": {"models": {"m1": {"limit": {"context": 1000}}}}})
+            return httpx.Response(
+                200, json={"test": {"models": {"m1": {"limit": {"context": 1000}}}}}
+            )
 
-        settings = ProviderSettings(providers=(
-            OpenAICompatibleProviderConfig(name="test", models=("m1",), default_model="m1"),
-        ))
+        settings = ProviderSettings(
+            providers=(
+                OpenAICompatibleProviderConfig(name="test", models=("m1",), default_model="m1"),
+            )
+        )
 
         client = httpx.Client(transport=httpx.MockTransport(handler_200))
         result, _ = sync_models(settings, http_client=client, cache_path=cache_path)

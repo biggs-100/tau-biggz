@@ -77,7 +77,9 @@ def test_strict_allows_temp_dir() -> None:
     assert _validate_path_in_sandbox(temp_file, config, cwd) is None
 
 
-def test_strict_blocks_when_home_tau_disabled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_strict_blocks_when_home_tau_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     tau_home = tmp_path / ".tau"
     tau_home.mkdir(parents=True)

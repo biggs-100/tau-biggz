@@ -4,7 +4,7 @@ Provides a ``@tool("hello")`` that greets the user and a
 ``@command("hi")`` slash command.
 """
 
-from tau_coding.extensions import Extension, tool, command
+from tau_coding.extensions import Extension, command, tool
 
 
 class GreetingExtension(Extension):

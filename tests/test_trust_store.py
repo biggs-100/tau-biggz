@@ -5,10 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from tau_coding.trust_store import TrustStore, format_ask_message
-
 
 # ── TrustStore load/save tests ─────────────────────────────────────────────
 
@@ -22,9 +19,7 @@ def test_load_no_file(tmp_path: Path) -> None:
 def test_load_valid_file(tmp_path: Path) -> None:
     """TrustStore.load() parses valid JSON correctly."""
     trust_file = tmp_path / "trust.json"
-    trust_file.write_text(
-        json.dumps({"version": 1, "trusted_tools": ["bash"]}), encoding="utf-8"
-    )
+    trust_file.write_text(json.dumps({"version": 1, "trusted_tools": ["bash"]}), encoding="utf-8")
     store = TrustStore.load(data_dir=tmp_path)
     assert store.is_trusted("bash") is True
     assert store.is_trusted("write") is False

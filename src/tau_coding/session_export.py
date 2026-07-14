@@ -670,7 +670,6 @@ def _attr(value: object) -> str:
 
 
 def _storage_path(storage: SessionStorage) -> Path | None:
-
     path = getattr(storage, "path", None)
 
     return path if isinstance(path, Path) else None
@@ -683,7 +682,6 @@ def _resolve_export_destination(
     session_path: Path | None,
     format: str,
 ) -> Path:
-
     if destination is None:
         if session_path is not None:
             return default_session_export_artifact_path(
@@ -709,7 +707,6 @@ def _resolve_export_destination(
 
 
 def _session_export_title(session: CodingSession) -> str:
-
     manager = session.session_manager
 
     session_id = session.session_id

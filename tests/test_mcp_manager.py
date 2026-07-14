@@ -301,12 +301,22 @@ class TestMcpRemove:
     def test_remove_existing(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """Remove an existing server removes it from config."""
         _monkeypatch_config_path(monkeypatch, tmp_path)
-        _save_configs([
-            {"name": "filesystem", "transport": "stdio", "command": "npx",
-             "args": ["-y", "@scope/server-fs"]},
-            {"name": "search", "transport": "stdio", "command": "npx",
-             "args": ["-y", "@scope/server-search"]},
-        ])
+        _save_configs(
+            [
+                {
+                    "name": "filesystem",
+                    "transport": "stdio",
+                    "command": "npx",
+                    "args": ["-y", "@scope/server-fs"],
+                },
+                {
+                    "name": "search",
+                    "transport": "stdio",
+                    "command": "npx",
+                    "args": ["-y", "@scope/server-search"],
+                },
+            ]
+        )
 
         result = mcp_remove("search")
         assert "Removed" in result
@@ -325,10 +335,16 @@ class TestMcpRemove:
     def test_remove_last(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """Remove the last server in config."""
         _monkeypatch_config_path(monkeypatch, tmp_path)
-        _save_configs([
-            {"name": "only-one", "transport": "stdio", "command": "npx",
-             "args": ["-y", "server-only"]},
-        ])
+        _save_configs(
+            [
+                {
+                    "name": "only-one",
+                    "transport": "stdio",
+                    "command": "npx",
+                    "args": ["-y", "server-only"],
+                },
+            ]
+        )
 
         result = mcp_remove("only-one")
         assert "Removed" in result

@@ -278,9 +278,7 @@ class TestRunPrompt:
     """Tests for _run_prompt -- event streaming helper."""
 
     @pytest.mark.anyio
-    async def test_streams_events_to_json(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
+    async def test_streams_events_to_json(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Stream model events as JSON lines."""
         session = AsyncMock()
         session.prompt = _mock_prompt_stream
@@ -301,9 +299,7 @@ class TestRunPrompt:
         assert evt2["event"] == "messageend"
 
     @pytest.mark.anyio
-    async def test_error_during_prompt(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
+    async def test_error_during_prompt(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Errors during prompt are caught and written as error events."""
         session = AsyncMock()
 
@@ -370,9 +366,7 @@ class TestRunRpcMode:
         )
         monkeypatch.setattr(
             "tau_coding.rpc.resolve_provider_selection",
-            lambda settings, **kw: MagicMock(
-                provider=MockProvider(), model="test-model"
-            ),
+            lambda settings, **kw: MagicMock(provider=MockProvider(), model="test-model"),
         )
         monkeypatch.setattr(
             "tau_coding.rpc.create_model_provider",
@@ -385,6 +379,7 @@ class TestRunRpcMode:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Send 'ready' event before processing commands."""
+
         async def _no_commands() -> AsyncIterator[RpcCommand]:
             return  # EOF immediately
             yield  # pragma: no cover
@@ -635,9 +630,7 @@ class TestRunRpcMode:
         assert len(lines) >= 4
 
         responses = [
-            json.loads(line)
-            for line in lines
-            if json.loads(line).get("type") == "response"
+            json.loads(line) for line in lines if json.loads(line).get("type") == "response"
         ]
         assert len(responses) == 3
         assert responses[0]["success"] is False

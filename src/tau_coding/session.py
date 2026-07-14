@@ -176,7 +176,6 @@ class CodingSession(_ProviderMixin, _ReloadResumeMixin, _CompactionMixin):
         command_registry: CommandRegistry | None = None,
         pending_initial_entries: tuple[SessionEntry, ...] = (),
     ) -> None:
-
         self._config = config
 
         self._state = state
@@ -1007,7 +1006,6 @@ class CodingSession(_ProviderMixin, _ReloadResumeMixin, _CompactionMixin):
             raise
 
     def _diagnostic_context(self) -> AgentCallDiagnosticContext:
-
         return AgentCallDiagnosticContext(
             provider_name=self._provider_name,
             model=self.model,

@@ -20,16 +20,18 @@ class TestProvidersAddCli:
         tau_home.mkdir()
         paths = TauPaths(home=tau_home)
 
-        answers = iter([
-            "my-provider",       # name
-            "My Provider",       # display name
-            "1",                 # kind (openai-compatible)
-            "https://api.test.com/v1",  # base URL
-            "MY_API_KEY",        # api_key_env
-            "model-a, model-b",  # models
-            "model-a",           # default model
-            "",                  # API key (none)
-        ])
+        answers = iter(
+            [
+                "my-provider",  # name
+                "My Provider",  # display name
+                "1",  # kind (openai-compatible)
+                "https://api.test.com/v1",  # base URL
+                "MY_API_KEY",  # api_key_env
+                "model-a, model-b",  # models
+                "model-a",  # default model
+                "",  # API key (none)
+            ]
+        )
         monkeypatch.setattr("tau_coding.provider_add.typer.prompt", lambda msg, **kw: next(answers))
         monkeypatch.setattr("tau_coding.provider_add.typer.echo", lambda msg, **kw: None)
         monkeypatch.setattr("tau_coding.provider_add.typer.confirm", lambda msg, **kw: True)
@@ -50,16 +52,18 @@ class TestProvidersAddCli:
         tau_home.mkdir()
         paths = TauPaths(home=tau_home)
 
-        answers = iter([
-            "my-claude",         # name
-            "My Claude",         # display name
-            "2",                 # kind (anthropic)
-            "https://api.test.com/v1",  # base URL
-            "MY_CLAUDE_KEY",     # api_key_env
-            "claude-v1",         # models
-            "claude-v1",         # default model
-            "sk-secret",         # API key
-        ])
+        answers = iter(
+            [
+                "my-claude",  # name
+                "My Claude",  # display name
+                "2",  # kind (anthropic)
+                "https://api.test.com/v1",  # base URL
+                "MY_CLAUDE_KEY",  # api_key_env
+                "claude-v1",  # models
+                "claude-v1",  # default model
+                "sk-secret",  # API key
+            ]
+        )
         monkeypatch.setattr("tau_coding.provider_add.typer.prompt", lambda msg, **kw: next(answers))
         monkeypatch.setattr("tau_coding.provider_add.typer.echo", lambda msg, **kw: None)
         monkeypatch.setattr("tau_coding.provider_add.typer.confirm", lambda msg, **kw: True)

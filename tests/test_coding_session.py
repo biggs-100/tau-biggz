@@ -1,9 +1,9 @@
 import asyncio
 import json
+import sys
 from collections.abc import AsyncIterator
 from pathlib import Path
 
-import sys
 import pytest
 
 from tau_agent import (
@@ -177,7 +177,14 @@ async def test_load_empty_session_defers_transcript_file(tmp_path: Path) -> None
     assert session.available_thinking_levels == ("off", "minimal", "low", "medium", "high", "xhigh")
     assert session.cwd == tmp_path
     assert session.model == "fake"
-    assert [tool.name for tool in session.tools] == ["read", "write", "edit", "bash", "web_search", "subagent_run"]
+    assert [tool.name for tool in session.tools] == [
+        "read",
+        "write",
+        "edit",
+        "bash",
+        "web_search",
+        "subagent_run",
+    ]
 
 
 @pytest.mark.anyio
@@ -777,7 +784,9 @@ async def test_session_uses_active_model_thinking_capabilities(
         await session.set_thinking_level("medium")
 
     # Mock provider persistence to avoid test environment side effects
-    monkeypatch.setattr("tau_coding.session.CodingSession._persist_default_model_choice", lambda self: None)
+    monkeypatch.setattr(
+        "tau_coding.session.CodingSession._persist_default_model_choice", lambda self: None
+    )
     session.set_model("plain")
 
     assert session.available_thinking_levels == ()
@@ -2208,6 +2217,7 @@ async def test_session_switches_configured_provider(
         lambda paths=None: settings,
     )
     import tau_coding.session as _session_mod
+
     monkeypatch.setattr(_session_mod, "load_provider_settings", lambda paths=None: settings)
     session = await CodingSession.load(
         CodingSessionConfig(

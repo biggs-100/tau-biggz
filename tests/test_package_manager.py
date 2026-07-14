@@ -353,9 +353,7 @@ class TestInstallGit:
         """Successful git clone returns empty string (no error)."""
         dest = tmp_path / "packages" / "my-tools"
 
-        def _mock_run(
-            args: list[str], **kwargs: object
-        ) -> subprocess.CompletedProcess[str]:
+        def _mock_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
             assert args[0:3] == ["git", "clone", "github.com/user/repo"]
             assert str(dest) in args[3]
             dest.mkdir(parents=True, exist_ok=True)
@@ -371,9 +369,7 @@ class TestInstallGit:
         """Failed git clone returns error message and cleans up."""
         dest = tmp_path / "packages" / "my-tools"
 
-        def _mock_run(
-            args: list[str], **kwargs: object
-        ) -> subprocess.CompletedProcess[str]:
+        def _mock_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
             return subprocess.CompletedProcess(
                 args, returncode=1, stdout="", stderr="fatal: repo not found"
             )
@@ -422,9 +418,7 @@ class TestInstallGit:
         """Failed clone cleans up partial destination."""
         dest = tmp_path / "packages" / "my-tools"
 
-        def _mock_run(
-            args: list[str], **kwargs: object
-        ) -> subprocess.CompletedProcess[str]:
+        def _mock_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
             dest.mkdir(parents=True, exist_ok=True)
             (dest / "partial-file").write_text("partial")
             return subprocess.CompletedProcess(args, returncode=1, stdout="", stderr="error")
@@ -529,9 +523,7 @@ class TestSymlinkResources:
         assert "themes/dark.json" in linked
         assert skipped == []
 
-    def test_dry_run_skips_existing(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_dry_run_skips_existing(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """dry_run marks existing resources as skipped."""
         pkg_dir = tmp_path / "my-package"
         (pkg_dir / "skills" / "myskill.md").mkdir(parents=True)
@@ -548,9 +540,7 @@ class TestSymlinkResources:
         assert linked == []
         assert "skills/myskill.md" in skipped
 
-    def test_dry_run_skips_hidden(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_dry_run_skips_hidden(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """Files starting with . or _ are skipped."""
         pkg_dir = tmp_path / "my-package"
         (pkg_dir / "skills" / ".hidden.md").mkdir(parents=True)
@@ -590,17 +580,13 @@ class TestSymlinkResources:
 class TestInstallPackageFull:
     """Tests for install_package -- end-to-end flow with mocked backends."""
 
-    def test_install_git_source(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_install_git_source(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """Install a git-sourced package with mocked clone."""
         _monkeypatch_paths(monkeypatch, tmp_path)
 
         dest = tmp_path / ".tau" / "packages" / "my-tools"
 
-        def _mock_run(
-            args: list[str], **kwargs: object
-        ) -> subprocess.CompletedProcess[str]:
+        def _mock_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
             dest.mkdir(parents=True)
             (dest / "skills" / "tool.md").mkdir(parents=True)
             return subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="")
@@ -622,9 +608,7 @@ class TestInstallPackageFull:
         assert registry[0].name == "my-tools"
         assert "Linked" in result.message
 
-    def test_install_local_source(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_install_local_source(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """Install a local-sourced package."""
         _monkeypatch_paths(monkeypatch, tmp_path)
 

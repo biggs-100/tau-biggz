@@ -116,9 +116,12 @@ class DemoExtension(Extension):
         Triggered when a new Tau coding session begins. The event dict
         typically contains a ``session_id`` key.
         """
-        self._write_log("session_start", {
-            "session_id": event.get("session_id", "unknown"),
-        })
+        self._write_log(
+            "session_start",
+            {
+                "session_id": event.get("session_id", "unknown"),
+            },
+        )
 
     @on("session_end")
     def on_session_end(self, event: dict) -> None:
@@ -127,10 +130,13 @@ class DemoExtension(Extension):
         Triggered when a session ends. The event dict may contain
         ``session_id`` and ``duration`` keys.
         """
-        self._write_log("session_end", {
-            "session_id": event.get("session_id", "unknown"),
-            "duration": event.get("duration", "unknown"),
-        })
+        self._write_log(
+            "session_end",
+            {
+                "session_id": event.get("session_id", "unknown"),
+                "duration": event.get("duration", "unknown"),
+            },
+        )
 
     @on("tool_call")
     def on_tool_call(self, event: dict) -> dict | None:
@@ -161,8 +167,7 @@ class DemoExtension(Extension):
             if "rm -rf" in cmd:
                 return {
                     "block": True,
-                    "reason": "Blocked by DemoExtension safety check: "
-                              "rm -rf is not allowed",
+                    "reason": "Blocked by DemoExtension safety check: rm -rf is not allowed",
                 }
         return None
 

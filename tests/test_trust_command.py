@@ -34,8 +34,7 @@ def _execute(cmd: SlashCommand, args: str) -> CommandResult:
     from dataclasses import dataclass
 
     @dataclass
-    class FakeSession:
-        ...
+    class FakeSession: ...
 
     registry = CommandRegistry()
     context = CommandContext(

@@ -658,8 +658,10 @@ def provider_thinking_levels(
             return ()
         return _levels_from_thinking_map(metadata.thinking_level_map)
     # Provider has thinking_levels - trust the provider
-    if provider.thinking_models and selected_model not in provider.thinking_models and (
-        metadata is None or metadata.reasoning is not True
+    if (
+        provider.thinking_models
+        and selected_model not in provider.thinking_models
+        and (metadata is None or metadata.reasoning is not True)
     ):
         return ()
     return tuple(

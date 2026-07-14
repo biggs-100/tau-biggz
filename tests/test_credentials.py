@@ -1,6 +1,6 @@
+import sys
 from stat import S_IMODE
 
-import sys
 import pytest
 
 from tau_coding.credentials import CredentialStoreError, FileCredentialStore, OAuthCredential

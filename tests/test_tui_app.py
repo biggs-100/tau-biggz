@@ -26,8 +26,8 @@ from tau_agent import (
     MessageDeltaEvent,
     MessageEndEvent,
     MessageStartEvent,
-    QueueUpdateEvent,
     QueuedMessages,
+    QueueUpdateEvent,
     ThinkingDeltaEvent,
     ToolCall,
     ToolExecutionEndEvent,
@@ -58,6 +58,7 @@ from tau_coding.skills import Skill, format_skill_invocation
 from tau_coding.system_prompt import ProjectContextFile
 from tau_coding.tools import create_coding_tools
 from tau_coding.tui import app as tui_app
+from tau_coding.tui import app_runner
 from tau_coding.tui.app import (
     COMPLETION_MAX_VISIBLE_LINES,
     CommandOutputScreen,
@@ -89,6 +90,7 @@ from tau_coding.tui.config import (
     tui_settings_path,
 )
 from tau_coding.tui.state import ChatItem
+from tau_coding.tui.welcome_screen import WelcomeScreen
 from tau_coding.tui.widgets import (
     LeftAlignedMarkdownHeading,
     StreamingTranscriptMessageWidget,
@@ -105,7 +107,6 @@ from tau_coding.tui.widgets import (
     render_session_sidebar,
     transcript_item_selection_text,
 )
-from tau_coding.tui.welcome_screen import WelcomeScreen
 
 ANSI_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
@@ -2470,7 +2471,9 @@ async def test_tui_app_export_command_runs_session_export() -> None:
         await pilot.press("enter")
 
         assert session.export_calls == [(Path("out.jsonl"), "jsonl")]
-        expected = f"Exported session to {os.path.join(os.sep, 'workspace', 'project', 'session.html')}"
+        expected = (
+            f"Exported session to {os.path.join(os.sep, 'workspace', 'project', 'session.html')}"
+        )
         assert notifications == [expected]
         assert session.prompt_texts == []
 
@@ -2746,9 +2749,7 @@ async def test_tui_app_completes_resume_session_argument() -> None:
         app._refresh_completions()
 
         assert app._completion_state.selected is not None
-        expected_desc = "Session - fake-model - {}".format(
-            os.fspath(Path("/workspace/project"))
-        )
+        expected_desc = "Session - fake-model - {}".format(os.fspath(Path("/workspace/project")))
         assert app._completion_state.selected.description == expected_desc
 
         await pilot.press("tab")
@@ -3717,7 +3718,6 @@ async def test_tui_login_saves_provider_key(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    from tau_coding.paths import TauPaths
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     (tmp_path / ".tau").mkdir(parents=True, exist_ok=True)
     session = FakeSession()
@@ -5184,18 +5184,18 @@ async def test_run_tui_app_falls_back_to_first_credentialed_provider(
             ),
         ),
     )
-    monkeypatch.setattr(tui_app, "FileCredentialStore", lambda: FakeCredentialStore())
-    monkeypatch.setattr(tui_app, "load_provider_settings", lambda: settings)
-    monkeypatch.setattr(tui_app, "load_tui_settings", lambda: TuiSettings())
+    monkeypatch.setattr(app_runner, "FileCredentialStore", lambda: FakeCredentialStore())
+    monkeypatch.setattr("tau_coding.provider_config.load_provider_settings", lambda: settings)
+    monkeypatch.setattr(app_runner, "load_tui_settings", lambda: TuiSettings())
     monkeypatch.setattr(
-        tui_app,
+        app_runner,
         "create_model_provider",
         lambda provider, **kwargs: (
             calls.append(f"provider:{provider.name}:{kwargs['model']}") or FakeProvider()
         ),
     )
-    monkeypatch.setattr(tui_app, "CodingSession", FakeCodingSession)
-    monkeypatch.setattr(tui_app, "TauTuiApp", FakeApp)
+    monkeypatch.setattr(app_runner, "CodingSession", FakeCodingSession)
+    monkeypatch.setattr(app_runner, "TauTuiApp", FakeApp)
 
     await tui_app.run_tui_app(cwd=tmp_path, model=None, session_manager=FakeManager())
 
@@ -5287,18 +5287,18 @@ async def test_run_tui_app_ignores_latest_directory_provider_model_for_new_sessi
         ),
     )
     monkeypatch.setenv("OPENAI_API_KEY", "stored-key")
-    monkeypatch.setattr(tui_app, "load_provider_settings", lambda: settings)
-    monkeypatch.setattr(tui_app, "load_tui_settings", lambda: TuiSettings())
+    monkeypatch.setattr("tau_coding.provider_config.load_provider_settings", lambda: settings)
+    monkeypatch.setattr(app_runner, "load_tui_settings", lambda: TuiSettings())
     monkeypatch.setattr(
-        tui_app,
+        app_runner,
         "create_model_provider",
         lambda provider, **kwargs: (
             calls.append(f"provider:{provider.name}:{kwargs['model']}") or FakeProvider()
         ),
     )
-    monkeypatch.setattr(tui_app, "CodingSession", FakeCodingSession)
-    monkeypatch.setattr(tui_app, "TauTuiApp", FakeApp)
-    monkeypatch.setattr(tui_app, "load_tui_settings", lambda: TuiSettings())
+    monkeypatch.setattr(app_runner, "CodingSession", FakeCodingSession)
+    monkeypatch.setattr(app_runner, "TauTuiApp", FakeApp)
+    monkeypatch.setattr(app_runner, "load_tui_settings", lambda: TuiSettings())
 
     await tui_app.run_tui_app(cwd=tmp_path, model=None, session_manager=FakeManager())
 
@@ -5397,18 +5397,18 @@ async def test_run_tui_app_does_not_start_new_session_from_scoped_model(
         scoped_models=(ScopedModelConfig(provider="openai-codex", model="gpt-5.5"),),
     )
     monkeypatch.setenv("OPENAI_API_KEY", "stored-key")
-    monkeypatch.setattr(tui_app, "FileCredentialStore", lambda: FakeCredentialStore())
-    monkeypatch.setattr(tui_app, "load_provider_settings", lambda: settings)
-    monkeypatch.setattr(tui_app, "load_tui_settings", lambda: TuiSettings())
+    monkeypatch.setattr(app_runner, "FileCredentialStore", lambda: FakeCredentialStore())
+    monkeypatch.setattr("tau_coding.provider_config.load_provider_settings", lambda: settings)
+    monkeypatch.setattr(app_runner, "load_tui_settings", lambda: TuiSettings())
     monkeypatch.setattr(
-        tui_app,
+        app_runner,
         "create_model_provider",
         lambda provider, **kwargs: (
             calls.append(f"provider:{provider.name}:{kwargs['model']}") or FakeProvider()
         ),
     )
-    monkeypatch.setattr(tui_app, "CodingSession", FakeCodingSession)
-    monkeypatch.setattr(tui_app, "TauTuiApp", FakeApp)
+    monkeypatch.setattr(app_runner, "CodingSession", FakeCodingSession)
+    monkeypatch.setattr(app_runner, "TauTuiApp", FakeApp)
 
     await tui_app.run_tui_app(cwd=tmp_path, model=None, session_manager=FakeManager())
 
@@ -5488,15 +5488,15 @@ async def test_run_tui_app_creates_new_session_by_default(
             ),
         ),
     )
-    monkeypatch.setattr(tui_app, "load_provider_settings", lambda: settings)
+    monkeypatch.setattr("tau_coding.provider_config.load_provider_settings", lambda: settings)
     monkeypatch.setattr(
-        tui_app,
+        app_runner,
         "create_model_provider",
         lambda provider, **kwargs: FakeProvider(),
     )
-    monkeypatch.setattr(tui_app, "CodingSession", FakeCodingSession)
-    monkeypatch.setattr(tui_app, "TauTuiApp", FakeApp)
-    monkeypatch.setattr(tui_app, "load_tui_settings", lambda: TuiSettings())
+    monkeypatch.setattr(app_runner, "CodingSession", FakeCodingSession)
+    monkeypatch.setattr(app_runner, "TauTuiApp", FakeApp)
+    monkeypatch.setattr(app_runner, "load_tui_settings", lambda: TuiSettings())
 
     await tui_app.run_tui_app(
         model=None,
@@ -5568,16 +5568,20 @@ async def test_run_tui_app_opens_when_provider_login_is_missing(
         async def run_async(self) -> None:
             calls.append("run")
 
-    monkeypatch.setattr(tui_app, "load_provider_settings", lambda: ProviderSettings())
-    monkeypatch.setattr(tui_app, "provider_has_usable_credentials", lambda *args, **kwargs: False)
     monkeypatch.setattr(
-        tui_app,
+        "tau_coding.provider_config.load_provider_settings", lambda: ProviderSettings()
+    )
+    monkeypatch.setattr(
+        app_runner, "provider_has_usable_credentials", lambda *args, **kwargs: False
+    )
+    monkeypatch.setattr(
+        app_runner,
         "create_model_provider",
         lambda provider, **kwargs: (_ for _ in ()).throw(RuntimeError("Missing provider API key.")),
     )
-    monkeypatch.setattr(tui_app, "CodingSession", FakeCodingSession)
-    monkeypatch.setattr(tui_app, "TauTuiApp", FakeApp)
-    monkeypatch.setattr(tui_app, "load_tui_settings", lambda: TuiSettings())
+    monkeypatch.setattr(app_runner, "CodingSession", FakeCodingSession)
+    monkeypatch.setattr(app_runner, "TauTuiApp", FakeApp)
+    monkeypatch.setattr(app_runner, "load_tui_settings", lambda: TuiSettings())
 
     await tui_app.run_tui_app(
         cwd=tmp_path,
@@ -5656,17 +5660,17 @@ async def test_run_tui_app_resumes_explicit_session(
             ),
         ),
     )
-    monkeypatch.setattr(tui_app, "load_provider_settings", lambda: settings)
+    monkeypatch.setattr("tau_coding.provider_config.load_provider_settings", lambda: settings)
     monkeypatch.setattr(
-        tui_app,
+        app_runner,
         "create_model_provider",
         lambda provider, **kwargs: (
             calls.append(f"provider:{provider.name}:{kwargs['model']}") or FakeProvider()
         ),
     )
-    monkeypatch.setattr(tui_app, "CodingSession", FakeCodingSession)
-    monkeypatch.setattr(tui_app, "TauTuiApp", FakeApp)
-    monkeypatch.setattr(tui_app, "load_tui_settings", lambda: TuiSettings())
+    monkeypatch.setattr(app_runner, "CodingSession", FakeCodingSession)
+    monkeypatch.setattr(app_runner, "TauTuiApp", FakeApp)
+    monkeypatch.setattr(app_runner, "load_tui_settings", lambda: TuiSettings())
 
     await tui_app.run_tui_app(
         model=None,
@@ -5749,18 +5753,18 @@ async def test_run_tui_app_ignores_uncredentialed_provider_when_matching_resume_
         ),
     )
     monkeypatch.delenv("LOCAL_API_KEY", raising=False)
-    monkeypatch.setattr(tui_app, "FileCredentialStore", lambda: FakeCredentialStore())
-    monkeypatch.setattr(tui_app, "load_provider_settings", lambda: settings)
-    monkeypatch.setattr(tui_app, "load_tui_settings", lambda: TuiSettings())
+    monkeypatch.setattr(app_runner, "FileCredentialStore", lambda: FakeCredentialStore())
+    monkeypatch.setattr("tau_coding.provider_config.load_provider_settings", lambda: settings)
+    monkeypatch.setattr(app_runner, "load_tui_settings", lambda: TuiSettings())
     monkeypatch.setattr(
-        tui_app,
+        app_runner,
         "create_model_provider",
         lambda provider, **kwargs: (
             calls.append(f"provider:{provider.name}:{kwargs['model']}") or FakeProvider()
         ),
     )
-    monkeypatch.setattr(tui_app, "CodingSession", FakeCodingSession)
-    monkeypatch.setattr(tui_app, "TauTuiApp", FakeApp)
+    monkeypatch.setattr(app_runner, "CodingSession", FakeCodingSession)
+    monkeypatch.setattr(app_runner, "TauTuiApp", FakeApp)
 
     await tui_app.run_tui_app(
         model=None,
@@ -5817,6 +5821,7 @@ async def test_welcome_screen_configure_now_opens_login_picker() -> None:
         await pilot.click("#welcome-configure")
         await pilot.pause()
         from tau_coding.tui.screens import LoginMethodPickerScreen
+
         assert isinstance(app.screen, LoginMethodPickerScreen)
 
 

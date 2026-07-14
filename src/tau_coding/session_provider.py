@@ -20,7 +20,6 @@ if TYPE_CHECKING:
 
 
 def _initial_model_for_config(config: CodingSessionConfig) -> str:
-
     if config.provider_settings is None or config.runtime_provider_config is None:
         return config.model
 
@@ -38,7 +37,6 @@ def _initial_model_for_config(config: CodingSessionConfig) -> str:
 
 
 def _runtime_model_for_state(config: CodingSessionConfig, state: SessionState) -> str:
-
     state_model = state.model or config.model
 
     if config.provider_settings is None or config.runtime_provider_config is None:
@@ -62,7 +60,6 @@ def _initial_thinking_level_for_config(
     *,
     model: str,
 ) -> ThinkingLevel:
-
     provider = _provider_config_for_name(config, config.provider_name)
 
     if provider is None:
@@ -79,7 +76,6 @@ def _provider_config_for_name(
     config: CodingSessionConfig,
     provider_name: str,
 ) -> ProviderConfig | None:
-
     if config.provider_settings is not None:
         try:
             return config.provider_settings.get_provider(provider_name)
@@ -96,7 +92,6 @@ def _state_thinking_level(
     state: SessionState,
     default: ThinkingLevel,
 ) -> ThinkingLevel:
-
     thinking_level = getattr(state, "thinking_level", None)
 
     if thinking_level is None:
@@ -106,7 +101,6 @@ def _state_thinking_level(
 
 
 def _default_thinking_level_for_active_model(session: CodingSession) -> ThinkingLevel:
-
     provider = session._active_provider_config()
 
     if provider is None:
@@ -125,7 +119,6 @@ def _preferred_thinking_level_for_model(
     model: str,
     fallback: ThinkingLevel,
 ) -> ThinkingLevel:
-
     levels = provider_thinking_levels(provider, model=model)
     preferred = provider.thinking_defaults.get(model)
 
@@ -147,7 +140,6 @@ def _coerced_thinking_level(
     current: ThinkingLevel,
     preferred: ThinkingLevel | None = None,
 ) -> ThinkingLevel:
-
     levels = provider_thinking_levels(provider, model=model)
 
     if not levels or current in levels:
@@ -162,7 +154,6 @@ def _coerced_thinking_level(
 
 
 def _unavailable_thinking_message(session: CodingSession) -> str:
-
     message = f"Thinking controls are unavailable for {session.provider_name}:{session.model}"
 
     reason = session.thinking_unavailable_reason

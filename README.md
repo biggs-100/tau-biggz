@@ -129,12 +129,12 @@ python -m pip install --upgrade tau-biggz
 pipx upgrade tau-biggz
 ```
 
-> **Troubleshooting**: si `uv tool upgrade` no encuentra la nueva versión, forzá la
-> reinstalación:
+> **Troubleshooting**: si `uv tool upgrade` no encuentra la nueva versión:
 > ```bash
+> uv cache clean tau-biggz      # limpia el caché de uv
 > uv tool install --reinstall tau-biggz
 > ```
-> Esto pasa cuando uv ya tiene la versión en caché y no detecta el cambio.
+> Esto pasa cuando uv tiene la versión anterior en caché y no detecta la nueva.
 
 **From source** (after `git pull`):
 

@@ -129,6 +129,13 @@ python -m pip install --upgrade tau-biggz
 pipx upgrade tau-biggz
 ```
 
+> **Troubleshooting**: si `uv tool upgrade` no encuentra la nueva versión, forzá la
+> reinstalación:
+> ```bash
+> uv tool install --reinstall tau-biggz
+> ```
+> Esto pasa cuando uv ya tiene la versión en caché y no detecta el cambio.
+
 **From source** (after `git pull`):
 
 ```bash

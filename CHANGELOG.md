@@ -4,19 +4,28 @@ All notable changes to tau-biggz are documented in this file.
 
 ## [Unreleased]
 ### Added
-- CI pipeline with lint, typecheck, and test jobs (GitHub Actions).
-- Release workflow with PyPI trusted publishing.
-- Code coverage reporting (target 65%).
+- Pre-commit workflow documentation — `git add -A` before commit to avoid stash conflicts.
 
-### Changed
-- Split `tui/app.py` into `tui/input.py` and `tui/screens.py`.
-
+## [0.1.8] — 2026-07-14
+### Added
+- 241+ tests across 18 modules (1400 total, 88.5% coverage).
+- `test_session_harness.py`, `test_tools_truncation.py`, `test_terminal_title.py`,
+  `test_tools_bash.py`, `test_tools_events.py`, `test_tools_edit.py`,
+  `test_markdown.py`, `test_session_compaction.py`, `test_app_runner.py`.
+- Web search tool tests with httpx mocking.
+- Subagent tool tests with mocked AgentHarness.
+- OAuth login screen edge case tests (30 Textual pilot tests).
 
 ### Fixed
-- 22 pre-existing test failures across CLI, provider config, and platform compatibility.
-- 272 mypy --strict errors to 0 across 22 files.
-- 250+ ruff lint violations.
-- Missing `steer()` method on CodingSession (runtime bug in RPC handler).
+- Executor exceptions in `_wrap_tool_with_events` now return `AgentToolResult`
+  instead of crashing (tools_events.py).
+- `_codex_reasoning_effort` raises `ProviderConfigError` when no thinking modes
+  are available instead of silently returning None (provider_runtime.py).
+- Monkeypatch targets in test_tui_app.py after app.py → app_runner.py refactor.
+- Ruff auto-fixes across 33 files (import sorting, line wrapping, blank lines).
+
+### Changed
+- Coverage threshold raised from 70% to 80%.
 
 ## 0.1.7
 _Released 2026-07-09_

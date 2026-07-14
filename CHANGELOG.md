@@ -19,6 +19,7 @@ All notable changes to tau-biggz are documented in this file.
 ### Fixed
 - Executor exceptions in `_wrap_tool_with_events` now return `AgentToolResult`
   instead of crashing (tools_events.py).
+- Release workflow: switch from trusted publishing to API token authentication.
 - `_codex_reasoning_effort` raises `ProviderConfigError` when no thinking modes
   are available instead of silently returning None (provider_runtime.py).
 - Monkeypatch targets in test_tui_app.py after app.py → app_runner.py refactor.

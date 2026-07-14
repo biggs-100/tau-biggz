@@ -1,9 +1,14 @@
+# ruff solo valida (no --fix) y ruff-format formatea.
+# Si hay unstaged changes y hooks modifican archivos, pre-commit
+# falla al hacer stash pop. Workaround:
+#   git add -A          # stage todo antes del commit, o
+#   git stash -u        # stash manual, commit, git stash pop
+#   uv run ruff check --fix .   # auto-fix manual si hace falta
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.11.0
     hooks:
       - id: ruff
-        args: [--fix]
       - id: ruff-format
 
   - repo: local

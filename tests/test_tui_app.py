@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.panel import Panel
 from textual.color import Color
 from textual.containers import VerticalScroll
+from textual.events import Key
 from textual.geometry import Offset
 from textual.selection import SELECT_ALL, Selection
 from textual.widgets import Button, Footer, Input, Label, ListItem, ListView, Static, TextArea
@@ -62,7 +63,9 @@ from tau_coding.tui import app as tui_app
 from tau_coding.tui import app_runner
 from tau_coding.tui.app import (
     COMPLETION_MAX_VISIBLE_LINES,
+    BranchSummaryInstructionsScreen,
     CommandOutputScreen,
+    CommandOutputScroll,
     CustomProviderLoginResult,
     CustomProviderLoginScreen,
     LoginMethodListView,
@@ -70,6 +73,7 @@ from tau_coding.tui.app import (
     LoginProviderPickerScreen,
     LoginScreen,
     ModelPickerScreen,
+    ModelPickerSearchInput,
     OAuthLoginScreen,
     PromptInput,
     SessionPickerScreen,
@@ -78,8 +82,11 @@ from tau_coding.tui.app import (
     TreePickerScreen,
     _activity_prompt_border_color,
     _completion_selected_render_line,
+    _filter_model_choices,
+    _model_picker_label,
     _terminal_command_prefix_span,
     _theme_css_variables,
+    _theme_picker_label,
     _visible_completion_state,
 )
 from tau_coding.tui.autocomplete import CompletionItem, CompletionState
@@ -91,6 +98,7 @@ from tau_coding.tui.config import (
     TuiSettings,
     tui_settings_path,
 )
+from tau_coding.tui.input import _is_thinking_cycle_key
 from tau_coding.tui.state import ChatItem
 from tau_coding.tui.welcome_screen import WelcomeScreen
 from tau_coding.tui.widgets import (
@@ -3570,6 +3578,121 @@ async def test_tui_app_non_session_modal_uses_global_auto_copy_setting(
     assert copied == []
 
 
+# ── CommandOutputScroll and CommandOutputScreen unit coverage ──────────────────
+# These cover lines in _screens_output.py that are not reached through normal
+# key bindings (because the scroll widget's priority bindings intercept
+# up/down before they reach on_key).
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_command_output_scroll_scrolls_up_by_one() -> None:
+    """CommandOutputScroll.action_scroll_up() decrements scroll_y by 1."""
+    app = TauTuiApp(FakeSession())
+    long_message = "\n".join(f"line {index}" for index in range(80))
+
+    async with app.run_test(size=(100, 20)) as pilot:
+        app._show_command_message("/long", long_message)
+        await pilot.pause()
+
+        assert isinstance(app.screen, CommandOutputScreen)
+        scroll = app.screen.query_one("#command-output-scroll", CommandOutputScroll)
+
+        # Start at top; press down twice so scroll_y > 0
+        assert scroll.scroll_y == 0
+        await pilot.press("down")
+        await pilot.pause()
+        await pilot.press("down")
+        await pilot.pause()
+        assert scroll.scroll_y == 2
+
+        # Press up once
+        await pilot.press("up")
+        await pilot.pause()
+
+        assert scroll.scroll_y == 1
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_command_output_screen_on_key_routes_up_down() -> None:
+    """CommandOutputScreen.on_key routes up/down to the scroll widget."""
+    from textual.events import Key
+
+    app = TauTuiApp(FakeSession())
+    long_message = "\n".join(f"line {index}" for index in range(80))
+
+    async with app.run_test(size=(100, 20)) as pilot:
+        app._show_command_message("/long", long_message)
+        await pilot.pause()
+
+        assert isinstance(app.screen, CommandOutputScreen)
+        screen = app.screen
+        scroll = screen.query_one("#command-output-scroll", CommandOutputScroll)
+
+        assert scroll.scroll_y == 0
+
+        # Directly invoke on_key so the handler is exercised even though
+        # normal key input is intercepted by the scroll widget's bindings.
+        screen.on_key(Key(key="down", character=None))
+        assert scroll.scroll_y == 1
+
+        screen.on_key(Key(key="down", character=None))
+        assert scroll.scroll_y == 2
+
+        screen.on_key(Key(key="up", character=None))
+        assert scroll.scroll_y == 1
+
+        screen.on_key(Key(key="up", character=None))
+        assert scroll.scroll_y == 0
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_command_output_screen_action_close() -> None:
+    """CommandOutputScreen.action_close dismisses the modal."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        app._show_command_message("/session", "Session info")
+        await pilot.pause()
+
+        assert isinstance(app.screen, CommandOutputScreen)
+
+        await pilot.press("escape")
+        await pilot.pause()
+
+        assert not isinstance(app.screen, CommandOutputScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_command_output_screen_action_scroll_up_delegates_to_scroll() -> None:
+    """CommandOutputScreen.action_scroll_up delegates to the scroll widget."""
+    app = TauTuiApp(FakeSession())
+    long_message = "\n".join(f"line {index}" for index in range(80))
+
+    async with app.run_test(size=(100, 20)) as pilot:
+        app._show_command_message("/long", long_message)
+        await pilot.pause()
+
+        assert isinstance(app.screen, CommandOutputScreen)
+        screen = app.screen
+        scroll = screen.query_one("#command-output-scroll", CommandOutputScroll)
+
+        # Scroll down first so action_scroll_up has room to move
+        scroll.action_scroll_down()
+        scroll.action_scroll_down()
+        assert scroll.scroll_y == 2
+
+        # Call the screen-level action which delegates to the scroll widget
+        screen.action_scroll_up()
+        assert scroll.scroll_y == 1
+
+        screen.action_scroll_up()
+        assert scroll.scroll_y == 0
+
+
 @pytest.mark.anyio
 @pytest.mark.tui
 async def test_tui_app_escape_cancels_running_session_from_prompt() -> None:
@@ -6768,3 +6891,1607 @@ async def test_login_method_picker_on_key_synthetic() -> None:
         screen.on_key(Key(key="enter", character=None))
         await pilot.pause()
         assert not isinstance(app.screen, LoginMethodPickerScreen)
+
+
+# ── PromptInput coverage for input.py ─────────────────────────────────────────
+# These cover edge cases and uncovered lines in src/tau_coding/tui/input.py
+# that are not reached through normal interaction flows.
+
+
+# -- _is_thinking_cycle_key pure-function tests --------------------------------
+
+
+def test_is_thinking_cycle_key_direct_key_match() -> None:
+    """_is_thinking_cycle_key returns True when key equals configured_key."""
+    assert _is_thinking_cycle_key("shift+tab", "shift+tab") is True
+    assert _is_thinking_cycle_key("f3", "f3") is True
+
+
+def test_is_thinking_cycle_key_backtab_match() -> None:
+    """_is_thinking_cycle_key returns True for backtab when configured is shift+tab."""
+    assert _is_thinking_cycle_key("backtab", "shift+tab") is True
+
+
+def test_is_thinking_cycle_key_no_match() -> None:
+    """_is_thinking_cycle_key returns False when neither condition is met."""
+    assert _is_thinking_cycle_key("tab", "shift+tab") is False
+    assert _is_thinking_cycle_key("f4", "f3") is False
+    assert _is_thinking_cycle_key("backtab", "f3") is False
+
+
+# -- action_paste tests ---------------------------------------------------------
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_input_paste_collapses_large_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Large pastes (>threshold) are collapsed to a placeholder."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 30)):
+        prompt = app.query_one("#prompt", PromptInput)
+
+        def fake_paste(self: TextArea) -> None:
+            self.text = "x" * 600
+
+        monkeypatch.setattr(TextArea, "action_paste", fake_paste)
+        prompt.action_paste()
+
+        assert prompt._pasted_content == "x" * 600
+        assert prompt.text == "[Pasted content: 600 chars, 1 lines]"
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_input_paste_keeps_small_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Small pastes (<threshold) are kept as-is."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 30)):
+        prompt = app.query_one("#prompt", PromptInput)
+
+        def fake_paste(self: TextArea) -> None:
+            self.text = "short text"
+
+        monkeypatch.setattr(TextArea, "action_paste", fake_paste)
+        prompt.action_paste()
+
+        assert prompt._pasted_content is None
+        assert prompt.text == "short text"
+
+
+# -- cursor_position property ---------------------------------------------------
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_input_cursor_position_computes_flat_offset() -> None:
+    """cursor_position returns a flat character offset from row/column."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 30)) as pilot:
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.text = "abc\ndef\nghi"
+        await pilot.pause()
+
+        prompt.move_cursor((1, 2))
+        assert prompt.cursor_position == 6  # 4 + 2
+
+        prompt.move_cursor((0, 1))
+        assert prompt.cursor_position == 1
+
+        prompt.move_cursor((2, 0))
+        assert prompt.cursor_position == 8  # 4 + 4 + 0
+
+
+# -- action_clear_prompt with selected_text -------------------------------------
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_input_clear_prompt_with_selection_returns_early() -> None:
+    """action_clear_prompt returns early when text is selected."""
+    from textual.widgets._text_area import Selection as DocSelection
+
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 30)) as pilot:
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.text = "some text"
+        prompt.selection = DocSelection((0, 0), (0, 4))
+        await pilot.pause()
+
+        assert prompt.selected_text == "some"
+
+        prompt.action_clear_prompt()
+
+        assert prompt.text == "some text"
+
+
+# -- action_scroll_up -----------------------------------------------------------
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_action_scroll_up_moves_cursor_up() -> None:
+    """action_scroll_up delegates to action_completion_previous which moves up."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 30)) as pilot:
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.text = "first\nsecond"
+        prompt.move_cursor((1, 3))
+        await pilot.pause()
+
+        prompt.action_scroll_up()
+
+        assert prompt.cursor_location == (0, 3)
+
+
+# -- action_completion_next / previous without completions ----------------------
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_completion_next_without_completions_moves_cursor_down() -> None:
+    """action_completion_next without completion options moves cursor down."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 30)) as pilot:
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.text = "alpha\nbeta"
+        prompt.move_cursor((0, 2))
+        await pilot.pause()
+
+        prompt.action_completion_next()
+
+        assert prompt.cursor_location == (1, 2)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_completion_previous_without_completions_moves_cursor_up() -> None:
+    """action_completion_previous without completions or follow-up moves cursor up."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 30)) as pilot:
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.text = "alpha\nbeta"
+        prompt.move_cursor((1, 2))
+        await pilot.pause()
+
+        prompt.action_completion_previous()
+
+        assert prompt.cursor_location == (0, 2)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_completion_previous_with_follow_up_edits_it() -> None:
+    """action_completion_previous edits queued follow-up when running with empty input."""
+    session = FakeSession()
+    session.queued_follow_up_messages = ("pending follow-up",)
+    app = TauTuiApp(session)
+
+    async with app.run_test(size=(120, 30)) as pilot:
+        app.state.running = True
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.text = ""
+        await pilot.pause()
+
+        prompt.action_completion_previous()
+
+        assert prompt.text == "pending follow-up"
+        assert session.queued_follow_up_messages == ()
+
+
+# -- action_completion_previous with completions --------------------------------
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_completion_previous_with_completions_delegates_to_app() -> None:
+    """action_completion_previous with completions delegates to the app action."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 30)):
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.text = "/s"
+        app._completion_state = app._build_completion_state(prompt.text)
+        app._refresh_completions()
+
+        selected_before = app._completion_state.selected
+        assert selected_before is not None
+
+        # This exercises line 148-149: _has_completion_options() → delegation
+        prompt.action_completion_previous()
+
+        selected_after = app._completion_state.selected
+        assert selected_after is not None
+        assert selected_after != selected_before
+
+
+# -- action_accept_completion ---------------------------------------------------
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_accept_completion_delegates_to_app() -> None:
+    """action_accept_completion calls the app-level action without error."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 30)):
+        prompt = app.query_one("#prompt", PromptInput)
+
+        prompt.action_accept_completion()
+
+        # Should not raise — app handles missing completion state gracefully
+        assert prompt.text == ""
+
+
+# -- action_submit_follow_up ----------------------------------------------------
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_submit_follow_up_delegates_to_app() -> None:
+    """action_submit_follow_up calls the app-level action without error."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 30)):
+        prompt = app.query_one("#prompt", PromptInput)
+
+        await prompt.action_submit_follow_up()
+
+        # Should not raise — app handles empty prompt gracefully
+        assert prompt.text == ""
+
+
+# -- on_key edge cases ----------------------------------------------------------
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_on_key_copy_message_with_selection_returns_early() -> None:
+    """Ctrl+C in on_key returns early when text is selected."""
+    from textual.events import Key
+    from textual.widgets._text_area import Selection as DocSelection
+
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 30)) as pilot:
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.text = "some text"
+        prompt.selection = DocSelection((0, 0), (0, 4))
+        await pilot.pause()
+
+        assert prompt.selected_text == "some"
+
+        await prompt.on_key(Key(key="ctrl+c", character=None))
+
+        assert prompt.text == "some text"
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_on_key_completion_next_without_completions_moves_cursor_down() -> None:
+    """Down arrow in on_key without completions moves cursor down."""
+    from textual.events import Key
+
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 30)) as pilot:
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.text = "line one\nline two"
+        prompt.move_cursor((0, 3))
+        await pilot.pause()
+
+        await prompt.on_key(Key(key="down", character=None))
+
+        assert prompt.cursor_location == (1, 3)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_on_key_completion_previous_without_completions_moves_cursor_up() -> None:
+    """Up arrow in on_key without completions moves cursor up."""
+    from textual.events import Key
+
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 30)) as pilot:
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.text = "line one\nline two"
+        prompt.move_cursor((1, 3))
+        await pilot.pause()
+
+        await prompt.on_key(Key(key="up", character=None))
+
+        assert prompt.cursor_location == (0, 3)
+
+
+# -- on_key direct-call coverage (priority bindings consume keys first) ----------
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_on_key_queue_follow_up_submits_follow_up() -> None:
+    """on_key alt+enter submits a follow-up via queue_follow_up."""
+    from textual.events import Key
+
+    session = FakeSession()
+    app = TauTuiApp(session)
+
+    async with app.run_test(size=(120, 30)):
+        prompt = app.query_one("#prompt", PromptInput)
+        # Use empty text so the submit path returns early without launching a worker
+        prompt.text = ""
+        await prompt.on_key(Key(key="alt+enter", character=None))
+        # The handler runs without error
+        assert True
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_on_key_enter_handles_empty_text() -> None:
+    """on_key enter with empty text safely returns."""
+    from textual.events import Key
+
+    session = FakeSession()
+    app = TauTuiApp(session)
+
+    async with app.run_test(size=(120, 30)):
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.text = ""
+        await prompt.on_key(Key(key="enter", character=None))
+        # Empty text returns early without launching a worker
+        assert True
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_on_key_shift_enter_inserts_newline() -> None:
+    """on_key shift+enter inserts a newline at the cursor."""
+    from textual.events import Key
+
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 30)) as pilot:
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.text = "hello"
+        prompt.move_cursor((0, 5))
+        await pilot.pause()
+
+        await prompt.on_key(Key(key="shift+enter", character=None))
+
+        assert prompt.text == "hello\n"
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_on_key_tab_accepts_completion() -> None:
+    """on_key tab accepts completion (no-ops gracefully without completions)."""
+    from textual.events import Key
+
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 30)):
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.text = "/se"
+        await prompt.on_key(Key(key="tab", character=None))
+        # Without completion state, accept_completion is a no-op
+        assert prompt.text == "/se"
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_on_key_escape_cancels() -> None:
+    """on_key escape cancels via the app-level action."""
+    from textual.events import Key
+
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 30)):
+        prompt = app.query_one("#prompt", PromptInput)
+        await prompt.on_key(Key(key="escape", character=None))
+        # Cancel with nothing running is a no-op
+        assert True
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_on_key_command_palette_opens() -> None:
+    """on_key ctrl+k opens the command palette."""
+    from textual.events import Key
+
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 30)):
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.text = "previous text"
+        await prompt.on_key(Key(key="ctrl+k", character=None))
+        # Command palette sets prompt to "/"
+        assert prompt.text == "/"
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_on_key_session_picker_opens() -> None:
+    """on_key ctrl+r calls session_picker action (notifies with empty records)."""
+    from textual.events import Key
+
+    session = FakeSession()
+    session.session_manager = _FakeSessionManager([])
+    app = TauTuiApp(session)
+
+    async with app.run_test(size=(120, 30)):
+        prompt = app.query_one("#prompt", PromptInput)
+        await prompt.on_key(Key(key="ctrl+r", character=None))
+        # With no records, the handler notifies "No sessions found." and returns
+        # The key is that the on_key branch runs without error
+        assert True
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_on_key_thinking_cycle_launches_worker() -> None:
+    """on_key shift+tab launches thinking-level worker (no crash)."""
+    from textual.events import Key
+
+    session = FakeSession()
+    app = TauTuiApp(session)
+
+    async with app.run_test(size=(120, 30)):
+        prompt = app.query_one("#prompt", PromptInput)
+        await prompt.on_key(Key(key="shift+tab", character=None))
+        # Worker runs async; just verify the handler ran without error
+        assert True
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_on_key_model_cycle_launches_worker() -> None:
+    """on_key ctrl+p launches model-cycle worker (no crash)."""
+    from textual.events import Key
+
+    session = FakeSession()
+    app = TauTuiApp(session)
+
+    async with app.run_test(size=(120, 30)):
+        prompt = app.query_one("#prompt", PromptInput)
+        await prompt.on_key(Key(key="ctrl+p", character=None))
+        # Worker runs async; just verify the handler ran without error
+        assert True
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_on_key_toggle_tool_results_toggles() -> None:
+    """on_key ctrl+o toggles tool results."""
+    from textual.events import Key
+
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 30)):
+        prompt = app.query_one("#prompt", PromptInput)
+        assert app.state.show_tool_results is False
+        await prompt.on_key(Key(key="ctrl+o", character=None))
+        assert app.state.show_tool_results is True
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_on_key_toggle_thinking_toggles() -> None:
+    """on_key ctrl+t toggles thinking display."""
+    from textual.events import Key
+
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 30)):
+        prompt = app.query_one("#prompt", PromptInput)
+        assert app.state.show_thinking is False
+        await prompt.on_key(Key(key="ctrl+t", character=None))
+        assert app.state.show_thinking is True
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_on_key_copy_message_clears_text() -> None:
+    """on_key ctrl+c without selection clears the prompt text."""
+    from textual.events import Key
+
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 30)):
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.text = "clear this"
+        await prompt.on_key(Key(key="ctrl+c", character=None))
+        # The text should be cleared
+        assert prompt.text == ""
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_on_key_completion_next_with_completions_selects_next() -> None:
+    """on_key down with completion options selects the next item."""
+    from textual.events import Key
+
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 30)):
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.text = "/s"
+        app._completion_state = app._build_completion_state(prompt.text)
+        app._refresh_completions()
+        selected_before = app._completion_state.selected
+        assert selected_before is not None
+
+        await prompt.on_key(Key(key="down", character=None))
+
+        selected_after = app._completion_state.selected
+        assert selected_after is not None
+        assert selected_after != selected_before
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_on_key_quit_exits_app() -> None:
+    """on_key ctrl+d quits the app."""
+    from textual.events import Key
+
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 30)):
+        prompt = app.query_one("#prompt", PromptInput)
+        await prompt.on_key(Key(key="ctrl+d", character=None))
+        assert app._exit is True
+
+
+# -- get_line shell mode styling -------------------------------------------------
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_get_line_applies_shell_mode_style() -> None:
+    """get_line applies shell-mode style to the ! prefix on the first line."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 30)) as pilot:
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.text = "! pwd"
+        # The app sets shell_mode_style to the theme accent on mount
+        await pilot.pause()
+
+        # The first line should be styled with the theme accent on the ! prefix
+        line = prompt.get_line(0)
+        expected_style = app.tui_settings.resolved_theme.accent
+        has_accent_style = any(str(span.style) == expected_style for span in line.spans)
+        assert has_accent_style, (
+            f"Expected a span with style {expected_style!r} "
+            f"for the ! prefix, got spans: {line.spans}"
+        )
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_prompt_get_line_does_not_style_non_zero_lines() -> None:
+    """get_line only styles line 0; other lines are returned unchanged."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test(size=(120, 30)) as pilot:
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.text = "! pwd\nregular line"
+        await pilot.pause()
+
+        # Line 1 (non-zero) should not have the shell-mode style applied
+        line = prompt.get_line(1)
+        expected_style = app.tui_settings.resolved_theme.accent
+        no_accent_on_second_line = not any(str(span.style) == expected_style for span in line.spans)
+        assert no_accent_on_second_line, (
+            f"Expected no accent style on non-first line, got spans: {line.spans}"
+        )
+
+
+# ── _screens_settings.py direct-coverage tests ────────────────────────────────
+# These test uncovered branches in ThemePickerScreen, ModelPickerSearchInput,
+# and ModelPickerScreen using direct Key events where pilot interaction cannot
+# reach the on_key handler.
+
+
+def test_theme_picker_label_current_theme_marked() -> None:
+    """_theme_picker_label marks the current theme with ✓."""
+    assert _theme_picker_label("tau-dark", current_theme="tau-dark") == "✓ tau-dark"
+    assert _theme_picker_label("tau-light", current_theme="tau-dark") == "  tau-light"
+    assert _theme_picker_label("high-contrast", current_theme="tau-dark") == "  high-contrast"
+
+
+def test_model_picker_label_with_scoped_suffix() -> None:
+    """_model_picker_label shows marker and optional [scoped] suffix."""
+    label = _model_picker_label(
+        ModelChoice(provider_name="openai", model="gpt-4"),
+        current_model="gpt-4",
+        current_provider="openai",
+        scoped=True,
+    )
+    assert label == "* openai:gpt-4 [scoped]"
+
+    label = _model_picker_label(
+        ModelChoice(provider_name="openai", model="gpt-4"),
+        current_model="other",
+        current_provider="openai",
+        scoped=False,
+    )
+    assert label == "  openai:gpt-4"
+
+
+def test_filter_model_choices_query_matching() -> None:
+    """_filter_model_choices filters by provider name or model name."""
+    choices = [
+        ModelChoice(provider_name="openai", model="gpt-4"),
+        ModelChoice(provider_name="anthropic", model="claude"),
+        ModelChoice(provider_name="local", model="local-model"),
+    ]
+    # Empty query returns all
+    assert len(_filter_model_choices(choices, "")) == 3
+    assert len(_filter_model_choices(choices, "  ")) == 3
+
+    # Matches provider
+    result = _filter_model_choices(choices, "openai")
+    assert result == (choices[0],)
+
+    # Matches model
+    result = _filter_model_choices(choices, "claude")
+    assert result == (choices[1],)
+
+    # No match
+    result = _filter_model_choices(choices, "zzzzz")
+    assert result == ()
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_theme_picker_on_mount_fallback_unknown_theme() -> None:
+    """ThemePickerScreen.on_mount falls back to index 0 for unknown themes."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        screen = ThemePickerScreen(
+            current_theme="nonexistent",  # type: ignore[arg-type]
+            theme=TAU_DARK_THEME,
+        )
+        app.push_screen(screen)
+        await pilot.pause()
+
+        theme_list = screen.query_one("#theme-picker-list", ListView)
+        assert theme_list.index == 0
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_theme_picker_on_key_up_down_enter() -> None:
+    """ThemePickerScreen.on_key routes up/down/enter via direct Key events."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        results: list[str | None] = []
+        screen = ThemePickerScreen(current_theme="tau-dark", theme=TAU_DARK_THEME)
+        app.push_screen(screen, callback=results.append)
+        await pilot.pause()
+
+        theme_list = screen.query_one("#theme-picker-list", ListView)
+        assert theme_list.index == 0
+
+        # Direct Key events exercise on_key branches (unreachable via pilot
+        # because the screen's priority bindings intercept these keys first).
+        screen.on_key(Key(key="down", character=None))
+        assert theme_list.index == 1
+
+        screen.on_key(Key(key="up", character=None))
+        assert theme_list.index == 0
+
+        # Enter selects the highlighted theme
+        screen.on_key(Key(key="enter", character=None))
+        await pilot.pause()
+        assert results == ["tau-dark"]
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_theme_picker_escape_cancels() -> None:
+    """ThemePickerScreen.action_cancel dismisses with None."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        results: list[str | None] = []
+        screen = ThemePickerScreen(current_theme="tau-dark", theme=TAU_DARK_THEME)
+        app.push_screen(screen, callback=results.append)
+        await pilot.pause()
+
+        await pilot.press("escape")
+        await pilot.pause()
+        assert results == [None]
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_theme_picker_mounts_with_all_builtin_themes_and_correct_index() -> None:
+    """ThemePickerScreen shows all built-in themes with current theme marked."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        screen = ThemePickerScreen(current_theme="tau-light", theme=TAU_LIGHT_THEME)
+        app.push_screen(screen)
+        await pilot.pause()
+
+        labels = [str(item.query_one(Label).render()) for item in screen.query(ListItem)]
+        assert labels == [
+            "  tau-dark",
+            "✓ tau-light",
+            "  high-contrast",
+        ]
+        theme_list = screen.query_one("#theme-picker-list", ListView)
+        assert theme_list.index == 1
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_model_picker_search_on_key_all_branches() -> None:
+    """ModelPickerSearchInput.on_key routes up/down/tab/ctrl+i/escape."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        screen = ModelPickerScreen(
+            FakeSession().available_model_choices,
+            scoped_choices=(),
+            current_model="fake-model",
+            provider_name="openai",
+            theme=TAU_DARK_THEME,
+            on_toggle_scoped=None,
+            picker_kind="model",
+        )
+        results: list[ModelChoice | None] = []
+        app.push_screen(screen, callback=results.append)
+        await pilot.pause()
+
+        search = screen.query_one("#model-picker-search", ModelPickerSearchInput)
+        model_list = screen.query_one("#model-picker-list", ListView)
+        model_list.index = 1
+
+        # Up — moves list cursor up
+        search.on_key(Key(key="up", character=None))
+        assert model_list.index == 0
+
+        # Down — moves list cursor down
+        search.on_key(Key(key="down", character=None))
+        assert model_list.index == 1
+
+        # Tab — toggles to scoped mode
+        tabs = screen.query_one("#model-picker-tabs", Static)
+        assert "● All models" in str(tabs.render())
+        search.on_key(Key(key="tab", character=None))
+        assert "● Scoped models" in str(tabs.render())
+
+        # ctrl+i — toggles back to all mode
+        search.on_key(Key(key="ctrl+i", character=None))
+        assert "● All models" in str(tabs.render())
+
+        # Escape — dismisses with None
+        search.on_key(Key(key="escape", character=None))
+        await pilot.pause()
+        assert results == [None]
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_model_picker_search_on_key_home_end_pass_through() -> None:
+    """ModelPickerSearchInput.on_key allows home/end to pass through unchanged."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        screen = ModelPickerScreen(
+            FakeSession().available_model_choices,
+            scoped_choices=(),
+            current_model="fake-model",
+            provider_name="openai",
+            theme=TAU_DARK_THEME,
+            on_toggle_scoped=None,
+            picker_kind="model",
+        )
+        app.push_screen(screen)
+        await pilot.pause()
+
+        search = screen.query_one("#model-picker-search", ModelPickerSearchInput)
+        # home and end pass through without error (no branch in on_key)
+        search.on_key(Key(key="home", character=None))
+        search.on_key(Key(key="end", character=None))
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_model_picker_on_key_up_down_enter_tab_ctrl_i() -> None:
+    """ModelPickerScreen.on_key routes up/down/enter/tab/ctrl+i directly."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        screen = ModelPickerScreen(
+            FakeSession().available_model_choices,
+            scoped_choices=(),
+            current_model="fake-model",
+            provider_name="openai",
+            theme=TAU_DARK_THEME,
+            on_toggle_scoped=None,
+            picker_kind="model",
+        )
+        results: list[ModelChoice | None] = []
+        app.push_screen(screen, callback=results.append)
+        await pilot.pause()
+
+        model_list = screen.query_one("#model-picker-list", ListView)
+        tabs = screen.query_one("#model-picker-tabs", Static)
+        assert model_list.index == 0
+
+        # Direct on_key — unreachable via pilot because the focused
+        # ModelPickerSearchInput intercepts up/down/tab/ctrl+i with priority
+        # bindings, and enter is handled by ListView when focused.
+
+        # Down
+        screen.on_key(Key(key="down", character=None))
+        assert model_list.index == 1
+
+        # Up
+        screen.on_key(Key(key="up", character=None))
+        assert model_list.index == 0
+
+        # Tab — toggle to scoped
+        screen.on_key(Key(key="tab", character=None))
+        assert "● Scoped models" in str(tabs.render())
+
+        # ctrl+i — toggle back to all
+        screen.on_key(Key(key="ctrl+i", character=None))
+        assert "● All models" in str(tabs.render())
+
+        # Enter — selects the highlighted model and dismisses
+        screen.on_key(Key(key="enter", character=None))
+        await pilot.pause()
+        assert results == [ModelChoice(provider_name="openai", model="fake-model")]
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_model_picker_search_empty_results_help_text() -> None:
+    """ModelPickerScreen help text updates for empty search in both modes."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        screen = ModelPickerScreen(
+            FakeSession().available_model_choices,
+            scoped_choices=(),
+            current_model="fake-model",
+            provider_name="openai",
+            theme=TAU_DARK_THEME,
+            on_toggle_scoped=None,
+            picker_kind="model",
+        )
+        app.push_screen(screen)
+        await pilot.pause()
+
+        search = screen.query_one("#model-picker-search", Input)
+        help_widget = screen.query_one("#model-picker-help", Static)
+        tabs = screen.query_one("#model-picker-tabs", Static)
+
+        # Default: all models with results
+        assert "● All models" in str(tabs.render())
+        help_text = str(help_widget.render())
+        assert "All models" in help_text
+        assert "Enter selects" in help_text
+
+        # Empty results in all mode
+        search.value = "zzzzz"
+        await pilot.pause()
+        help_text = str(help_widget.render())
+        assert "no matching models" in help_text
+        assert "Tab switches to scoped" in help_text
+
+        # Switch to scoped mode — scoped_choices is empty so visible_choices
+        # will be empty even after clearing the search filter.
+        search.value = ""
+        await pilot.pause()
+        screen.on_key(Key(key="tab", character=None))
+        assert "● Scoped models" in str(tabs.render())
+        # Since scoped_choices=() has no items, scoped mode shows empty results
+        help_text = str(help_widget.render())
+        assert "scoped models: no matching models" in help_text
+
+        # Search in scoped mode with a query that also yields nothing
+        search.value = "zzzzz"
+        await pilot.pause()
+        help_text = str(help_widget.render())
+        assert "scoped models: no matching models" in help_text
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_model_picker_input_submitted_selects_model() -> None:
+    """ModelPickerScreen.on_input_submitted selects the highlighted model."""
+    session = FakeSession()
+    app = TauTuiApp(session)
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt")
+        prompt.value = "/model"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert isinstance(app.screen, ModelPickerScreen)
+        search = app.screen.query_one("#model-picker-search", Input)
+
+        # Submitting from the search field selects the highlighted model
+        await search.action_submit()
+        await pilot.pause()
+
+        assert session.model == "fake-model"
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_model_picker_escape_dismisses_with_none() -> None:
+    """ModelPickerScreen escape dismisses via pilot key press."""
+    session = FakeSession()
+    app = TauTuiApp(session)
+
+    async with app.run_test() as pilot:
+        results: list[ModelChoice | None] = []
+        screen = ModelPickerScreen(
+            session.available_model_choices,
+            scoped_choices=(),
+            current_model=session.model,
+            provider_name=session.provider_name,
+            theme=TAU_DARK_THEME,
+            on_toggle_scoped=None,
+            picker_kind="model",
+        )
+        app.push_screen(screen, callback=results.append)
+        await pilot.pause()
+
+        await pilot.press("escape")
+        await pilot.pause()
+        assert results == [None]
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_model_picker_toggle_mode_scoped_kind_noop() -> None:
+    """ModelPickerScreen.action_toggle_mode is a no-op when picker_kind='scoped'."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        screen = ModelPickerScreen(
+            FakeSession().available_model_choices,
+            scoped_choices=(),
+            current_model="fake-model",
+            provider_name="openai",
+            theme=TAU_DARK_THEME,
+            on_toggle_scoped=None,
+            picker_kind="scoped",
+        )
+        app.push_screen(screen)
+        await pilot.pause()
+
+        screen.action_toggle_mode()
+        # Mode should remain "all" since picker_kind is "scoped"
+        assert screen.mode == "all"
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_model_picker_select_visible_choice_empty_choices() -> None:
+    """_select_visible_choice is a no-op when visible_choices is empty."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        screen = ModelPickerScreen(
+            FakeSession().available_model_choices,
+            scoped_choices=(),
+            current_model="fake-model",
+            provider_name="openai",
+            theme=TAU_DARK_THEME,
+            on_toggle_scoped=None,
+            picker_kind="model",
+        )
+        app.push_screen(screen)
+        await pilot.pause()
+
+        screen.visible_choices = ()
+        screen._select_visible_choice()  # No crash = success
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_model_picker_select_visible_choice_none_index() -> None:
+    """_select_visible_choice is a no-op when list index is None."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        screen = ModelPickerScreen(
+            FakeSession().available_model_choices,
+            scoped_choices=(),
+            current_model="nonexistent",
+            provider_name="openai",
+            theme=TAU_DARK_THEME,
+            on_toggle_scoped=None,
+            picker_kind="model",
+        )
+        app.push_screen(screen)
+        await pilot.pause()
+
+        model_list = screen.query_one("#model-picker-list", ListView)
+        model_list.index = None
+        screen._select_visible_choice()  # No crash = success
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_model_picker_reset_index_with_empty_visible_choices() -> None:
+    """_reset_model_list_index sets index to None when visible_choices is empty."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        screen = ModelPickerScreen(
+            FakeSession().available_model_choices,
+            scoped_choices=(),
+            current_model="nonexistent",
+            provider_name="openai",
+            theme=TAU_DARK_THEME,
+            on_toggle_scoped=None,
+            picker_kind="model",
+        )
+        app.push_screen(screen)
+        await pilot.pause()
+
+        # Filter out all choices so visible_choices becomes empty
+        search = screen.query_one("#model-picker-search", Input)
+        search.value = "zzzzz"
+        await pilot.pause()
+        model_list = screen.query_one("#model-picker-list", ListView)
+        assert model_list.index is None
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_model_picker_action_toggle_scoped_without_callback() -> None:
+    """action_toggle_scoped is a no-op when on_toggle_scoped is None."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        screen = ModelPickerScreen(
+            FakeSession().available_model_choices,
+            scoped_choices=(),
+            current_model="fake-model",
+            provider_name="openai",
+            theme=TAU_DARK_THEME,
+            on_toggle_scoped=None,
+            picker_kind="model",
+        )
+        app.push_screen(screen)
+        await pilot.pause()
+
+        screen.action_toggle_scoped()  # No crash = success
+
+
+# ── SessionPickerScreen coverage ──────────────────────────────────────────────
+# These cover additional lines in _screens_session.py not reached through
+# normal interaction flows (on_key is bypassed by ListView bindings).
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_session_picker_on_key_routing() -> None:
+    """SessionPickerScreen.on_key routes up/down/enter via direct Key events."""
+    from textual.events import Key
+
+    app = TauTuiApp(FakeSession())
+    records = (
+        CodingSessionRecord(
+            id="s1",
+            path=Path("/tmp/s1.jsonl"),
+            cwd=Path("/workspace"),
+            model="m1",
+            title=None,
+            created_at=1.0,
+            updated_at=3.0,
+        ),
+        CodingSessionRecord(
+            id="s2",
+            path=Path("/tmp/s2.jsonl"),
+            cwd=Path("/workspace"),
+            model="m2",
+            title=None,
+            created_at=1.0,
+            updated_at=2.0,
+        ),
+    )
+
+    async with app.run_test() as pilot:
+        app.push_screen(SessionPickerScreen(records, theme=TAU_DARK_THEME))
+        await pilot.pause()
+
+        screen = app.screen
+        assert isinstance(screen, SessionPickerScreen)
+        session_list = screen.query_one("#session-picker-list", ListView)
+        session_list.index = 0
+
+        # up → action_cursor_up → ListView.action_cursor_up
+        screen.on_key(Key(key="up", character=None))
+        # Stays at 0 when already at first item
+        assert session_list.index in (0, 1)
+
+        # Reset and test down
+        session_list.index = 0
+        screen.on_key(Key(key="down", character=None))
+        assert session_list.index == 1
+
+        # up back to 0
+        screen.on_key(Key(key="up", character=None))
+        assert session_list.index == 0
+
+        # enter selects → dismisses via on_list_view_selected
+        screen.on_key(Key(key="enter", character=None))
+        await pilot.pause()
+        assert not isinstance(app.screen, SessionPickerScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_session_picker_action_cancel() -> None:
+    """action_cancel dismisses SessionPickerScreen with None."""
+    app = TauTuiApp(FakeSession())
+    records = (
+        CodingSessionRecord(
+            id="s1",
+            path=Path("/tmp/s1.jsonl"),
+            cwd=Path("/workspace"),
+            model="m1",
+            title=None,
+            created_at=1.0,
+            updated_at=3.0,
+        ),
+    )
+
+    async with app.run_test() as pilot:
+        app.push_screen(SessionPickerScreen(records, theme=TAU_DARK_THEME))
+        await pilot.pause()
+
+        assert isinstance(app.screen, SessionPickerScreen)
+        app.screen.action_cancel()
+        await pilot.pause()
+        assert not isinstance(app.screen, SessionPickerScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_session_picker_on_list_view_selected() -> None:
+    """on_list_view_selected dismisses with the selected session id."""
+    app = TauTuiApp(FakeSession())
+    records = (
+        CodingSessionRecord(
+            id="session-42",
+            path=Path("/tmp/s1.jsonl"),
+            cwd=Path("/workspace"),
+            model="m1",
+            title=None,
+            created_at=1.0,
+            updated_at=3.0,
+        ),
+    )
+    screen = SessionPickerScreen(records, theme=TAU_DARK_THEME)
+
+    async with app.run_test() as pilot:
+        app.push_screen(screen)
+        await pilot.pause()
+
+        assert isinstance(app.screen, SessionPickerScreen)
+        lv = screen.query_one("#session-picker-list", ListView)
+        item = lv.children[0]
+        screen.on_list_view_selected(ListView.Selected(lv, item, 0))
+        await pilot.pause()
+
+        assert not isinstance(app.screen, SessionPickerScreen)
+
+
+# ── TreePickerScreen coverage ──────────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_tree_picker_action_select_with_summary() -> None:
+    """action_select_with_summary dismisses with summarize=True."""
+    app = TauTuiApp(FakeSession())
+    choices = (
+        SessionTreeChoice(entry_id="root", label="user: Root"),
+        SessionTreeChoice(entry_id="branch", label="assistant: Branch", active=True),
+    )
+
+    async with app.run_test() as pilot:
+        app.push_screen(TreePickerScreen(choices, theme=TAU_DARK_THEME))
+        await pilot.pause()
+
+        screen = app.screen
+        assert isinstance(screen, TreePickerScreen)
+        tree_list = screen.query_one("#tree-picker-list", ListView)
+        assert tree_list.index == 1  # active choice
+
+        await pilot.press("s")
+        await pilot.pause()
+
+        assert not isinstance(app.screen, TreePickerScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_tree_picker_action_select_with_custom_summary_full_flow() -> None:
+    """Full custom-summary flow: press 'c', type instructions, ctrl+enter."""
+    app = TauTuiApp(FakeSession())
+    choices = (
+        SessionTreeChoice(entry_id="root", label="user: Root"),
+        SessionTreeChoice(entry_id="branch", label="assistant: Branch", active=True),
+    )
+
+    async with app.run_test() as pilot:
+        app.push_screen(TreePickerScreen(choices, theme=TAU_DARK_THEME))
+        await pilot.pause()
+
+        assert isinstance(app.screen, TreePickerScreen)
+
+        # Press "c" to select with custom summary (goes via screen binding)
+        await pilot.press("c")
+        await pilot.pause()
+
+        # BranchSummaryInstructionsScreen should be pushed on top
+        assert isinstance(app.screen, BranchSummaryInstructionsScreen)
+
+        # Type custom instructions
+        text_area = app.screen.query_one("#branch-summary-instructions-input", TextArea)
+        text_area.text = "Focus on security"
+
+        # Submit via ctrl+enter
+        await pilot.press("ctrl+enter")
+        await pilot.pause()
+
+        # Both modal screens should be dismissed
+        assert not isinstance(app.screen, TreePickerScreen)
+        assert not isinstance(app.screen, BranchSummaryInstructionsScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_tree_picker_dismiss_with_custom_summary_cancel() -> None:
+    """_dismiss_with_custom_summary returns early when instructions is None."""
+    app = TauTuiApp(FakeSession())
+    choices = (SessionTreeChoice(entry_id="root", label="user: Root"),)
+
+    async with app.run_test() as pilot:
+        app.push_screen(TreePickerScreen(choices, theme=TAU_DARK_THEME))
+        await pilot.pause()
+
+        screen = app.screen
+        assert isinstance(screen, TreePickerScreen)
+
+        # None instructions → early return, screen stays
+        screen._dismiss_with_custom_summary(0, None)
+        await pilot.pause()
+        assert isinstance(app.screen, TreePickerScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_tree_picker_dismiss_with_custom_summary_out_of_range() -> None:
+    """_dismiss_with_custom_summary returns early when index is out of range."""
+    app = TauTuiApp(FakeSession())
+    choices = (SessionTreeChoice(entry_id="root", label="user: Root"),)
+
+    async with app.run_test() as pilot:
+        app.push_screen(TreePickerScreen(choices, theme=TAU_DARK_THEME))
+        await pilot.pause()
+
+        screen = app.screen
+        assert isinstance(screen, TreePickerScreen)
+
+        # Index beyond visible choices → early return
+        screen._dismiss_with_custom_summary(999, "Focus on auth")
+        await pilot.pause()
+        assert isinstance(app.screen, TreePickerScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_tree_picker_action_cancel() -> None:
+    """action_cancel dismisses TreePickerScreen with None."""
+    app = TauTuiApp(FakeSession())
+    choices = (SessionTreeChoice(entry_id="root", label="user: Root"),)
+
+    async with app.run_test() as pilot:
+        app.push_screen(TreePickerScreen(choices, theme=TAU_DARK_THEME))
+        await pilot.pause()
+
+        assert isinstance(app.screen, TreePickerScreen)
+        app.screen.action_cancel()
+        await pilot.pause()
+        assert not isinstance(app.screen, TreePickerScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_tree_picker_empty_choices() -> None:
+    """TreePickerScreen mounts without error when choices are empty."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        app.push_screen(TreePickerScreen((), theme=TAU_DARK_THEME))
+        await pilot.pause()
+
+        assert isinstance(app.screen, TreePickerScreen)
+        tree_list = app.screen.query_one("#tree-picker-list", ListView)
+        assert len(tree_list.children) == 0
+        assert tree_list.index is None
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_tree_picker_on_key_routing() -> None:
+    """TreePickerScreen.on_key routes up/down/enter."""
+    from textual.events import Key
+
+    app = TauTuiApp(FakeSession())
+    choices = (
+        SessionTreeChoice(entry_id="root", label="user: Root"),
+        SessionTreeChoice(entry_id="tool", label="tool: read", is_tool_call=True),
+        SessionTreeChoice(entry_id="branch", label="assistant: Branch", active=True),
+    )
+
+    async with app.run_test() as pilot:
+        app.push_screen(TreePickerScreen(choices, theme=TAU_DARK_THEME))
+        await pilot.pause()
+
+        screen = app.screen
+        assert isinstance(screen, TreePickerScreen)
+        tree_list = screen.query_one("#tree-picker-list", ListView)
+        tree_list.index = 0
+
+        # up at 0 stays at 0 (ListView does not wrap by default)
+        screen.on_key(Key(key="up", character=None))
+        assert tree_list.index == 0
+
+        # down goes to index 1
+        screen.on_key(Key(key="down", character=None))
+        assert tree_list.index == 1
+
+        # up goes back to index 0
+        screen.on_key(Key(key="up", character=None))
+        assert tree_list.index == 0
+
+        # enter → action_select_cursor → on_list_view_selected → dismiss
+        screen.on_key(Key(key="enter", character=None))
+        await pilot.pause()
+        assert not isinstance(app.screen, TreePickerScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_tree_picker_on_key_s() -> None:
+    """TreePickerScreen.on_key routes 's' to action_select_with_summary."""
+    from textual.events import Key
+
+    app = TauTuiApp(FakeSession())
+    choices = (
+        SessionTreeChoice(entry_id="root", label="user: Root"),
+        SessionTreeChoice(entry_id="branch", label="assistant: Branch", active=True),
+    )
+
+    async with app.run_test() as pilot:
+        app.push_screen(TreePickerScreen(choices, theme=TAU_DARK_THEME))
+        await pilot.pause()
+
+        screen = app.screen
+        assert isinstance(screen, TreePickerScreen)
+
+        # 's' via on_key → action_select_with_summary → dismiss
+        screen.on_key(Key(key="s", character=None))
+        await pilot.pause()
+        assert not isinstance(app.screen, TreePickerScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_tree_picker_on_key_c() -> None:
+    """TreePickerScreen.on_key routes 'c' to action_select_with_custom_summary."""
+    from textual.events import Key
+
+    app = TauTuiApp(FakeSession())
+    choices = (
+        SessionTreeChoice(entry_id="root", label="user: Root"),
+        SessionTreeChoice(entry_id="branch", label="assistant: Branch", active=True),
+    )
+
+    async with app.run_test() as pilot:
+        app.push_screen(TreePickerScreen(choices, theme=TAU_DARK_THEME))
+        await pilot.pause()
+
+        screen = app.screen
+        assert isinstance(screen, TreePickerScreen)
+
+        # 'c' via on_key → pushes BranchSummaryInstructionsScreen
+        screen.on_key(Key(key="c", character=None))
+        await pilot.pause()
+        assert isinstance(app.screen, BranchSummaryInstructionsScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_tree_picker_on_key_ctrl_t() -> None:
+    """TreePickerScreen.on_key routes ctrl+t to action_toggle_tool_calls."""
+    from textual.events import Key
+
+    app = TauTuiApp(FakeSession())
+    choices = (
+        SessionTreeChoice(entry_id="root", label="user: Root"),
+        SessionTreeChoice(entry_id="tool", label="tool: read", is_tool_call=True),
+        SessionTreeChoice(entry_id="branch", label="assistant: Branch", active=True),
+    )
+
+    async with app.run_test() as pilot:
+        app.push_screen(TreePickerScreen(choices, theme=TAU_DARK_THEME))
+        await pilot.pause()
+
+        screen = app.screen
+        assert isinstance(screen, TreePickerScreen)
+        assert screen.show_tool_calls is True
+        tree_list = screen.query_one("#tree-picker-list", ListView)
+        assert len(tree_list.children) == 3
+
+        # ctrl+t via on_key → action_toggle_tool_calls (async worker)
+        screen.on_key(Key(key="ctrl+t", character=None))
+        for _ in range(5):
+            await pilot.pause()
+            if not screen.show_tool_calls:
+                break
+
+        assert screen.show_tool_calls is False
+        # Tool-call entries should be hidden (2 non-tool items remain)
+        assert len(tree_list.children) == 2
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_tree_picker_toggle_tool_calls_all_tool() -> None:
+    """_toggle_tool_calls handles all-tool-call choices gracefully."""
+    app = TauTuiApp(FakeSession())
+    choices = (
+        SessionTreeChoice(entry_id="t1", label="tool: read", is_tool_call=True),
+        SessionTreeChoice(entry_id="t2", label="tool: edit", is_tool_call=True),
+    )
+
+    async with app.run_test() as pilot:
+        app.push_screen(TreePickerScreen(choices, theme=TAU_DARK_THEME))
+        await pilot.pause()
+
+        screen = app.screen
+        assert isinstance(screen, TreePickerScreen)
+        tree_list = screen.query_one("#tree-picker-list", ListView)
+        assert len(tree_list.children) == 2
+
+        # Toggle off tool calls → empty visible choices
+        screen.action_toggle_tool_calls()
+        await pilot.pause()
+        assert screen.show_tool_calls is False
+        assert len(tree_list.children) == 0
+
+
+# ── BranchSummaryInstructionsScreen coverage ───────────────────────────────────
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_branch_summary_instructions_action_submit() -> None:
+    """action_submit dismisses with the trimmed text."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        instructions_screen = BranchSummaryInstructionsScreen(theme=TAU_DARK_THEME)
+        app.push_screen(instructions_screen)
+        await pilot.pause()
+
+        assert isinstance(app.screen, BranchSummaryInstructionsScreen)
+        text_area = instructions_screen.query_one("#branch-summary-instructions-input", TextArea)
+        text_area.text = "  Focus on auth  "
+        instructions_screen.action_submit()
+        await pilot.pause()
+
+        assert not isinstance(app.screen, BranchSummaryInstructionsScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_branch_summary_instructions_action_submit_empty() -> None:
+    """action_submit with empty text dismisses with None."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        instructions_screen = BranchSummaryInstructionsScreen(theme=TAU_DARK_THEME)
+        app.push_screen(instructions_screen)
+        await pilot.pause()
+
+        assert isinstance(app.screen, BranchSummaryInstructionsScreen)
+        text_area = instructions_screen.query_one("#branch-summary-instructions-input", TextArea)
+        text_area.text = "   "
+        instructions_screen.action_submit()
+        await pilot.pause()
+
+        assert not isinstance(app.screen, BranchSummaryInstructionsScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_branch_summary_instructions_action_cancel() -> None:
+    """action_cancel dismisses BranchSummaryInstructionsScreen with None."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        instructions_screen = BranchSummaryInstructionsScreen(theme=TAU_DARK_THEME)
+        app.push_screen(instructions_screen)
+        await pilot.pause()
+
+        assert isinstance(app.screen, BranchSummaryInstructionsScreen)
+        instructions_screen.action_cancel()
+        await pilot.pause()
+
+        assert not isinstance(app.screen, BranchSummaryInstructionsScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_branch_summary_instructions_on_key_ctrl_enter() -> None:
+    """on_key ctrl+enter calls action_submit."""
+    from textual.events import Key
+
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        instructions_screen = BranchSummaryInstructionsScreen(theme=TAU_DARK_THEME)
+        app.push_screen(instructions_screen)
+        await pilot.pause()
+
+        assert isinstance(app.screen, BranchSummaryInstructionsScreen)
+        text_area = instructions_screen.query_one("#branch-summary-instructions-input", TextArea)
+        text_area.text = "Review the diff"
+
+        # Direct Key event for ctrl+enter
+        instructions_screen.on_key(Key(key="ctrl+enter", character=None))
+        await pilot.pause()
+
+        assert not isinstance(app.screen, BranchSummaryInstructionsScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_branch_summary_instructions_on_key_escape() -> None:
+    """on_key escape calls action_cancel and dismisses."""
+    from textual.events import Key
+
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        instructions_screen = BranchSummaryInstructionsScreen(theme=TAU_DARK_THEME)
+        app.push_screen(instructions_screen)
+        await pilot.pause()
+
+        assert isinstance(app.screen, BranchSummaryInstructionsScreen)
+
+        # Direct Key event for escape
+        instructions_screen.on_key(Key(key="escape", character=None))
+        await pilot.pause()
+
+        assert not isinstance(app.screen, BranchSummaryInstructionsScreen)

@@ -108,7 +108,10 @@ def _codex_reasoning_effort(
         return None
     levels = provider_thinking_levels(provider, model=model)
     if not levels:
-        return None
+        selected_model = model or provider.default_model
+        raise ProviderConfigError(
+            f"No thinking modes are available for {provider.name}:{selected_model}"
+        )
     normalized = normalize_thinking_level(thinking_level)
     if normalized not in levels:
         selected_model = model or provider.default_model

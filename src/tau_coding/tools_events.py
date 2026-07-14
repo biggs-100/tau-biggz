@@ -56,7 +56,24 @@ def _wrap_tool_with_events(
                 )
 
         # 3. Actual execution
-        result = await original_executor(arguments, signal=signal)
+        try:
+            result = await original_executor(arguments, signal=signal)
+        except Exception as exc:
+            registry.dispatch_event(
+                "after_tool_call",
+                {
+                    "tool_name": tool.name,
+                    "input": dict(arguments),
+                    "result": {"ok": False, "content": str(exc)},
+                },
+            )
+            return AgentToolResult(
+                tool_call_id="ext",
+                name=tool.name,
+                ok=False,
+                content=str(exc),
+                error=str(exc),
+            )
         registry.dispatch_event(
             "after_tool_call",
             {

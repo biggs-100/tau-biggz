@@ -38,6 +38,7 @@ from tau_agent import (
 from tau_coding.catalog_loader import user_catalog_path
 from tau_coding.commands import CommandResult, create_default_command_registry
 from tau_coding.credentials import FileCredentialStore, OAuthCredential
+from tau_coding.oauth import OAuthAuthInfo, OAuthPrompt
 from tau_coding.paths import TauPaths
 from tau_coding.prompt_templates import PromptTemplate
 from tau_coding.provider_config import (
@@ -64,6 +65,7 @@ from tau_coding.tui.app import (
     CommandOutputScreen,
     CustomProviderLoginResult,
     CustomProviderLoginScreen,
+    LoginMethodListView,
     LoginMethodPickerScreen,
     LoginProviderPickerScreen,
     LoginScreen,
@@ -5872,3 +5874,897 @@ async def test_welcome_screen_coexists_with_startup_notification() -> None:
         await pilot.pause()
         assert not isinstance(app.screen, WelcomeScreen)
         assert any("Release notes" in item.text for item in app.state.items)
+
+
+# ── Additional login screen coverage tests ────────────────────────────────────
+# These cover uncovered edge cases in _screens_login.py:
+#   - LoginProviderPickerScreen.on_key routing
+#   - LoginMethodPickerScreen.on_button_pressed, empty-list cursor
+#   - LoginMethodListView._move_cursor empty-list
+#   - CustomProviderLoginScreen validation, cancel
+#   - LoginScreen input-id mismatch, cancel
+#   - OAuthLoginScreen exception, manual code entry, cancel, _show_auth
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_login_provider_picker_key_routing() -> None:
+    """Up/down/enter keys are intercepted by on_key and routed to ListView."""
+    from tau_coding.provider_catalog import BUILTIN_PROVIDER_CATALOG
+
+    providers = tuple(BUILTIN_PROVIDER_CATALOG)[:3]
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        app.push_screen(
+            LoginProviderPickerScreen(providers, theme=TAU_DARK_THEME),
+        )
+        await pilot.pause()
+
+        screen = app.screen
+        assert isinstance(screen, LoginProviderPickerScreen)
+        provider_list = screen.query_one("#login-provider-list", ListView)
+        assert provider_list.index == 0
+
+        # down goes to index 1 (via on_key -> action_cursor_down -> ListView)
+        await pilot.press("down")
+        await pilot.pause()
+        assert provider_list.index == 1
+
+        # up goes back to index 0
+        await pilot.press("up")
+        await pilot.pause()
+        assert provider_list.index == 0
+
+        # enter selects: via on_key -> action_select_cursor -> on_list_view_selected -> dismiss
+        await pilot.press("down")
+        await pilot.pause()
+        assert provider_list.index == 1
+        await pilot.press("enter")
+        await pilot.pause()
+        assert not isinstance(app.screen, LoginProviderPickerScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_login_provider_picker_key_routing_escape() -> None:
+    """Escape dismisses LoginProviderPickerScreen via action_cancel."""
+    from tau_coding.provider_catalog import BUILTIN_PROVIDER_CATALOG
+
+    providers = tuple(BUILTIN_PROVIDER_CATALOG)[:2]
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        app.push_screen(
+            LoginProviderPickerScreen(providers, theme=TAU_DARK_THEME),
+        )
+        await pilot.pause()
+
+        assert isinstance(app.screen, LoginProviderPickerScreen)
+
+        # escape dismisses (via binding -> action_cancel)
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not isinstance(app.screen, LoginProviderPickerScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_login_method_picker_button_pressed() -> None:
+    """on_button_pressed calls dismiss with the correct method id."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        # Push the method picker directly WITHOUT the app callback so that
+        # dismiss does not trigger _handle_login_method_result (which would
+        # push additional screens).
+        method_picker = LoginMethodPickerScreen(theme=TAU_DARK_THEME)
+        app.push_screen(method_picker)
+        await pilot.pause()
+
+        assert isinstance(app.screen, LoginMethodPickerScreen)
+
+        # Trigger on_button_pressed directly with a synthetic event
+        btn_sub = Button("Sub", id="login-method-subscription")
+        app.screen.on_button_pressed(Button.Pressed(button=btn_sub))
+        await pilot.pause()
+
+        # Screen should be dismissed (no callback -> pops back to main)
+        assert not isinstance(app.screen, LoginMethodPickerScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_login_method_picker_empty_list_cursor() -> None:
+    """Cursor movement on empty method list hits item_count==0 branch."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt")
+        prompt.value = "/login"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert isinstance(app.screen, LoginMethodPickerScreen)
+        method_list = app.screen.query_one("#login-method-list", ListView)
+
+        # Clear children so item_count == 0
+        await method_list.clear()
+        await pilot.pause()
+
+        # _move_method_cursor must handle empty list without crashing
+        app.screen.action_cursor_down()
+        app.screen.action_cursor_up()
+        assert method_list.index is None
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_login_method_list_view_empty_cursor() -> None:
+    """LoginMethodListView._move_cursor handles empty children gracefully."""
+    list_view = LoginMethodListView()
+    list_view._move_cursor(offset=1)
+    assert list_view.index is None
+
+    list_view._move_cursor(offset=-1)
+    assert list_view.index is None
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_custom_provider_login_validation() -> None:
+    """Empty required fields show validation errors in CustomProviderLoginScreen."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt")
+        prompt.value = "/login custom"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert isinstance(app.screen, CustomProviderLoginScreen)
+        help_widget = app.screen.query_one("#custom-provider-help", Static)
+
+        # Fill fields that should pass, leave base_url empty to trigger error
+        app.screen.query_one("#custom-provider-name", Input).value = "test-provider"
+        app.screen.query_one("#custom-provider-display-name", Input).value = "Test"
+        app.screen.query_one("#custom-provider-kind", Input).value = "openai-compatible"
+        app.screen.query_one("#custom-provider-base-url", Input).value = ""
+        app.screen.query_one("#custom-provider-api-key-env", Input).value = ""
+        app.screen.query_one("#custom-provider-models", Input).value = ""
+        app.screen.query_one("#custom-provider-default-model", Input).value = ""
+        app.screen.query_one("#custom-provider-api-key", Input).value = ""
+
+        # Focus last field and press enter to trigger _collect_result
+        app.screen.query_one("#custom-provider-api-key", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        help_text = str(help_widget.render())
+        assert "Base URL is required" in help_text
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_custom_provider_login_default_model_validation() -> None:
+    """Default model not in model list shows validation error."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt")
+        prompt.value = "/login custom"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert isinstance(app.screen, CustomProviderLoginScreen)
+        help_widget = app.screen.query_one("#custom-provider-help", Static)
+
+        # Fill all required fields; set default-model to a model not in the list
+        app.screen.query_one("#custom-provider-name", Input).value = "test-provider"
+        app.screen.query_one("#custom-provider-display-name", Input).value = "Test"
+        app.screen.query_one("#custom-provider-kind", Input).value = "openai-compatible"
+        app.screen.query_one(
+            "#custom-provider-base-url", Input
+        ).value = "https://api.example.com/v1"
+        app.screen.query_one("#custom-provider-api-key-env", Input).value = "TEST_KEY"
+        app.screen.query_one("#custom-provider-models", Input).value = "model-a, model-b"
+        app.screen.query_one("#custom-provider-default-model", Input).value = "model-c"
+        app.screen.query_one("#custom-provider-api-key", Input).value = "secret-key"
+
+        # Focus last field and press enter to trigger _collect_result
+        app.screen.query_one("#custom-provider-api-key", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        help_text = str(help_widget.render())
+        assert "Default model must be included in the model list" in help_text
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_custom_provider_login_cancel() -> None:
+    """Escape dismisses CustomProviderLoginScreen."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt")
+        prompt.value = "/login custom"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert isinstance(app.screen, CustomProviderLoginScreen)
+        await pilot.press("escape")
+        await pilot.pause()
+
+        assert not isinstance(app.screen, CustomProviderLoginScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_login_screen_input_id_mismatch() -> None:
+    """on_input_submitted returns early when input id doesn't match."""
+    from tau_coding.provider_catalog import builtin_provider_entry
+
+    provider = builtin_provider_entry("openai")
+    assert provider is not None
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        app.push_screen(LoginScreen(provider, theme=TAU_DARK_THEME))
+        await pilot.pause()
+
+        screen = app.screen
+        assert isinstance(screen, LoginScreen)
+
+        # Mount an input with a different id and submit it
+        other = Input(id="other-input")
+        await screen.mount(other)
+        other.value = "some-value"
+        other.focus()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Screen should NOT dismiss (early return in on_input_submitted)
+        assert isinstance(app.screen, LoginScreen)
+
+        # Submit on the correct input id should work
+        api_input = screen.query_one("#login-api-key", Input)
+        api_input.value = "real-key"
+        api_input.focus()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert not isinstance(app.screen, LoginScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_login_screen_action_cancel() -> None:
+    """Escape dismisses LoginScreen."""
+    from tau_coding.provider_catalog import builtin_provider_entry
+
+    provider = builtin_provider_entry("openai")
+    assert provider is not None
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        app.push_screen(LoginScreen(provider, theme=TAU_DARK_THEME))
+        await pilot.pause()
+
+        assert isinstance(app.screen, LoginScreen)
+        await pilot.press("escape")
+        await pilot.pause()
+
+        assert not isinstance(app.screen, LoginScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_oauth_login_show_auth_updates_ui(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_show_auth updates the URL static and help text."""
+    credential_future = asyncio.get_running_loop().create_future()
+    auth_reached = asyncio.Event()
+
+    async def fake_login_openai_codex(
+        on_auth: object,
+        on_prompt: object,
+        on_manual_code_input: object,
+        **kwargs: object,
+    ) -> OAuthCredential:
+        on_auth(OAuthAuthInfo(url="https://auth.example.com", instructions="Open browser"))  # type: ignore[operator]
+        auth_reached.set()
+        result = await credential_future
+        return result
+
+    monkeypatch.setattr(tui_app, "login_openai_codex", fake_login_openai_codex)
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt")
+        prompt.value = "/login openai-codex"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert isinstance(app.screen, OAuthLoginScreen)
+        await asyncio.wait_for(auth_reached.wait(), timeout=5)
+        await pilot.pause()
+
+        url_text = str(app.screen.query_one("#login-oauth-url", Static).render())
+        help_text = str(app.screen.query_one("#login-help", Static).render())
+        assert "https://auth.example.com" in url_text
+        assert "Open browser" in help_text
+
+        credential_future.set_result(
+            OAuthCredential(access="tok", refresh="ref", expires=0, account_id="acc"),
+        )
+        await pilot.pause()
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_oauth_login_exception_handling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exception in _run_login is caught and shown in help text."""
+
+    async def fake_login_openai_codex(**kwargs: object) -> OAuthCredential:
+        raise RuntimeError("Connection refused")
+
+    monkeypatch.setattr(tui_app, "login_openai_codex", fake_login_openai_codex)
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt")
+        prompt.value = "/login openai-codex"
+        await pilot.press("enter")
+        await pilot.pause()
+        # Extra pause for the worker to fail and update the help text
+        await pilot.pause()
+
+        assert isinstance(app.screen, OAuthLoginScreen)
+        help_text = str(app.screen.query_one("#login-help", Static).render())
+        assert "OAuth failed:" in help_text
+        assert "Connection refused" in help_text
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_oauth_login_manual_code_entry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Manual code entry via on_input_submitted resolves the OAuth code future."""
+
+    async def fake_login_openai_codex(
+        on_auth: object,
+        on_prompt: object,
+        on_manual_code_input: object,
+        **kwargs: object,
+    ) -> OAuthCredential:
+        on_auth(OAuthAuthInfo(url="https://example.com/auth", instructions="Open URL"))  # type: ignore[operator]
+        # _prompt_for_code updates help text and awaits _manual_code_input
+        code = await on_prompt(OAuthPrompt(message="Paste code:"))  # type: ignore[operator]
+        return OAuthCredential(
+            access=code,
+            refresh="refresh-token",
+            expires=99999,
+            account_id="acc-1",
+        )
+
+    monkeypatch.setattr(tui_app, "login_openai_codex", fake_login_openai_codex)
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt")
+        prompt.value = "/login openai-codex"
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.pause()
+
+        assert isinstance(app.screen, OAuthLoginScreen)
+
+        # Verify the prompt was shown before we submit
+        help_text = str(app.screen.query_one("#login-help", Static).render())
+        assert "Paste code:" in help_text
+
+        # Type the code and submit
+        code_input = app.screen.query_one("#login-oauth-code", Input)
+        code_input.value = "my-auth-code-123"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Screen should dismiss with credential
+        assert not isinstance(app.screen, OAuthLoginScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_oauth_login_cancel_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Escape during OAuth cancels the pending future and dismisses."""
+    auth_reached = asyncio.Event()
+
+    async def fake_login_openai_codex(
+        on_auth: object,
+        on_prompt: object,
+        on_manual_code_input: object,
+        **kwargs: object,
+    ) -> OAuthCredential:
+        on_auth(OAuthAuthInfo(url="https://example.com/auth"))  # type: ignore[operator]
+        auth_reached.set()
+        await on_prompt(OAuthPrompt(message="Enter:"))  # type: ignore[operator]
+        raise RuntimeError("Should never reach here")
+
+    monkeypatch.setattr(tui_app, "login_openai_codex", fake_login_openai_codex)
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt")
+        prompt.value = "/login openai-codex"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert isinstance(app.screen, OAuthLoginScreen)
+        await asyncio.wait_for(auth_reached.wait(), timeout=5)
+        await pilot.pause()
+
+        # Press escape to cancel while OAuth is awaiting manual code input
+        await pilot.press("escape")
+        await pilot.pause()
+
+        # Screen should be dismissed (future was cancelled)
+        assert not isinstance(app.screen, OAuthLoginScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_login_method_picker_on_key_handler() -> None:
+    """on_key handler is entered for non-bound keys; non-up/down/enter is a no-op."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        method_picker = LoginMethodPickerScreen(theme=TAU_DARK_THEME)
+        app.push_screen(method_picker)
+        await pilot.pause()
+
+        assert isinstance(app.screen, LoginMethodPickerScreen)
+
+        # Press a non-bound key so on_key is entered but none of the if/elif
+        # branches (up/down/enter) match — the handler simply returns.
+        await pilot.press("a")
+        await pilot.pause()
+
+        assert isinstance(app.screen, LoginMethodPickerScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_login_method_picker_remaining_button_ids() -> None:
+    """on_button_pressed api-key and custom branches call dismiss correctly."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        # Test api-key button
+        app.push_screen(LoginMethodPickerScreen(theme=TAU_DARK_THEME))
+        await pilot.pause()
+        btn_api = Button("API", id="login-method-api-key")
+        app.screen.on_button_pressed(Button.Pressed(button=btn_api))
+        await pilot.pause()
+        assert not isinstance(app.screen, LoginMethodPickerScreen)
+
+        # Test custom button
+        app.push_screen(LoginMethodPickerScreen(theme=TAU_DARK_THEME))
+        await pilot.pause()
+        btn_custom = Button("Custom", id="login-method-custom")
+        app.screen.on_button_pressed(Button.Pressed(button=btn_custom))
+        await pilot.pause()
+        assert not isinstance(app.screen, LoginMethodPickerScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_login_method_picker_action_cancel() -> None:
+    """action_cancel dismisses LoginMethodPickerScreen with None."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        app.push_screen(LoginMethodPickerScreen(theme=TAU_DARK_THEME))
+        await pilot.pause()
+
+        assert isinstance(app.screen, LoginMethodPickerScreen)
+        app.screen.action_cancel()
+        await pilot.pause()
+        assert not isinstance(app.screen, LoginMethodPickerScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_login_method_picker_list_view_selected() -> None:
+    """on_list_view_selected dismisses with the method for each item."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        app.push_screen(LoginMethodPickerScreen(theme=TAU_DARK_THEME))
+        await pilot.pause()
+
+        lv = app.screen.query_one("#login-method-list", ListView)
+        items = list(lv.children)
+        assert len(items) == 3
+
+        # Select subscription item
+        app.screen.on_list_view_selected(ListView.Selected(lv, items[0], 0))
+        await pilot.pause()
+        assert not isinstance(app.screen, LoginMethodPickerScreen)
+
+        # Push again for api-key selection
+        app.push_screen(LoginMethodPickerScreen(theme=TAU_DARK_THEME))
+        await pilot.pause()
+        lv = app.screen.query_one("#login-method-list", ListView)
+        items = list(lv.children)
+        app.screen.on_list_view_selected(ListView.Selected(lv, items[1], 1))
+        await pilot.pause()
+        assert not isinstance(app.screen, LoginMethodPickerScreen)
+
+        # Push again for custom selection
+        app.push_screen(LoginMethodPickerScreen(theme=TAU_DARK_THEME))
+        await pilot.pause()
+        lv = app.screen.query_one("#login-method-list", ListView)
+        items = list(lv.children)
+        app.screen.on_list_view_selected(ListView.Selected(lv, items[2], 2))
+        await pilot.pause()
+        assert not isinstance(app.screen, LoginMethodPickerScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_login_method_list_view_cursor_with_children() -> None:
+    """LoginMethodListView cursor movement with populated children."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        items = (
+            ListItem(Label("A")),
+            ListItem(Label("B")),
+            ListItem(Label("C")),
+        )
+        list_view = LoginMethodListView(*items)
+        await app.screen.mount(list_view)
+        await pilot.pause()
+
+        assert len(list_view.children) == 3
+        assert list_view.index == 0
+
+        # action_cursor_up wraps to last
+        list_view.action_cursor_up()
+        assert list_view.index == 2
+
+        # action_cursor_down goes to first
+        list_view.action_cursor_down()
+        assert list_view.index == 0
+
+        # action_cursor_down goes to 1
+        list_view.action_cursor_down()
+        assert list_view.index == 1
+
+        # _move_cursor with offset -1 wraps to 0
+        list_view._move_cursor(offset=-1)
+        assert list_view.index == 0
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_custom_provider_login_unrecognized_input_id() -> None:
+    """on_input_submitted returns early for unrecognized input ids."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt")
+        prompt.value = "/login custom"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert isinstance(app.screen, CustomProviderLoginScreen)
+
+        # Mount an input with an id not in _INPUT_ORDER
+        other = Input(id="unrecognized-input")
+        await app.screen.mount(other)
+        other.value = "test"
+        other.focus()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Screen should NOT dismiss (early return, id not in _INPUT_ORDER)
+        assert isinstance(app.screen, CustomProviderLoginScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_custom_provider_login_intermediate_field_submit() -> None:
+    """Submitting on a non-last field focuses the next field via _focus_next."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt")
+        prompt.value = "/login custom"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert isinstance(app.screen, CustomProviderLoginScreen)
+
+        # Focus name field, type a value, press enter
+        name_input = app.screen.query_one("#custom-provider-name", Input)
+        name_input.value = "test-provider"
+        name_input.focus()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Should now be on display-name field
+        display_name = app.screen.query_one("#custom-provider-display-name", Input)
+        assert display_name.has_focus
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_custom_provider_login_successful_submit() -> None:
+    """All valid fields dismiss with a CustomProviderLoginResult."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt")
+        prompt.value = "/login custom"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert isinstance(app.screen, CustomProviderLoginScreen)
+
+        # Fill all fields completely
+        app.screen.query_one("#custom-provider-name", Input).value = "my-provider"
+        app.screen.query_one("#custom-provider-display-name", Input).value = "My Provider"
+        app.screen.query_one("#custom-provider-kind", Input).value = "openai-compatible"
+        app.screen.query_one(
+            "#custom-provider-base-url", Input
+        ).value = "https://api.example.com/v1"
+        app.screen.query_one("#custom-provider-api-key-env", Input).value = "MY_API_KEY"
+        app.screen.query_one("#custom-provider-models", Input).value = "model-a, model-b"
+        app.screen.query_one("#custom-provider-default-model", Input).value = "model-a"
+        app.screen.query_one("#custom-provider-api-key", Input).value = "sk-my-key"
+
+        # Focus last field and press enter to trigger _collect_result
+        app.screen.query_one("#custom-provider-api-key", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Screen should dismiss (successful validation)
+        assert not isinstance(app.screen, CustomProviderLoginScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_custom_provider_login_validation_chain() -> None:
+    """Each required field produces the correct validation error."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt")
+        prompt.value = "/login custom"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert isinstance(app.screen, CustomProviderLoginScreen)
+        help_widget = app.screen.query_one("#custom-provider-help", Static)
+
+        # Leave everything empty, submit on last field
+        app.screen.query_one("#custom-provider-api-key", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert "Provider name is required" in str(help_widget.render())
+
+        # Fill name, leave base_url empty
+        app.screen.query_one("#custom-provider-name", Input).value = "p"
+        app.screen.query_one("#custom-provider-api-key", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert "Base URL is required" in str(help_widget.render())
+
+        # Fill base_url and api_key_env, leave models empty
+        app.screen.query_one("#custom-provider-base-url", Input).value = "https://u.rl"
+        app.screen.query_one("#custom-provider-api-key-env", Input).value = "ENV"
+        app.screen.query_one("#custom-provider-api-key", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert "Model ids is required" in str(help_widget.render())
+
+        # Fill models with just whitespace (empty after strip)
+        app.screen.query_one("#custom-provider-models", Input).value = "  ,  "
+        app.screen.query_one("#custom-provider-api-key", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert "At least one model id is required" in str(help_widget.render())
+
+        # Fill models but leave default_model empty
+        app.screen.query_one("#custom-provider-models", Input).value = "model-a"
+        app.screen.query_one("#custom-provider-api-key", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert "Default model is required" in str(help_widget.render())
+
+        # Fill default_model but leave api_key empty
+        app.screen.query_one("#custom-provider-default-model", Input).value = "model-a"
+        app.screen.query_one("#custom-provider-api-key", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert "API key is required" in str(help_widget.render())
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_oauth_login_on_input_submitted_early_returns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """on_input_submitted handles wrong id and empty value correctly."""
+    auth_reached = asyncio.Event()
+
+    async def fake_login_openai_codex(
+        on_auth: object,
+        on_prompt: object,
+        on_manual_code_input: object,
+        **kwargs: object,
+    ) -> OAuthCredential:
+        on_auth(OAuthAuthInfo(url="https://example.com/auth"))  # type: ignore[operator]
+        auth_reached.set()
+        code = await on_prompt(OAuthPrompt(message="Enter:"))  # type: ignore[operator]
+        return OAuthCredential(access=code, refresh="r", expires=0, account_id="a")
+
+    monkeypatch.setattr(tui_app, "login_openai_codex", fake_login_openai_codex)
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt")
+        prompt.value = "/login openai-codex"
+        await pilot.press("enter")
+        await pilot.pause()
+        await asyncio.wait_for(auth_reached.wait(), timeout=5)
+        await pilot.pause()
+
+        assert isinstance(app.screen, OAuthLoginScreen)
+
+        # Test 1: submit with wrong input id -> early return (line 489)
+        wrong_input = Input(id="wrong-id")
+        await app.screen.mount(wrong_input)
+        wrong_input.value = "some-value"
+        wrong_input.focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert isinstance(app.screen, OAuthLoginScreen)
+
+        # Test 2: submit empty code -> early return (line 493)
+        code_input = app.screen.query_one("#login-oauth-code", Input)
+        code_input.value = ""
+        code_input.focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert isinstance(app.screen, OAuthLoginScreen)
+
+        # Test 3: submit valid code -> resolves future, screen dismisses
+        code_input.value = "valid-code"
+        await pilot.press("enter")
+        await pilot.pause()
+        assert not isinstance(app.screen, OAuthLoginScreen)
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_login_provider_picker_on_key_up_down() -> None:
+    """on_key 'up'/'down' branches are reached when ListView is not focused."""
+    from tau_coding.provider_catalog import BUILTIN_PROVIDER_CATALOG
+
+    providers = tuple(BUILTIN_PROVIDER_CATALOG)[:3]
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        app.push_screen(
+            LoginProviderPickerScreen(providers, theme=TAU_DARK_THEME),
+        )
+        await pilot.pause()
+
+        screen = app.screen
+        assert isinstance(screen, LoginProviderPickerScreen)
+        provider_list = screen.query_one("#login-provider-list", ListView)
+
+        # Directly invoke screen.on_key with synthetic events so the
+        # handler's up/down branches (which are unreachable via normal key
+        # input since the focused ListView intercepts those keys) are covered.
+        from textual.events import Key
+
+        # Up at index 0 -> ListView.action_cursor_up is a no-op (no wrap)
+        screen.on_key(Key(key="up", character=None))
+        assert provider_list.index == 0
+
+        # Down at index 0 -> ListView.action_cursor_down goes to 1
+        screen.on_key(Key(key="down", character=None))
+        assert provider_list.index == 1
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_custom_provider_login_api_key_env_validation() -> None:
+    """api_key_env empty triggers validation error (line 333)."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt")
+        prompt.value = "/login custom"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert isinstance(app.screen, CustomProviderLoginScreen)
+        help_widget = app.screen.query_one("#custom-provider-help", Static)
+
+        # Fill name and base_url but leave api_key_env empty
+        app.screen.query_one("#custom-provider-name", Input).value = "p"
+        app.screen.query_one("#custom-provider-base-url", Input).value = "https://u.rl"
+        app.screen.query_one("#custom-provider-api-key", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert "API key environment variable is required" in str(help_widget.render())
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_oauth_login_manual_code_input_cached() -> None:
+    """_manual_code_input returns cached value when _manual_code_value is set."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt")
+        prompt.value = "/login custom"  # any screen to use as container
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Create an OAuthLoginScreen and set _manual_code_value directly
+        from tau_coding.provider_catalog import builtin_provider_entry
+
+        provider = builtin_provider_entry("openai-codex")
+        assert provider is not None
+        oauth_screen = OAuthLoginScreen(provider, theme=TAU_DARK_THEME)
+        oauth_screen._manual_code_value = "cached-code"
+
+        # Calling _manual_code_input should return the cached value immediately
+        result = await oauth_screen._manual_code_input()
+        assert result == "cached-code"
+
+
+@pytest.mark.anyio
+@pytest.mark.tui
+async def test_login_method_picker_on_key_synthetic() -> None:
+    """on_key up/down/enter branches via synthetic Key events."""
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        app.push_screen(LoginMethodPickerScreen(theme=TAU_DARK_THEME))
+        await pilot.pause()
+
+        screen = app.screen
+        assert isinstance(screen, LoginMethodPickerScreen)
+        method_list = screen.query_one("#login-method-list", ListView)
+
+        from textual.events import Key
+
+        # Up at index 0 -> wraps to last
+        screen.on_key(Key(key="up", character=None))
+        assert method_list.index == 2
+
+        # Down -> goes to first
+        screen.on_key(Key(key="down", character=None))
+        assert method_list.index == 0
+
+        # Down again -> index 1
+        screen.on_key(Key(key="down", character=None))
+        assert method_list.index == 1
+
+        # Enter selects
+        screen.on_key(Key(key="enter", character=None))
+        await pilot.pause()
+        assert not isinstance(app.screen, LoginMethodPickerScreen)

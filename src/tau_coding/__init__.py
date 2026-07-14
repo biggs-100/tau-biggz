@@ -153,7 +153,12 @@ from tau_coding.tools import (
     create_write_tool_definition,
 )
 
-__version__ = "0.1.7"
+try:
+    from importlib.metadata import version as _pkg_version
+
+    __version__ = _pkg_version("tau-biggz")
+except Exception:
+    __version__ = "0.1.8"  # fallback
 
 __all__ = [
     "AgentHarness",

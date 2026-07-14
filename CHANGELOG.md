@@ -3,8 +3,12 @@
 All notable changes to tau-biggz are documented in this file.
 
 ## [Unreleased]
-### Added
-- Pre-commit workflow documentation — `git add -A` before commit to avoid stash conflicts.
+
+
+## [0.1.9] — 2026-07-14
+### Fixed
+- Hardcoded `__version__` in `__init__.py` now reads from `importlib.metadata`
+  so `tau --version` shows the correct installed version.
 
 ## [0.1.8] — 2026-07-14
 ### Added

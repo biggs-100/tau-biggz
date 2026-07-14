@@ -241,7 +241,7 @@ class TuiSettings:
 
     keybindings: TuiKeybindings = field(default_factory=TuiKeybindings)
     theme: TuiThemeName = "tau-dark"
-    auto_copy_selection: bool = False
+    auto_copy_selection: bool = True
 
     def to_json(self) -> dict[str, Any]:
         """Serialize these settings to JSON-compatible data."""

@@ -5,6 +5,11 @@ All notable changes to tau-biggz are documented in this file.
 ## [Unreleased]
 
 
+## [0.1.10] — 2026-07-14
+### Added
+- `auto_copy_selection` activado por defecto — seleccionar texto con el mouse
+  lo copia automáticamente al portapapeles.
+
 ## [0.1.9] — 2026-07-14
 ### Fixed
 - Hardcoded `__version__` in `__init__.py` now reads from `importlib.metadata`

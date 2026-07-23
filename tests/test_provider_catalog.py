@@ -14,7 +14,13 @@ from tau_coding.catalog_loader import (
     user_catalog_path,
 )
 from tau_coding.paths import TauPaths
-from tau_coding.provider_catalog import BUILTIN_PROVIDER_CATALOG, builtin_provider_entry
+from tau_coding.provider_catalog import (
+    BUILTIN_PROVIDER_CATALOG,
+    ModelCatalogMetadata,
+    ModelCostTier,
+    builtin_provider_entry,
+    model_cost_for_input_tokens,
+)
 from tau_coding.provider_config import load_provider_settings
 
 VALID_PROVIDER = """
@@ -300,3 +306,129 @@ def test_user_catalog_provider_appears_with_existing_settings_file(tmp_path: Pat
     )
     settings = load_provider_settings(paths)
     assert settings.get_provider("nebius").models[0] == "deepseek-ai/DeepSeek-V4-Pro"
+
+
+COST_TIERS_CATALOG = """
+[[providers]]
+name = "test-tiers"
+display_name = "Test Tiers"
+kind = "openai-compatible"
+base_url = "https://test.example/v1"
+api_key_env = "TEST_API_KEY"
+models = ["tiered-model"]
+default_model = "tiered-model"
+docs_url = "https://test.example/docs"
+
+[providers.model_metadata."tiered-model"]
+reasoning = false
+input = ["text"]
+context_window = 1000000
+max_tokens = 100000
+cost_tiers = [
+  { max_input_tokens = 512000, input = 0.3, output = 1.2, cacheRead = 0.06, cacheWrite = 0 },
+  { input = 0.6, output = 2.4, cacheRead = 0.12, cacheWrite = 0 },
+]
+"""
+
+
+def test_model_cost_for_input_tokens_matches_tier_one() -> None:
+    metadata = ModelCatalogMetadata(
+        cost_tiers=(
+            ModelCostTier(max_input_tokens=512_000, input=0.3, output=1.2, cacheRead=0.06, cacheWrite=0),
+            ModelCostTier(input=0.6, output=2.4, cacheRead=0.12, cacheWrite=0),
+        ),
+        cost={"input": 9.99, "output": 9.99, "cacheRead": 9.99, "cacheWrite": 9.99},
+    )
+    result = model_cost_for_input_tokens(metadata, 100_000)
+    assert result == {"input": 0.3, "output": 1.2, "cacheRead": 0.06, "cacheWrite": 0}
+
+
+def test_model_cost_for_input_tokens_matches_tier_two() -> None:
+    metadata = ModelCatalogMetadata(
+        cost_tiers=(
+            ModelCostTier(max_input_tokens=512_000, input=0.3, output=1.2, cacheRead=0.06, cacheWrite=0),
+            ModelCostTier(input=0.6, output=2.4, cacheRead=0.12, cacheWrite=0),
+        ),
+        cost={"input": 9.99, "output": 9.99, "cacheRead": 9.99, "cacheWrite": 9.99},
+    )
+    result = model_cost_for_input_tokens(metadata, 600_000)
+    assert result == {"input": 0.6, "output": 2.4, "cacheRead": 0.12, "cacheWrite": 0}
+
+
+def test_model_cost_for_input_tokens_at_boundary() -> None:
+    metadata = ModelCatalogMetadata(
+        cost_tiers=(
+            ModelCostTier(max_input_tokens=512_000, input=10, output=20, cacheRead=5, cacheWrite=0),
+            ModelCostTier(input=30, output=60, cacheRead=15, cacheWrite=0),
+        ),
+    )
+    result = model_cost_for_input_tokens(metadata, 512_000)
+    assert result == {"input": 10, "output": 20, "cacheRead": 5, "cacheWrite": 0}
+
+
+def test_model_cost_for_input_tokens_falls_back_to_flat_cost_when_no_tiers() -> None:
+    metadata = ModelCatalogMetadata(cost={"input": 1, "output": 2, "cacheRead": 0, "cacheWrite": 0})
+    result = model_cost_for_input_tokens(metadata, 100_000)
+    assert result == {"input": 1, "output": 2, "cacheRead": 0, "cacheWrite": 0}
+
+
+def test_model_cost_for_input_tokens_returns_none_when_no_cost() -> None:
+    metadata = ModelCatalogMetadata()
+    result = model_cost_for_input_tokens(metadata, 100_000)
+    assert result is None
+
+
+def test_model_cost_for_input_tokens_falls_back_when_no_tier_matches() -> None:
+    metadata = ModelCatalogMetadata(
+        cost_tiers=(
+            ModelCostTier(max_input_tokens=100, input=1, output=2, cacheRead=0, cacheWrite=0),
+            ModelCostTier(input=3, output=4, cacheRead=0, cacheWrite=0),
+        ),
+        cost={"input": 99, "output": 99, "cacheRead": 0, "cacheWrite": 0},
+    )
+    result = model_cost_for_input_tokens(metadata, 50)
+    assert result == {"input": 1, "output": 2, "cacheRead": 0, "cacheWrite": 0}
+
+
+def test_user_catalog_with_cost_tiers(tmp_path: Path) -> None:
+    paths = _write_user_catalog(tmp_path / ".tau", COST_TIERS_CATALOG)
+    catalog = effective_catalog(paths)
+    entry = catalog[-1]
+    assert entry.name == "test-tiers"
+    metadata = entry.model_metadata["tiered-model"]
+    assert len(metadata.cost_tiers) == 2
+    assert metadata.cost_tiers[0].max_input_tokens == 512_000
+    assert metadata.cost_tiers[0].input == 0.3
+    assert metadata.cost_tiers[0].output == 1.2
+    assert metadata.cost_tiers[1].max_input_tokens is None
+    assert metadata.cost_tiers[1].input == 0.6
+
+
+def test_user_catalog_cost_tiers_appears_in_settings(tmp_path: Path) -> None:
+    paths = _write_user_catalog(tmp_path / ".tau", COST_TIERS_CATALOG)
+    settings = load_provider_settings(paths)
+    provider = settings.get_provider("test-tiers")
+    metadata = provider.model_metadata["tiered-model"]
+    assert len(metadata.cost_tiers) == 2
+    assert metadata.cost_tiers[0].max_input_tokens == 512_000
+    assert metadata.cost_tiers[0].input == 0.3
+    assert metadata.cost_tiers[0].output == 1.2
+
+
+def test_minimax_m3_has_cost_tiers_in_builtin_catalog() -> None:
+    entry = builtin_provider_entry("minimax")
+    assert entry is not None
+    m3 = entry.model_metadata.get("MiniMax-M3")
+    assert m3 is not None, "MiniMax-M3 should have model metadata"
+    assert len(m3.cost_tiers) == 2
+    assert m3.cost_tiers[0].max_input_tokens == 524_288
+    assert m3.cost_tiers[0].input == 0.3
+    assert m3.cost_tiers[1].max_input_tokens is None
+    assert m3.cost_tiers[1].input == 0.6
+
+
+def test_builtin_catalog_minimax_minimax_cn_has_m3() -> None:
+    for name in ("minimax", "minimax-cn"):
+        entry = builtin_provider_entry(name)
+        assert entry is not None
+        assert "MiniMax-M3" in entry.models

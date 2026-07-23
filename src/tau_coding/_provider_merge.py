@@ -15,6 +15,7 @@ from tau_coding.paths import TauPaths
 from tau_coding.provider_catalog import (
     BUILTIN_PROVIDER_CATALOG,
     ModelCatalogMetadata,
+    ModelCostTier,
     ProviderCatalogEntry,
 )
 from tau_coding.provider_config import (
@@ -292,6 +293,7 @@ def _merge_provider_model_metadata(
             reasoning=metadata.reasoning if metadata.reasoning is not None else base.reasoning,
             input=metadata.input or base.input,
             cost={**base.cost, **metadata.cost},
+            cost_tiers=metadata.cost_tiers or base.cost_tiers,
             context_window=metadata.context_window or base.context_window,
             max_tokens=metadata.max_tokens or base.max_tokens,
             headers={**base.headers, **metadata.headers},
@@ -412,6 +414,7 @@ def _catalog_model_metadata_from_provider(
             reasoning=metadata.reasoning,
             input=tuple(item for item in metadata.input if item in {"text", "image"}),
             cost=dict(metadata.cost) or None,
+            cost_tiers=metadata.cost_tiers,
             context_window=metadata.context_window,
             max_tokens=metadata.max_tokens,
             headers=dict(metadata.headers),

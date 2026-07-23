@@ -5,12 +5,14 @@ import pytest
 
 from tau_coding.credentials import FileCredentialStore, OAuthCredential
 from tau_coding.paths import TauPaths
+from tau_coding.provider_catalog import ModelCostTier
 from tau_coding.provider_config import (
     DEFAULT_MODEL,
     AnthropicProviderConfig,
     OpenAICodexProviderConfig,
     OpenAICompatibleProviderConfig,
     ProviderConfigError,
+    ProviderModelMetadata,
     ProviderSettings,
     ScopedModelConfig,
     anthropic_config_from_provider,
@@ -1058,3 +1060,116 @@ def test_openai_compatible_provider_config_rejects_invalid_retries() -> None:
         OpenAICompatibleProviderConfig(name="local", max_retries=-1)
     with pytest.raises(ProviderConfigError, match="0 or greater"):
         OpenAICompatibleProviderConfig(name="local", max_retry_delay_seconds=-1)
+
+
+def test_provider_model_metadata_cost_tiers_round_trips_through_json() -> None:
+    metadata = ProviderModelMetadata(
+        cost_tiers=(
+            ModelCostTier(max_input_tokens=512_000, input=0.3, output=1.2, cacheRead=0.06, cacheWrite=0),
+            ModelCostTier(input=0.6, output=2.4, cacheRead=0.12, cacheWrite=0),
+        ),
+    )
+    serialized = metadata.to_json()
+    assert serialized["cost_tiers"] == [
+        {"max_input_tokens": 512_000, "input": 0.3, "output": 1.2, "cacheRead": 0.06, "cacheWrite": 0},
+        {"max_input_tokens": None, "input": 0.6, "output": 2.4, "cacheRead": 0.12, "cacheWrite": 0},
+    ]
+
+
+def test_provider_model_metadata_cost_tiers_parsed_from_json() -> None:
+    data = {
+        "cost_tiers": [
+            {"max_input_tokens": 512_000, "input": 0.3, "output": 1.2, "cacheRead": 0.06, "cacheWrite": 0},
+            {"input": 0.6, "output": 2.4, "cacheRead": 0.12, "cacheWrite": 0},
+        ],
+    }
+    settings = provider_settings_from_json(
+        {
+            "default_provider": "local",
+            "providers": [
+                {
+                    "type": "openai-compatible",
+                    "name": "local",
+                    "base_url": "http://localhost:11434/v1",
+                    "api_key_env": "LOCAL_API_KEY",
+                    "models": ["tiered-model"],
+                    "default_model": "tiered-model",
+                    "model_metadata": {
+                        "tiered-model": data,
+                    },
+                }
+            ],
+        }
+    )
+    metadata = settings.get_provider("local").model_metadata["tiered-model"]
+    assert len(metadata.cost_tiers) == 2
+    assert metadata.cost_tiers[0].max_input_tokens == 512_000
+    assert metadata.cost_tiers[0].input == 0.3
+    assert metadata.cost_tiers[1].max_input_tokens is None
+    assert metadata.cost_tiers[1].input == 0.6
+
+
+def test_cost_tiers_upsert_preserves_incoming_tiers() -> None:
+    incoming_provider = OpenAICompatibleProviderConfig(
+        name="local",
+        base_url="http://localhost:11434/v1",
+        api_key_env="LOCAL_API_KEY",
+        models=("tiered-model",),
+        default_model="tiered-model",
+        model_metadata={
+            "tiered-model": ProviderModelMetadata(
+                cost_tiers=(
+                    ModelCostTier(max_input_tokens=512_000, input=10, output=20, cacheRead=5, cacheWrite=0),
+                    ModelCostTier(input=30, output=60, cacheRead=15, cacheWrite=0),
+                ),
+            ),
+        },
+    )
+    settings = ProviderSettings(default_provider="local", providers=(incoming_provider,))
+    metadata = settings.get_provider("local").model_metadata["tiered-model"]
+    assert len(metadata.cost_tiers) == 2
+    assert metadata.cost_tiers[0].input == 10
+
+
+def test_provider_model_metadata_default_cost_tiers_is_empty() -> None:
+    metadata = ProviderModelMetadata()
+    assert metadata.cost_tiers == ()
+
+
+def test_provider_model_metadata_to_json_preserves_cost_tiers() -> None:
+    metadata = ProviderModelMetadata(
+        cost_tiers=(
+            ModelCostTier(max_input_tokens=512_000, input=10, output=20, cacheRead=5, cacheWrite=0),
+            ModelCostTier(input=30, output=60, cacheRead=15, cacheWrite=0),
+        ),
+    )
+    as_json = metadata.to_json()
+    assert len(as_json["cost_tiers"]) == 2
+    assert as_json["cost_tiers"][0]["input"] == 10
+    assert as_json["cost_tiers"][1]["input"] == 30
+
+
+def test_provider_settings_from_json_rejects_cost_tiers_with_missing_fields() -> None:
+    with pytest.raises(ProviderConfigError, match="0 or greater"):
+        provider_settings_from_json(
+            {
+                "default_provider": "local",
+                "providers": [
+                    {
+                        "type": "openai-compatible",
+                        "name": "local",
+                        "base_url": "http://localhost:11434/v1",
+                        "api_key_env": "LOCAL_API_KEY",
+                        "models": ["tiered-model"],
+                        "default_model": "tiered-model",
+                        "model_metadata": {
+                            "tiered-model": {
+                                "cost_tiers": [
+                                    {"max_input_tokens": 100, "input": -1},
+                                ],
+                            },
+                        },
+                    }
+                ],
+            }
+        )

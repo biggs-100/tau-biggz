@@ -28,6 +28,21 @@ ThinkingLevelMap = dict[ThinkingLevel, str | None]
 
 
 @dataclass(frozen=True, slots=True)
+class ModelCostTier:
+    """One pricing tier based on input token count.
+
+    The final tier MUST omit ``max_input_tokens`` (unbounded).
+    Tiers must be ordered by strictly increasing ``max_input_tokens``.
+    """
+
+    max_input_tokens: int | None = None
+    input: float = 0.0
+    output: float = 0.0
+    cacheRead: float = 0.0
+    cacheWrite: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
 class ModelCatalogMetadata:
     """Provider-catalog metadata for a single model."""
 
@@ -37,6 +52,7 @@ class ModelCatalogMetadata:
     reasoning: bool | None = None
     input: tuple[ModelInput, ...] = ()
     cost: dict[str, float] | None = None
+    cost_tiers: tuple[ModelCostTier, ...] = ()
     context_window: int | None = None
     max_tokens: int | None = None
     headers: dict[str, str] = field(default_factory=dict)
@@ -76,6 +92,28 @@ def _load_builtin_catalog() -> tuple[ProviderCatalogEntry, ...]:
 
 
 BUILTIN_PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = _load_builtin_catalog()
+
+
+def model_cost_for_input_tokens(
+    metadata: ModelCatalogMetadata,
+    input_tokens: int,
+) -> dict[str, float] | None:
+    """Return the cost dict for ``input_tokens`` matching ``metadata.cost_tiers``.
+
+    Falls back to ``metadata.cost`` when there are no tiers or when no tier
+    matches (defensive — the final tier should always be unbounded).
+    """
+    if not metadata.cost_tiers:
+        return dict(metadata.cost) if metadata.cost else None
+    for tier in metadata.cost_tiers:
+        if tier.max_input_tokens is None or input_tokens <= tier.max_input_tokens:
+            return {
+                "input": tier.input,
+                "output": tier.output,
+                "cacheRead": tier.cacheRead,
+                "cacheWrite": tier.cacheWrite,
+            }
+    return dict(metadata.cost) if metadata.cost else None
 
 
 def builtin_provider_entry(name: str) -> ProviderCatalogEntry | None:

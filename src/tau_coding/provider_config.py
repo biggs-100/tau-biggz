@@ -18,6 +18,7 @@ from tau_coding.paths import TauPaths
 from tau_coding.provider_catalog import (
     BUILTIN_PROVIDER_CATALOG,
     ModelCatalogMetadata,
+    ModelCostTier,
     ProviderApi,
     ProviderCatalogEntry,
     ProviderKind,
@@ -93,6 +94,7 @@ class ProviderModelMetadata:
     reasoning: bool | None = None
     input: tuple[str, ...] = ()
     cost: dict[str, float] = field(default_factory=dict)
+    cost_tiers: tuple[ModelCostTier, ...] = ()
     context_window: int | None = None
     max_tokens: int | None = None
     headers: dict[str, str] = field(default_factory=dict)
@@ -108,6 +110,16 @@ class ProviderModelMetadata:
             "reasoning": self.reasoning,
             "input": list(self.input),
             "cost": dict(self.cost),
+            "cost_tiers": [
+                {
+                    "max_input_tokens": tier.max_input_tokens,
+                    "input": tier.input,
+                    "output": tier.output,
+                    "cacheRead": tier.cacheRead,
+                    "cacheWrite": tier.cacheWrite,
+                }
+                for tier in self.cost_tiers
+            ],
             "context_window": self.context_window,
             "max_tokens": self.max_tokens,
             "headers": dict(self.headers),
@@ -476,6 +488,7 @@ def _provider_model_metadata_from_catalog(
             reasoning=metadata.reasoning,
             input=tuple(metadata.input),
             cost=dict(metadata.cost or {}),
+            cost_tiers=metadata.cost_tiers,
             context_window=metadata.context_window,
             max_tokens=metadata.max_tokens,
             headers=dict(metadata.headers),

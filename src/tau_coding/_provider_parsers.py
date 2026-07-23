@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from tau_coding.provider_catalog import ProviderApi
+from tau_coding.provider_catalog import ModelCostTier, ProviderApi
 from tau_coding.provider_config import ProviderConfigError, ProviderModelMetadata
 from tau_coding.thinking import (
     ThinkingLevel,
@@ -60,6 +60,7 @@ def _validate_model_metadata(
             raise ProviderConfigError("Provider model_metadata input must contain text or image")
         if any(value < 0 for value in metadata.cost.values()):
             raise ProviderConfigError("Provider model_metadata cost values must be non-negative")
+        _validate_cost_tiers(metadata.cost_tiers, model)
         _validate_json_object(metadata.compat, "Provider model_metadata compat")
         _validate_string_dict(metadata.headers, "Provider model_metadata headers")
         for level, value in metadata.thinking_level_map.items():
@@ -304,6 +305,9 @@ def _model_metadata_dict(
             reasoning=_optional_bool(item.get("reasoning"), f"{field_name}.{model}.reasoning"),
             input=_optional_string_tuple(item.get("input"), f"{field_name}.{model}.input"),
             cost=_float_dict(item.get("cost", {}), f"{field_name}.{model}.cost"),
+            cost_tiers=_cost_tiers_list(
+                item.get("cost_tiers", []), f"{field_name}.{model}.cost_tiers"
+            ),
             context_window=_optional_positive_int(
                 item.get("context_window"), f"{field_name}.{model}.context_window"
             ),
@@ -318,6 +322,47 @@ def _model_metadata_dict(
             ),
         )
     return items
+
+
+def _cost_tiers_list(
+    value: object,
+    field_name: str,
+) -> tuple[ModelCostTier, ...]:
+    if not isinstance(value, list):
+        raise ProviderConfigError(f"Provider field must be a list: {field_name}")
+    tiers: list[ModelCostTier] = []
+    for i, entry in enumerate(value):
+        if not isinstance(entry, dict):
+            raise ProviderConfigError(f"{field_name}[{i}] must be an object")
+        tier = ModelCostTier(
+            max_input_tokens=_optional_positive_int(
+                entry.get("max_input_tokens"), f"{field_name}[{i}].max_input_tokens"
+            ),
+            input=_non_negative_float(entry.get("input", 0), f"{field_name}[{i}].input"),
+            output=_non_negative_float(entry.get("output", 0), f"{field_name}[{i}].output"),
+            cacheRead=_non_negative_float(
+                entry.get("cacheRead", 0), f"{field_name}[{i}].cacheRead"
+            ),
+            cacheWrite=_non_negative_float(
+                entry.get("cacheWrite", 0), f"{field_name}[{i}].cacheWrite"
+            ),
+        )
+        if i > 0:
+            prev = tiers[i - 1]
+            if prev.max_input_tokens is None:
+                raise ProviderConfigError(
+                    f"{field_name}: only the final tier may be unbounded"
+                )
+            if tier.max_input_tokens is not None and tier.max_input_tokens <= prev.max_input_tokens:
+                raise ProviderConfigError(
+                    f"{field_name}: max_input_tokens must be strictly increasing"
+                )
+        tiers.append(tier)
+    if tiers and tiers[-1].max_input_tokens is not None:
+        raise ProviderConfigError(
+            f"{field_name}: final tier must be unbounded (omit max_input_tokens)"
+        )
+    return tuple(tiers)
 
 
 def _thinking_level_map_dict(
@@ -407,3 +452,26 @@ def _non_negative_float(value: object, field_name: str) -> float:
     if converted < 0:
         raise ProviderConfigError(f"Provider field must be 0 or greater: {field_name}")
     return converted
+
+
+def _validate_cost_tiers(
+    cost_tiers: tuple[ModelCostTier, ...],
+    model: str,
+) -> None:
+    if not cost_tiers:
+        return
+    for i, tier in enumerate(cost_tiers):
+        if i > 0:
+            prev = cost_tiers[i - 1]
+            if prev.max_input_tokens is None:
+                raise ProviderConfigError(
+                    f"Model {model}: cost_tiers only the final tier may be unbounded"
+                )
+            if tier.max_input_tokens is not None and tier.max_input_tokens <= prev.max_input_tokens:
+                raise ProviderConfigError(
+                    f"Model {model}: cost_tiers max_input_tokens must be strictly increasing"
+                )
+    if cost_tiers[-1].max_input_tokens is not None:
+        raise ProviderConfigError(
+            f"Model {model}: cost_tiers final tier must be unbounded (omit max_input_tokens)"
+        )

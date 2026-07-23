@@ -20,12 +20,14 @@ from pydantic import (
     StrictInt,
     StringConstraints,
     ValidationError,
+    model_validator,
 )
 
 from tau_agent.types import JSONValue
 from tau_coding.paths import TauPaths
 from tau_coding.provider_catalog import (
     ModelCatalogMetadata,
+    ModelCostTier,
     ModelInput,
     ProviderApi,
     ProviderCatalogEntry,
@@ -65,6 +67,16 @@ class CatalogError(ValueError):
     """Raised when a Tau catalog file is invalid."""
 
 
+class _CatalogCostTier(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    max_input_tokens: _PositiveInt | None = None
+    input: _NonNegativeFloat = 0.0
+    output: _NonNegativeFloat = 0.0
+    cacheRead: _NonNegativeFloat = 0.0
+    cacheWrite: _NonNegativeFloat = 0.0
+
+
 class _CatalogModelMetadata(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -74,12 +86,33 @@ class _CatalogModelMetadata(BaseModel):
     reasoning: StrictBool | None = None
     input: tuple[ModelInput, ...] = ()
     cost: dict[_NonEmptyString, _NonNegativeFloat] | None = None
+    cost_tiers: tuple[_CatalogCostTier, ...] = ()
     context_window: _PositiveInt | None = None
     max_tokens: _PositiveInt | None = None
     headers: dict[_NonEmptyString, _NonEmptyString] = {}
     compat: dict[_NonEmptyString, Any] = {}
     thinking_level_map: dict[ThinkingLevel, _NonEmptyString] = {}
     unsupported_thinking_levels: tuple[ThinkingLevel, ...] = ()
+
+    @model_validator(mode="after")
+    def _validate_cost_tiers(self) -> _CatalogModelMetadata:
+        tiers = self.cost_tiers
+        if not tiers:
+            return self
+        for i, tier in enumerate(tiers):
+            if i > 0:
+                prev = tiers[i - 1]
+                if prev.max_input_tokens is None:
+                    raise ValueError(
+                        "cost_tiers: only the final tier may be unbounded"
+                    )
+                if tier.max_input_tokens is not None and tier.max_input_tokens <= prev.max_input_tokens:
+                    raise ValueError(
+                        "cost_tiers: max_input_tokens must be strictly increasing"
+                    )
+        if tiers[-1].max_input_tokens is not None:
+            raise ValueError("cost_tiers: final tier must be unbounded (omit max_input_tokens)")
+        return self
 
 
 class _CatalogProvider(BaseModel):
@@ -350,6 +383,16 @@ def _model_metadata_from_provider(metadata: _CatalogModelMetadata) -> ModelCatal
         reasoning=metadata.reasoning,
         input=metadata.input,
         cost=dict(metadata.cost) if metadata.cost else None,
+        cost_tiers=tuple(
+            ModelCostTier(
+                max_input_tokens=tier.max_input_tokens,
+                input=tier.input,
+                output=tier.output,
+                cacheRead=tier.cacheRead,
+                cacheWrite=tier.cacheWrite,
+            )
+            for tier in metadata.cost_tiers
+        ),
         context_window=metadata.context_window,
         max_tokens=metadata.max_tokens,
         headers=dict(metadata.headers),
@@ -452,6 +495,17 @@ def _raw_model_metadata_from_entry(metadata: ModelCatalogMetadata) -> dict[str, 
         raw["input"] = list(metadata.input)
     if metadata.cost:
         raw["cost"] = dict(metadata.cost)
+    if metadata.cost_tiers:
+        raw["cost_tiers"] = [
+            {
+                "max_input_tokens": tier.max_input_tokens,
+                "input": tier.input,
+                "output": tier.output,
+                "cacheRead": tier.cacheRead,
+                "cacheWrite": tier.cacheWrite,
+            }
+            for tier in metadata.cost_tiers
+        ]
     if metadata.context_window is not None:
         raw["context_window"] = metadata.context_window
     if metadata.max_tokens is not None:

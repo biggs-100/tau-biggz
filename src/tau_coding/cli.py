@@ -59,9 +59,11 @@ from tau_coding.thinking import DEFAULT_THINKING_LEVEL
 from tau_coding.tui import run_tui_app
 from tau_coding.update_check import (
     UpdateNotice,
+    fetch_latest_pypi_version,
     startup_release_notes_notice,
     startup_update_notice,
 )
+from tau_coding.updater import PYPI_PACKAGE_NAME, format_update_result, update_tau
 
 _extension_registry = None
 
@@ -342,6 +344,25 @@ def main(
             max_retry_delay_seconds=setup_max_retry_delay_seconds,
             set_default=setup_default,
         )
+        raise typer.Exit()
+
+    if prompt_option is None and command == "update":
+        current = __version__
+        latest = fetch_latest_pypi_version()
+        if latest is None:
+            typer.echo("Could not fetch latest version from PyPI.")
+            raise typer.Exit(1)
+        if latest <= current:
+            typer.echo(f"Tau {current} is already up to date.")
+            raise typer.Exit()
+        typer.echo(f"Tau {latest} is available (current: {current}).")
+        check_only = "--check" in positional_args
+        if check_only:
+            raise typer.Exit()
+        result = update_tau()
+        typer.echo(format_update_result(result))
+        if not result.succeeded:
+            typer.echo(f"Or update manually: uv tool upgrade {PYPI_PACKAGE_NAME}")
         raise typer.Exit()
 
     if prompt_option is None:

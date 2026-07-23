@@ -96,6 +96,10 @@ from tau_coding.session_models import (
 from tau_coding.session_resources import (
     _load_session_resources,
 )
+from tau_coding.session_stats import (
+    SessionStats,
+    calculate_session_stats,
+)
 from tau_coding.session_storage import (
     default_session_path,
     jsonl_session_storage,
@@ -158,6 +162,7 @@ class CodingSession(_ProviderMixin, _ReloadResumeMixin, _CompactionMixin):
     _auto_compact_enabled: bool
     _thinking_level: ThinkingLevel
     _context_usage_cache: ContextUsageEstimate | None
+    _session_stats_cache: SessionStats | None
     _owned_providers: list[ClosableModelProvider]
     _diagnostic_logger: AgentCallDiagnosticLogger
     _credential_store: FileCredentialStore
@@ -214,6 +219,8 @@ class CodingSession(_ProviderMixin, _ReloadResumeMixin, _CompactionMixin):
         )
 
         self._context_usage_cache: ContextUsageEstimate | None = None
+
+        self._session_stats_cache: SessionStats | None = None
 
         self._owned_providers: list[ClosableModelProvider] = []
 
@@ -1018,6 +1025,63 @@ class CodingSession(_ProviderMixin, _ReloadResumeMixin, _CompactionMixin):
         """Mark context accounting dirty after transcript/system/tool changes."""
 
         self._context_usage_cache = None
+        self._session_stats_cache = None
+
+    # -- session stats (session-insights) -------------------------------------
+
+    def _get_session_stats(self) -> SessionStats:
+        """Calculate and cache derivable session statistics."""
+        if self._session_stats_cache is None:
+            self._session_stats_cache = calculate_session_stats(
+                list(self._harness.messages),
+                context_token_estimate=self.context_token_estimate,
+                model_cost_resolver=self._model_cost_resolver,
+            )
+        return self._session_stats_cache
+
+    def _model_cost_resolver(self, total_tokens: int) -> dict[str, float] | None:
+        """Resolve input/output cost per million tokens for the active model."""
+        from tau_coding.provider_catalog import ModelCatalogMetadata, model_cost_for_input_tokens
+
+        provider = self._active_provider_config()
+        if provider is None:
+            return None
+        metadata = getattr(provider, "model_metadata", {}).get(self.model)
+        if metadata is None:
+            return None
+        catalog_md = ModelCatalogMetadata(
+            cost=dict(metadata.cost) if metadata.cost else None,
+            cost_tiers=metadata.cost_tiers,
+        )
+        return model_cost_for_input_tokens(catalog_md, total_tokens)
+
+    @property
+    def turn_count(self) -> int:  # type: ignore[override]
+        """Return the number of user turns in the transcript."""
+        return self._get_session_stats().turn_count
+
+    @property
+    def tool_call_count(self) -> int:  # type: ignore[override]
+        """Return the total number of tool calls across all turns."""
+        return self._get_session_stats().tool_call_count
+
+    @property
+    def estimated_input_tokens(self) -> int:  # type: ignore[override]
+        """Return the estimated input token count (context usage)."""
+        return self._get_session_stats().estimated_input_tokens
+
+    @property
+    def estimated_output_tokens(self) -> int:  # type: ignore[override]
+        """Return the estimated output token count from assistant messages."""
+        return self._get_session_stats().estimated_output_tokens
+
+    @property
+    def estimated_cost(self) -> str:  # type: ignore[override]
+        """Return a human-readable estimated cost string, or '--' when unavailable."""
+        cost = self._get_session_stats().estimated_cost
+        if cost is None:
+            return "--"
+        return f"~${cost:.2f}"
 
 
 # ---------------------------------------------------------------------------

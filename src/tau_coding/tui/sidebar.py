@@ -61,6 +61,21 @@ class SessionSummarySource(Protocol):
     @property
     def thinking_level(self) -> str: ...
 
+    @property
+    def turn_count(self) -> int: ...
+
+    @property
+    def tool_call_count(self) -> int: ...
+
+    @property
+    def estimated_input_tokens(self) -> int: ...
+
+    @property
+    def estimated_output_tokens(self) -> int: ...
+
+    @property
+    def estimated_cost(self) -> str: ...
+
 
 class SessionSidebar(Static):
     """Compact sidebar with current session metadata."""
@@ -121,9 +136,13 @@ def render_session_sidebar(
     )
     equation = Text(TAU_SIDEBAR_LOGO, style=f"bold {theme.prompt_text}")
 
+    stats = _stats_section(session, theme=theme)
+
     return Group(
         Padding(Align.center(equation), (0, 0, 1, 0)),
         _sidebar_section("session", metadata, theme=theme),
+        _sidebar_separator(theme=theme),
+        _sidebar_section("stats", stats, theme=theme),
         _sidebar_separator(theme=theme),
         _sidebar_section("context", context, theme=theme),
         _sidebar_separator(theme=theme),
@@ -283,6 +302,30 @@ def _bullet_list(
         text.append("• ", style=theme.completion_description)
         text.append(item, style=theme.prompt_text)
     return text
+
+
+def _stats_section(session: SessionSummarySource, *, theme: TuiTheme) -> Text:
+    """Render derivable session stats."""
+    text = Text()
+    text.append(f"turns: {session.turn_count}  ", style=theme.completion_description)
+    text.append(f"tools: {session.tool_call_count}\n", style=theme.completion_description)
+    _append_token_line(text, "input", session.estimated_input_tokens, theme=theme)
+    text.append("  ", style=theme.completion_description)
+    _append_token_line(text, "output", session.estimated_output_tokens, theme=theme)
+    text.append("\n", style=theme.completion_description)
+    text.append(f"cost: {session.estimated_cost}", style=theme.completion_description)
+    return text
+
+
+def _append_token_line(
+    text: Text,
+    label: str,
+    value: int,
+    *,
+    theme: TuiTheme,
+) -> None:
+    """Append an estimated-token label to a Text renderable."""
+    text.append(f"{label}: ~{value:,}", style=theme.completion_description)
 
 
 def _short_path(path: Path) -> str:

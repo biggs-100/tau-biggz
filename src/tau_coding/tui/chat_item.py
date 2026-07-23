@@ -80,22 +80,16 @@ def _tool_accent_style(item: ChatItem, *, theme: TuiTheme) -> str | None:
 
 
 def _tool_success_color(theme: TuiTheme) -> str:
-    if theme.name == "tau-light":
-        return "#166534"
-    return "#9cffb1"
+    return theme.success
 
 
 def _tool_success_style(theme: TuiTheme) -> str:
-    color = _tool_success_color(theme)
-    if theme.name == "tau-light":
-        return color
-    return f"{color} on #000000"
+    color = theme.tool_success_text
+    return color
 
 
 def _tool_error_style(theme: TuiTheme) -> str:
-    if theme.name == "tau-light":
-        return theme.role_styles["error"].border
-    return "#ff4f4f on #000000"
+    return theme.error
 
 
 def _render_tool_chat_body(

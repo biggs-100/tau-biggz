@@ -8,10 +8,13 @@ from typing import Literal
 from tau_agent.types import JSONValue
 from tau_coding.thinking import ThinkingLevel, ThinkingParameter
 
+AuthMethod = Literal["api_key", "oauth"]
 ProviderKind = Literal[
     "openai-compatible",
     "anthropic",
     "openai-codex",
+    "anthropic-oauth",
+    "github-copilot",
     "google-generative-ai",
     "mistral-conversations",
 ]
@@ -74,6 +77,7 @@ class ProviderCatalogEntry:
     default_model: str
     docs_url: str
     api: ProviderApi | None = None
+    auth_methods: tuple[AuthMethod, ...] = ("api_key",)
     context_windows: dict[str, int] | None = None
     headers: dict[str, str] = field(default_factory=dict)
     compat: dict[str, JSONValue] = field(default_factory=dict)

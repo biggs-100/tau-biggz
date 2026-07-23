@@ -26,6 +26,7 @@ from pydantic import (
 from tau_agent.types import JSONValue
 from tau_coding.paths import TauPaths
 from tau_coding.provider_catalog import (
+    AuthMethod,
     ModelCatalogMetadata,
     ModelCostTier,
     ModelInput,
@@ -124,6 +125,7 @@ class _CatalogProvider(BaseModel):
     base_url: _NonEmptyString
     api_key_env: _NonEmptyString
     credential_name: _NonEmptyString | None = None
+    auth_methods: tuple[AuthMethod, ...] | None = None
     models: _NonEmptyStringTuple
     default_model: _NonEmptyString
     docs_url: _NonEmptyString
@@ -350,6 +352,8 @@ def _entry_from_provider(provider: _CatalogProvider, *, source: str) -> Provider
         if metadata.context_window is not None and model not in context_windows:
             context_windows[model] = metadata.context_window
 
+    auth_methods = provider.auth_methods or ("api_key",)
+
     return ProviderCatalogEntry(
         name=provider.name,
         display_name=provider.display_name,
@@ -357,6 +361,7 @@ def _entry_from_provider(provider: _CatalogProvider, *, source: str) -> Provider
         base_url=provider.base_url,
         api_key_env=provider.api_key_env,
         credential_name=provider.credential_name,
+        auth_methods=auth_methods,
         models=provider.models,
         default_model=provider.default_model,
         docs_url=provider.docs_url,
@@ -459,6 +464,8 @@ def _raw_provider_from_entry(entry: ProviderCatalogEntry) -> dict[str, Any]:
         raw["api"] = entry.api
     if entry.credential_name is not None:
         raw["credential_name"] = entry.credential_name
+    if entry.auth_methods != ("api_key",):
+        raw["auth_methods"] = list(entry.auth_methods)
     if entry.context_windows:
         raw["context_windows"] = dict(entry.context_windows)
     if entry.headers:

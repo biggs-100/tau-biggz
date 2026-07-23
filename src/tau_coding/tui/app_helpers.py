@@ -293,13 +293,13 @@ def _session_header_sub_title(session: CodingSession) -> str:
 def _subscription_login_providers(
     providers: Sequence[ProviderCatalogEntry],
 ) -> tuple[ProviderCatalogEntry, ...]:
-    return tuple(provider for provider in providers if provider.kind == "openai-codex")
+    return tuple(provider for provider in providers if "oauth" in provider.auth_methods)
 
 
 def _api_key_login_providers(
     providers: Sequence[ProviderCatalogEntry],
 ) -> tuple[ProviderCatalogEntry, ...]:
-    return tuple(provider for provider in providers if provider.kind != "openai-codex")
+    return tuple(provider for provider in providers if "api_key" in provider.auth_methods)
 
 
 def _stored_credential_providers(

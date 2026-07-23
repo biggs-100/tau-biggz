@@ -173,3 +173,69 @@ class OpenAICodexCredentialResolver:
         refreshed = await refresh_openai_codex_token(credential.refresh)
         self._credential_store.set_oauth(credential_name, refreshed)
         return refreshed
+
+
+class OAuthRuntimeCredentialResolver:
+    """Generic OAuth credential resolver with auto-refresh for any provider."""
+
+    def __init__(
+        self,
+        credential_name: str,
+        api_key_env: str,
+        provider_kind: str,
+        *,
+        credential_store: FileCredentialStore,
+    ) -> None:
+        self._credential_name = credential_name
+        self._api_key_env = api_key_env
+        self._provider_kind = provider_kind
+        self._credential_store = credential_store
+
+    async def __call__(self) -> OpenAICodexCredentials:
+        credential_name = self._credential_name
+        if credential_name:
+            credential = self._credential_store.get_oauth(credential_name)
+            if credential is not None:
+                credential = await self._refresh_oauth_if_needed(credential_name, credential)
+                return OpenAICodexCredentials(
+                    access_token=credential.access,
+                    account_id=credential.account_id,
+                )
+
+        access_token = environ.get(self._api_key_env)
+        if access_token:
+            return OpenAICodexCredentials(
+                access_token=access_token,
+                account_id=self._provider_kind,
+            )
+
+        credential_hint = f"Run /login {credential_name}."
+        raise RuntimeError(f"Missing {self._provider_kind} OAuth credentials. {credential_hint}")
+
+    async def _refresh_oauth_if_needed(
+        self,
+        credential_name: str,
+        credential: OAuthCredential,
+    ) -> OAuthCredential:
+        if not oauth_credential_is_expired(credential):
+            return credential
+        refreshed = await self._do_refresh(credential)
+        self._credential_store.set_oauth(credential_name, refreshed)
+        return refreshed
+
+    async def _do_refresh(
+        self,
+        credential: OAuthCredential,
+    ) -> OAuthCredential:
+        kind = self._provider_kind
+        if kind == "openai-codex":
+            return await refresh_openai_codex_token(credential.refresh)
+        if kind == "anthropic-oauth":
+            from tau_coding.oauth_anthropic import refresh_anthropic_token
+
+            return await refresh_anthropic_token(credential.refresh)
+        if kind == "github-copilot":
+            from tau_coding.oauth_github_copilot import refresh_github_copilot_token
+
+            return await refresh_github_copilot_token(credential.refresh)
+        return credential

@@ -54,6 +54,9 @@ from tau_coding.oauth import (
 from tau_coding.oauth import (
     login_openai_codex as login_openai_codex,
 )
+from tau_coding.oauth_registry import (
+    get_oauth_provider as get_oauth_provider,
+)
 from tau_coding.provider_catalog import (
     BUILTIN_PROVIDER_CATALOG,
     ProviderCatalogEntry,
@@ -103,6 +106,7 @@ from tau_coding.tui.screens import (  # noqa: F401 - re-exported for API compat
     LoginScreen,
     ModelPickerScreen,
     ModelPickerSearchInput,
+    OAuthDeviceCodeScreen,
     OAuthLoginScreen,
     SessionPickerScreen,
     ThemePickerScreen,
@@ -1548,11 +1552,18 @@ class TauTuiApp(App[None]):
         if entry is None:
             self._notify(f"Unknown provider: {provider_name}", severity="error")
             return
-        if entry.kind == "openai-codex":
-            self.push_screen(
-                OAuthLoginScreen(entry, theme=self.tui_settings.resolved_theme),
-                callback=lambda credential: self._handle_oauth_login_result(entry, credential),
-            )
+        oauth_config = get_oauth_provider(entry.name)
+        if oauth_config is not None:
+            if oauth_config.grant_kind == "device_code":
+                self.push_screen(
+                    OAuthDeviceCodeScreen(entry, theme=self.tui_settings.resolved_theme),
+                    callback=lambda credential: self._handle_oauth_login_result(entry, credential),
+                )
+            else:
+                self.push_screen(
+                    OAuthLoginScreen(entry, theme=self.tui_settings.resolved_theme),
+                    callback=lambda credential: self._handle_oauth_login_result(entry, credential),
+                )
             return
         self.push_screen(
             LoginScreen(entry, theme=self.tui_settings.resolved_theme),

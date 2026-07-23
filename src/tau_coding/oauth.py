@@ -20,6 +20,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 import httpx
 
 from tau_coding.credentials import OAuthCredential
+from tau_coding.oauth_types import OAuthProviderConfig
 
 OPENAI_CODEX_OAUTH_PROVIDER = "openai-codex"
 OPENAI_CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
@@ -63,7 +64,7 @@ class AuthorizationCode:
 
 @dataclass(frozen=True, slots=True)
 class AuthorizationFlow:
-    """OpenAI Codex OAuth authorization flow state."""
+    """OAuth authorization flow state."""
 
     verifier: str
     state: str
@@ -110,6 +111,22 @@ class _LocalOAuthServer:
         self._thread.join(timeout=1)
 
 
+class OpenAICodexOAuthProvider:
+    """OpenAI Codex OAuth provider constants."""
+
+    client_id = OPENAI_CODEX_CLIENT_ID
+    authorize_url = OPENAI_CODEX_AUTHORIZE_URL
+    token_url = OPENAI_CODEX_TOKEN_URL
+    redirect_uri = OPENAI_CODEX_REDIRECT_URI
+    scopes = OPENAI_CODEX_SCOPE
+    account_claim = OPENAI_CODEX_ACCOUNT_CLAIM
+    callback_port = OPENAI_CODEX_CALLBACK_PORT
+
+    @classmethod
+    def from_config(cls, config: OAuthProviderConfig) -> type[OpenAICodexOAuthProvider]:
+        return cls
+
+
 def create_pkce_pair() -> tuple[str, str]:
     """Return a PKCE verifier and S256 challenge."""
     verifier = secrets.token_urlsafe(64)
@@ -118,29 +135,53 @@ def create_pkce_pair() -> tuple[str, str]:
     return verifier, challenge
 
 
+def create_authorization_flow(
+    *,
+    authorize_url: str,
+    client_id: str,
+    redirect_uri: str,
+    scopes: str,
+    originator: str = "tau",
+    extra_params: dict[str, str] | None = None,
+) -> AuthorizationFlow:
+    """Create a PKCE OAuth authorization URL."""
+    verifier, challenge = create_pkce_pair()
+    state = secrets.token_hex(16)
+    params = {
+        "response_type": "code",
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "scope": scopes,
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+        "state": state,
+        "originator": originator,
+    }
+    if extra_params:
+        params.update(extra_params)
+    return AuthorizationFlow(
+        verifier=verifier,
+        state=state,
+        url=f"{authorize_url}?{urlencode(params)}",
+    )
+
+
 def create_openai_codex_authorization_flow(
     *,
     originator: str = "tau",
 ) -> AuthorizationFlow:
     """Create an OpenAI Codex OAuth authorization URL."""
-    verifier, challenge = create_pkce_pair()
-    state = secrets.token_hex(16)
-    params = {
-        "response_type": "code",
-        "client_id": OPENAI_CODEX_CLIENT_ID,
-        "redirect_uri": OPENAI_CODEX_REDIRECT_URI,
-        "scope": OPENAI_CODEX_SCOPE,
-        "code_challenge": challenge,
-        "code_challenge_method": "S256",
-        "state": state,
+    extra = {
         "id_token_add_organizations": "true",
         "codex_cli_simplified_flow": "true",
-        "originator": originator,
     }
-    return AuthorizationFlow(
-        verifier=verifier,
-        state=state,
-        url=f"{OPENAI_CODEX_AUTHORIZE_URL}?{urlencode(params)}",
+    return create_authorization_flow(
+        authorize_url=OPENAI_CODEX_AUTHORIZE_URL,
+        client_id=OPENAI_CODEX_CLIENT_ID,
+        redirect_uri=OPENAI_CODEX_REDIRECT_URI,
+        scopes=OPENAI_CODEX_SCOPE,
+        originator=originator,
+        extra_params=extra,
     )
 
 
@@ -189,7 +230,7 @@ async def login_openai_codex(
 ) -> OAuthCredential:
     """Run OpenAI Codex OAuth and return refreshable credentials."""
     flow = create_openai_codex_authorization_flow(originator=originator)
-    server = await _start_local_oauth_server(flow.state)
+    server = await _start_local_oauth_server(flow.state, port=OPENAI_CODEX_CALLBACK_PORT)
 
     on_auth(
         OAuthAuthInfo(
@@ -428,7 +469,11 @@ def _validate_state(state: str | None, expected_state: str) -> None:
         raise OAuthError("OAuth state mismatch")
 
 
-async def _start_local_oauth_server(state: str) -> _LocalOAuthServer | None:
+async def _start_local_oauth_server(
+    state: str,
+    port: int = 1455,
+    success_message: str = "authentication completed",
+) -> _LocalOAuthServer | None:
     host = environ.get("TAU_OAUTH_CALLBACK_HOST", "127.0.0.1")
     loop = asyncio.get_running_loop()
     future: asyncio.Future[str | None] = loop.create_future()
@@ -450,7 +495,7 @@ async def _start_local_oauth_server(state: str) -> _LocalOAuthServer | None:
                     return
                 self._finish(
                     200,
-                    _oauth_html("OpenAI authentication completed. You can close this window."),
+                    _oauth_html(f"OAuth {success_message}. You can close this window."),
                 )
                 if not future.done():
                     loop.call_soon_threadsafe(future.set_result, code)
@@ -469,7 +514,7 @@ async def _start_local_oauth_server(state: str) -> _LocalOAuthServer | None:
             self.wfile.write(encoded)
 
     try:
-        server = ThreadingHTTPServer((host, OPENAI_CODEX_CALLBACK_PORT), CallbackHandler)
+        server = ThreadingHTTPServer((host, port), CallbackHandler)
     except OSError:
         return None
     thread = threading.Thread(target=server.serve_forever, daemon=True)

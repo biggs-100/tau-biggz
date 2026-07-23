@@ -11,6 +11,7 @@ from tau_coding.tui._screens_login import (
     LoginMethodPickerScreen,
     LoginProviderPickerScreen,
     LoginScreen,
+    OAuthDeviceCodeScreen,
     OAuthLoginScreen,
     _login_provider_label,
 )
@@ -52,6 +53,7 @@ __all__ = [
     "LoginScreen",
     "ModelPickerScreen",
     "ModelPickerSearchInput",
+    "OAuthDeviceCodeScreen",
     "OAuthLoginScreen",
     "SessionPickerScreen",
     "ThemePickerScreen",
@@ -88,6 +90,7 @@ type BindingEntry = Binding | tuple[str, str] | tuple[str, str, str]
 #   LoginScreen                      (from _screens_login)
 #   ModelPickerScreen                (from _screens_settings)
 #   ModelPickerSearchInput           (from _screens_settings)
+#   OAuthDeviceCodeScreen            (from _screens_login)
 #   OAuthLoginScreen                 (from _screens_login)
 #   SessionPickerScreen              (from _screens_session)
 #   ThemePickerScreen                (from _screens_settings)

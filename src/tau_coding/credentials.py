@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from json import dumps, loads
 from pathlib import Path
 from typing import Any, Literal
 
+from tau_agent.types import JSONValue
 from tau_coding.paths import TauPaths
 
 
@@ -22,16 +23,20 @@ class OAuthCredential:
     refresh: str
     expires: int
     account_id: str
+    metadata: dict[str, JSONValue] = field(default_factory=dict)
 
-    def to_json(self) -> dict[str, str | int]:
+    def to_json(self) -> dict[str, str | int | dict[str, JSONValue]]:
         """Serialize this OAuth credential to JSON-compatible data."""
-        return {
+        result: dict[str, str | int | dict[str, JSONValue]] = {
             "type": "oauth",
             "access": self.access,
             "refresh": self.refresh,
             "expires": self.expires,
             "account_id": self.account_id,
         }
+        if self.metadata:
+            result["metadata"] = self.metadata
+        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,15 +163,20 @@ def _credential_from_json(value: object) -> StoredCredential:
     expires = value.get("expires")
     if not isinstance(expires, int) or isinstance(expires, bool) or expires <= 0:
         raise CredentialStoreError("Tau oauth credential expires must be a positive integer")
+    metadata_raw = value.get("metadata")
+    metadata: dict[str, JSONValue] = {}
+    if isinstance(metadata_raw, dict):
+        metadata = {str(k): v for k, v in metadata_raw.items()}
     return OAuthCredential(
         access=_string_field(value, "access", credential_type),
         refresh=_string_field(value, "refresh", credential_type),
         expires=expires,
         account_id=_string_field(value, "account_id", credential_type),
+        metadata=metadata,
     )
 
 
-def _credential_to_json(value: StoredCredential) -> str | dict[str, str | int]:
+def _credential_to_json(value: StoredCredential) -> str | dict[str, str | int | dict[str, JSONValue]]:
     if isinstance(value, str):
         return value
     return value.to_json()

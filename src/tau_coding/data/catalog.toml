@@ -414,6 +414,7 @@ kind = "openai-codex"
 base_url = "https://chatgpt.com/backend-api"
 api_key_env = "OPENAI_CODEX_ACCESS_TOKEN"
 credential_name = "openai-codex"
+auth_methods = ["oauth"]
 models = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.2"]
 default_model = "gpt-5.5"
 docs_url = "https://chatgpt.com/codex"
@@ -437,6 +438,7 @@ kind = "anthropic"
 base_url = "https://api.anthropic.com"
 api_key_env = "ANTHROPIC_API_KEY"
 credential_name = "anthropic"
+auth_methods = ["api_key", "oauth"]
 models = ["claude-haiku-4-5", "claude-haiku-4-5-20251001", "claude-opus-4-1", "claude-opus-4-1-20250805", "claude-opus-4-5", "claude-opus-4-5-20251101", "claude-opus-4-6", "claude-opus-4-7", "claude-sonnet-4-5", "claude-sonnet-4-5-20250929", "claude-sonnet-4-6"]
 default_model = "claude-sonnet-4-6"
 docs_url = "https://docs.anthropic.com"
@@ -6621,3 +6623,35 @@ reasoning = true
 input = ["text"]
 context_window = 131072
 max_tokens = 131072
+
+[[providers]]
+name = "github-copilot"
+display_name = "GitHub Copilot"
+kind = "github-copilot"
+base_url = "https://api.github.com/copilot"
+api_key_env = "GITHUB_COPILOT_TOKEN"
+credential_name = "github-copilot"
+models = ["copilot-codex"]
+default_model = "copilot-codex"
+docs_url = "https://docs.github.com/copilot"
+auth_methods = ["oauth"]
+
+[[providers]]
+name = "anthropic-oauth"
+display_name = "Anthropic Claude Pro"
+kind = "anthropic-oauth"
+base_url = "https://api.anthropic.com"
+api_key_env = "ANTHROPIC_API_KEY"
+credential_name = "anthropic-oauth"
+models = ["claude-sonnet-4-6", "claude-opus-4-7", "claude-haiku-4-5"]
+default_model = "claude-sonnet-4-6"
+docs_url = "https://docs.anthropic.com"
+auth_methods = ["oauth"]
+thinking_levels = ["off", "minimal", "low", "medium", "high", "xhigh"]
+thinking_default = "medium"
+thinking_parameter = "anthropic.thinking"
+
+[providers.context_windows]
+claude-sonnet-4-6 = 1000000
+claude-opus-4-7 = 1000000
+claude-haiku-4-5 = 200000

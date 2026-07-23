@@ -16,6 +16,7 @@ from textual.widgets import Button, Input, Label, ListItem, ListView, Static
 
 from tau_coding.credentials import OAuthCredential
 from tau_coding.oauth import OAuthAuthInfo, OAuthPrompt
+from tau_coding.oauth_registry import get_oauth_provider
 from tau_coding.provider_catalog import ProviderCatalogEntry
 from tau_coding.tui.config import TuiTheme
 
@@ -27,6 +28,13 @@ type BindingEntry = Binding | tuple[str, str] | tuple[str, str, str]
 
 def _login_provider_label(provider: ProviderCatalogEntry) -> str:
     return f"{provider.display_name} — {provider.name}"
+
+
+def get_oauth_provider_for_entry(entry: ProviderCatalogEntry) -> str | None:
+    """Return the OAuth flow function name if the entry supports OAuth."""
+    if "oauth" in entry.auth_methods:
+        return f"oauth_{entry.name}"
+    return None
 
 
 # ── Screen classes ───────────────────────────────────────────────────────────
@@ -450,8 +458,14 @@ class OAuthLoginScreen(ModalScreen[OAuthCredential | None]):
         self.run_worker(self._run_login(), exclusive=True)
 
     async def _run_login(self) -> None:
-        # Lazy import so tests can monkeypatch tau_coding.tui.app.login_openai_codex
         from tau_coding.tui.app import login_openai_codex as _login_openai_codex
+
+        oauth_config = get_oauth_provider(self.provider.name)
+        if oauth_config is None:
+            self.query_one("#login-help", Static).update(
+                f"No OAuth configuration found for {self.provider.name}."
+            )
+            return
 
         try:
             credential = await _login_openai_codex(
@@ -459,7 +473,7 @@ class OAuthLoginScreen(ModalScreen[OAuthCredential | None]):
                 on_prompt=self._prompt_for_code,
                 on_manual_code_input=self._manual_code_input,
             )
-        except Exception as exc:  # noqa: BLE001 - surface OAuth failures in the TUI
+        except Exception as exc:
             self.query_one("#login-help", Static).update(f"OAuth failed: {exc}")
             return
         self.dismiss(credential)
@@ -499,4 +513,55 @@ class OAuthLoginScreen(ModalScreen[OAuthCredential | None]):
         """Close without saving OAuth credentials."""
         if self._manual_code_future is not None and not self._manual_code_future.done():
             self._manual_code_future.cancel()
+        self.dismiss(None)
+
+
+class OAuthDeviceCodeScreen(ModalScreen[OAuthCredential | None]):
+    """Device-code OAuth screen for providers like GitHub Copilot."""
+
+    BINDINGS: ClassVar[list[BindingEntry]] = [
+        Binding("escape", "cancel", "Cancel"),
+    ]
+
+    def __init__(self, provider: ProviderCatalogEntry, *, theme: TuiTheme) -> None:
+        super().__init__()
+        self.provider = provider
+        self.theme = theme
+
+    def compose(self) -> ComposeResult:
+        """Compose the device-code OAuth prompt."""
+        with Vertical(id="login-screen"):
+            yield Static(f"Login: {self.provider.display_name}", id="login-title")
+            yield Static("Opening browser for device code authorization...", id="login-help")
+            yield Static("", id="login-oauth-url")
+            yield Static("", id="login-footer")
+
+    def on_mount(self) -> None:
+        """Start the device-code flow."""
+        self.run_worker(self._run_login(), exclusive=True)
+
+    async def _run_login(self) -> None:
+        from tau_coding.tui.app import login_openai_codex as _login_openai_codex
+
+        try:
+            credential = await _login_openai_codex(
+                on_auth=self._show_auth,
+                on_prompt=self._show_progress,
+            )
+        except Exception as exc:
+            self.query_one("#login-help", Static).update(f"OAuth failed: {exc}")
+            return
+        self.dismiss(credential)
+
+    def _show_auth(self, info: OAuthAuthInfo) -> None:
+        self.query_one("#login-oauth-url", Static).update(info.url)
+        if info.instructions:
+            self.query_one("#login-help", Static).update(info.instructions)
+
+    async def _show_progress(self, prompt: OAuthPrompt) -> str:
+        self.query_one("#login-help", Static).update(prompt.message)
+        return ""
+
+    def action_cancel(self) -> None:
+        """Close without saving OAuth credentials."""
         self.dismiss(None)

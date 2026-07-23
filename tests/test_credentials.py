@@ -1,3 +1,4 @@
+import json
 import sys
 from stat import S_IMODE
 
@@ -49,3 +50,41 @@ def test_file_credential_store_round_trips_oauth_credentials(tmp_path) -> None:
     assert store.get("openai-codex") is None
     assert store.get_oauth("openai-codex") == credential
     assert '"type": "oauth"' in path.read_text(encoding="utf-8")
+
+
+def test_oauth_credential_with_metadata(tmp_path) -> None:
+    path = tmp_path / "credentials.json"
+    store = FileCredentialStore(path)
+    credential = OAuthCredential(
+        access="a",
+        refresh="r",
+        expires=123456,
+        account_id="acct-1",
+        metadata={"provider": "anthropic-oauth", "version": 1},
+    )
+
+    store.set_oauth("anthropic-oauth", credential)
+
+    loaded = store.get_oauth("anthropic-oauth")
+    assert loaded is not None
+    assert loaded.metadata == {"provider": "anthropic-oauth", "version": 1}
+
+
+def test_oauth_credential_backward_compat_no_metadata(tmp_path) -> None:
+    path = tmp_path / "credentials.json"
+    path.write_text(
+        json.dumps({
+            "test-provider": {
+                "type": "oauth",
+                "access": "a",
+                "refresh": "r",
+                "expires": 123456,
+                "account_id": "acct-1",
+            }
+        })
+    )
+    store = FileCredentialStore(path)
+    loaded = store.get_oauth("test-provider")
+    assert loaded is not None
+    assert loaded.metadata == {}
+    assert loaded.access == "a"

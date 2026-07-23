@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from os import environ
 from pathlib import Path
 from typing import Annotated
@@ -134,12 +135,16 @@ def main(
     ctx: typer.Context,
     prompt_args: Annotated[
         list[str] | None,
-        typer.Argument(help="Initial prompt to run in interactive TUI mode."),
+        typer.Argument(help="Prompt to run (with --print for print mode, without for TUI)."),
     ] = None,
     prompt_option: Annotated[
         str | None,
-        typer.Option("--prompt", "-p", help="Prompt to run in non-interactive print mode."),
+        typer.Option("--prompt", hidden=True),
     ] = None,
+    print_mode: Annotated[
+        bool,
+        typer.Option("--print", "-p", help="Run in non-interactive print mode."),
+    ] = False,
     provider: Annotated[
         str | None,
         typer.Option("--provider", help="Configured provider name to use."),
@@ -183,9 +188,13 @@ def main(
         typer.Option("--cwd", help="Working directory for built-in coding tools."),
     ] = None,
     output: Annotated[
-        PrintOutputMode,
-        typer.Option("--output", "-o", help="Output mode for print mode."),
-    ] = PrintOutputMode.text,
+        PrintOutputMode | None,
+        typer.Option("--output", "-o", hidden=True),
+    ] = None,
+    mode: Annotated[
+        PrintOutputMode | None,
+        typer.Option("--mode", help="Output mode for print mode."),
+    ] = None,
     harness: Annotated[
         str | None,
         typer.Option("--harness", help="Harness name (project .tau/harnesses/<name>.toml)."),
@@ -200,7 +209,11 @@ def main(
     ] = False,
     resume: Annotated[
         str | None,
-        typer.Option("--resume", help="Resume a session id in TUI mode."),
+        typer.Option("--resume", hidden=True),
+    ] = None,
+    session: Annotated[
+        str | None,
+        typer.Option("--session", help="Resume a session id in TUI mode."),
     ] = None,
     new_session: Annotated[
         bool,
@@ -225,14 +238,32 @@ def main(
         bool,
         typer.Option("--unsafe", help="Disable sandbox restrictions for this session."),
     ] = False,
+    export_session_arg: Annotated[
+        str | None,
+        typer.Option("--export", help="Export a session id or JSONL file."),
+    ] = None,
     version: Annotated[
         bool,
-        typer.Option("--version", help="Show Tau's version and exit."),
+        typer.Option("--version", "-v", help="Show Tau's version and exit."),
     ] = False,
 ) -> None:
     """Run the Tau CLI."""
     reconfigure_std_streams()
     _load_extensions()
+
+    # ── Guard old deprecated flags ──
+    if prompt_option is not None:
+        raise typer.BadParameter(
+            "--prompt was renamed to --print. Use --print <prompt> instead."
+        )
+    if resume is not None:
+        raise typer.BadParameter(
+            "--resume was renamed to --session. Use --session <id> instead."
+        )
+    if output is not None:
+        raise typer.BadParameter(
+            "--output / -o was renamed to --mode. Use --mode <mode> instead."
+        )
 
     if version:
         typer.echo(f"tau {__version__}")
@@ -249,8 +280,8 @@ def main(
     if ctx.invoked_subcommand is not None:
         return
 
-    if resume is not None and new_session:
-        raise typer.BadParameter("--resume and --new-session cannot be used together")
+    if session is not None and new_session:
+        raise typer.BadParameter("--session and --new-session cannot be used together")
 
     if list_harnesses:
         for h in list_available_harnesses():
@@ -286,93 +317,102 @@ def main(
     command = positional_args[0] if positional_args else None
     initial_prompt = " ".join(positional_args) if positional_args else None
 
-    if prompt_option is None and command == "sessions" and len(positional_args) == 1:
-        render_session_list(SessionManager().list_sessions())
-        raise typer.Exit()
+    print_requested = print_mode or mode is not None
 
-    if prompt_option is None and command == "export":
-        try:
-            session_ref, output_path, export_format = _parse_export_cli_args(positional_args[1:])
-        except RuntimeError as exc:
-            raise typer.BadParameter(str(exc)) from exc
-        try:
-            exported_path = anyio.run(
-                export_session_command,
-                session_ref,
-                output_path,
-                export_format,
+    # ── --export flag ──
+    if export_session_arg is not None:
+        _run_export_cli(export_session_arg, positional_args)
+
+    # ── Subcommand checks (only when not in print mode) ──
+    if not print_requested:
+        if command == "sessions" and len(positional_args) == 1:
+            render_session_list(SessionManager().list_sessions())
+            raise typer.Exit()
+
+        if command == "export":
+            try:
+                session_ref, output_path, export_format = _parse_export_cli_args(
+                    positional_args[1:]
+                )
+            except RuntimeError as exc:
+                raise typer.BadParameter(str(exc)) from exc
+            try:
+                exported_path = anyio.run(
+                    export_session_command,
+                    session_ref,
+                    output_path,
+                    export_format,
+                )
+            except (RuntimeError, ValueError) as exc:
+                raise typer.BadParameter(str(exc)) from exc
+            typer.echo(f"Exported session to {exported_path}")
+            raise typer.Exit()
+
+        if command == "providers":
+            if len(positional_args) >= 2 and positional_args[1] == "add":
+                providers_add_command()
+                raise typer.Exit()
+            if len(positional_args) == 1:
+                providers_command()
+                raise typer.Exit()
+
+        if (
+            command == "models"
+            and len(positional_args) >= 2
+            and positional_args[1] == "sync"
+        ):
+            if _offline:
+                typer.echo("Offline mode — skipping models sync.", err=True)
+                raise typer.Exit()
+            models_sync_command()
+            raise typer.Exit()
+
+        if command == "package":
+            from tau_coding.package_manager import package_command
+
+            package_command(positional_args[1:] if len(positional_args) >= 2 else [])
+            raise typer.Exit()
+
+        if command == "setup" and len(positional_args) == 1:
+            setup_command(
+                provider_name=provider or DEFAULT_PROVIDER_NAME,
+                base_url=setup_base_url,
+                api_key_env=setup_api_key_env,
+                model=model or DEFAULT_MODEL,
+                timeout_seconds=setup_timeout_seconds,
+                max_retries=setup_max_retries,
+                max_retry_delay_seconds=setup_max_retry_delay_seconds,
+                set_default=setup_default,
             )
-        except (RuntimeError, ValueError) as exc:
-            raise typer.BadParameter(str(exc)) from exc
-        typer.echo(f"Exported session to {exported_path}")
-        raise typer.Exit()
-
-    if prompt_option is None and command == "providers":
-        if len(positional_args) >= 2 and positional_args[1] == "add":
-            providers_add_command()
-            raise typer.Exit()
-        if len(positional_args) == 1:
-            providers_command()
             raise typer.Exit()
 
-    if (
-        prompt_option is None
-        and command == "models"
-        and len(positional_args) >= 2
-        and positional_args[1] == "sync"
-    ):
-        if _offline:
-            typer.echo("Offline mode — skipping models sync.", err=True)
+        if command == "update":
+            current = __version__
+            latest = fetch_latest_pypi_version()
+            if latest is None:
+                typer.echo("Could not fetch latest version from PyPI.")
+                raise typer.Exit(1)
+            if latest <= current:
+                typer.echo(f"Tau {current} is already up to date.")
+                raise typer.Exit()
+            typer.echo(f"Tau {latest} is available (current: {current}).")
+            check_only = "--check" in positional_args
+            if check_only:
+                raise typer.Exit()
+            result = update_tau()
+            typer.echo(format_update_result(result))
+            if not result.succeeded:
+                typer.echo(f"Or update manually: uv tool upgrade {PYPI_PACKAGE_NAME}")
             raise typer.Exit()
-        models_sync_command()
-        raise typer.Exit()
 
-    if prompt_option is None and command == "package":
-        from tau_coding.package_manager import package_command
-
-        package_command(positional_args[1:] if len(positional_args) >= 2 else [])
-        raise typer.Exit()
-
-    if prompt_option is None and command == "setup" and len(positional_args) == 1:
-        setup_command(
-            provider_name=provider or DEFAULT_PROVIDER_NAME,
-            base_url=setup_base_url,
-            api_key_env=setup_api_key_env,
-            model=model or DEFAULT_MODEL,
-            timeout_seconds=setup_timeout_seconds,
-            max_retries=setup_max_retries,
-            max_retry_delay_seconds=setup_max_retry_delay_seconds,
-            set_default=setup_default,
-        )
-        raise typer.Exit()
-
-    if prompt_option is None and command == "update":
-        current = __version__
-        latest = fetch_latest_pypi_version()
-        if latest is None:
-            typer.echo("Could not fetch latest version from PyPI.")
-            raise typer.Exit(1)
-        if latest <= current:
-            typer.echo(f"Tau {current} is already up to date.")
-            raise typer.Exit()
-        typer.echo(f"Tau {latest} is available (current: {current}).")
-        check_only = "--check" in positional_args
-        if check_only:
-            raise typer.Exit()
-        result = update_tau()
-        typer.echo(format_update_result(result))
-        if not result.succeeded:
-            typer.echo(f"Or update manually: uv tool upgrade {PYPI_PACKAGE_NAME}")
-        raise typer.Exit()
-
-    if prompt_option is None:
+        # ── TUI mode ──
         notice = None if _offline else _startup_update_notice()
         try:
             anyio.run(
                 run_openai_tui,
                 model,
                 cwd or Path.cwd(),
-                resume,
+                session,
                 new_session,
                 provider,
                 auto_compact_threshold,
@@ -384,23 +424,93 @@ def main(
             raise typer.BadParameter(str(exc)) from exc
         raise typer.Exit()
 
-    prompt = prompt_option
+    # ── Print mode ──
+    prompt = _merge_stdin_prompt(positional_args)
     if prompt is None:
-        raise AssertionError("prompt option should be set outside TUI mode")
+        raise typer.BadParameter(
+            "No prompt provided for print mode. Use --print <prompt> or pipe input."
+        )
+
+    print_output = mode or PrintOutputMode.text
 
     if not _offline:
         notice = _startup_update_notice()
-        if notice is not None and output is PrintOutputMode.text:
+        if notice is not None and print_output is PrintOutputMode.text:
             typer.echo(notice.message, err=True)
 
     try:
         ok = anyio.run(
-            run_openai_print_mode, prompt, model, cwd or Path.cwd(), output, provider, _offline
+            run_openai_print_mode,
+            prompt,
+            model,
+            cwd or Path.cwd(),
+            print_output,
+            provider,
+            _offline,
         )
     except (RuntimeError, ValueError) as exc:
         raise typer.BadParameter(str(exc)) from exc
     if not ok:
         raise typer.Exit(1)
+
+
+def _merge_stdin_prompt(prompt_args: list[str]) -> str | None:
+    """Read piped stdin and merge with positional args for print mode."""
+    if sys.stdin.isatty():
+        if prompt_args:
+            return " ".join(prompt_args)
+        return None
+    stdin_text = sys.stdin.buffer.read().decode("utf-8", errors="replace")
+    if prompt_args:
+        merged = " ".join(prompt_args)
+        if stdin_text.strip():
+            return stdin_text.rstrip("\n") + "\n" + merged
+        return merged
+    return stdin_text.strip() or None
+
+
+def _run_export_cli(session_ref: str, extra_args: list[str]) -> None:
+    """Run session export from flag or subcommand path."""
+    output_path, export_format = _parse_export_extra_args(extra_args)
+    try:
+        exported_path = anyio.run(
+            export_session_command,
+            session_ref,
+            output_path,
+            export_format,
+        )
+    except (RuntimeError, ValueError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    typer.echo(f"Exported session to {exported_path}")
+    raise typer.Exit()
+
+
+def _parse_export_extra_args(args: list[str]) -> tuple[Path | None, str | None]:
+    """Parse --format and output path from export extra arguments."""
+    output_path: Path | None = None
+    export_format: str | None = None
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == "--format":
+            index += 1
+            if index >= len(args):
+                raise RuntimeError(
+                    "Usage: tau export <session-id-or-jsonl> [--format html|jsonl] [output]"
+                )
+            export_format = args[index]
+        elif arg.startswith("--format="):
+            export_format = arg.partition("=")[2]
+        elif arg.startswith("-"):
+            raise RuntimeError(f"Unknown export option: {arg}")
+        elif output_path is None:
+            output_path = Path(arg).expanduser()
+        else:
+            raise RuntimeError(
+                "Usage: tau export <session-id-or-jsonl> [--format html|jsonl] [output]"
+            )
+        index += 1
+    return output_path, export_format
 
 
 async def run_openai_tui(
@@ -482,29 +592,7 @@ def _parse_export_cli_args(args: list[str]) -> tuple[str, Path | None, str | Non
     if not args:
         raise RuntimeError("Usage: tau export <session-id-or-jsonl> [--format html|jsonl] [output]")
     session_ref = args[0]
-    output_path: Path | None = None
-    export_format: str | None = None
-    index = 1
-    while index < len(args):
-        arg = args[index]
-        if arg == "--format":
-            index += 1
-            if index >= len(args):
-                raise RuntimeError(
-                    "Usage: tau export <session-id-or-jsonl> [--format html|jsonl] [output]"
-                )
-            export_format = args[index]
-        elif arg.startswith("--format="):
-            export_format = arg.partition("=")[2]
-        elif arg.startswith("-"):
-            raise RuntimeError(f"Unknown export option: {arg}")
-        elif output_path is None:
-            output_path = Path(arg).expanduser()
-        else:
-            raise RuntimeError(
-                "Usage: tau export <session-id-or-jsonl> [--format html|jsonl] [output]"
-            )
-        index += 1
+    output_path, export_format = _parse_export_extra_args(args[1:])
     return session_ref, output_path, export_format
 
 

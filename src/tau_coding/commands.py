@@ -19,7 +19,11 @@ from tau_coding.system_prompt import ProjectContextFile
 from tau_coding.thinking import normalize_thinking_level
 from tau_coding.trust_store import TrustStore
 
-BUILTIN_TUI_THEME_NAMES = ("tau-dark", "tau-light", "high-contrast")
+def _available_theme_names() -> list[str]:
+    """Lazy import to avoid circular imports."""
+    from tau_coding.tui.theme_registry import available_theme_names as _names
+
+    return _names()
 
 
 class CommandSession(Protocol):
@@ -775,8 +779,9 @@ def _theme_command(context: CommandContext) -> CommandResult:
         return CommandResult(handled=True, theme_picker_requested=True)
 
     theme_name = context.args.strip()
-    if theme_name not in BUILTIN_TUI_THEME_NAMES:
-        themes = ", ".join(BUILTIN_TUI_THEME_NAMES)
+    names = _available_theme_names()
+    if theme_name not in names:
+        themes = ", ".join(names)
         return CommandResult(
             handled=True,
             message=f"Unknown theme: {theme_name}\nAvailable themes: {themes}",

@@ -82,12 +82,11 @@ from tau_coding.tui.autocomplete import (
     build_completion_state,
 )
 from tau_coding.tui.config import (
-    BUILTIN_TUI_THEME_NAMES,
     TuiSettings,
     TuiTheme,
-    TuiThemeName,
     save_tui_settings,
 )
+from tau_coding.tui.theme_registry import available_theme_names
 from tau_coding.tui.input import (
     PromptInput,
     _terminal_command_prefix_span,  # noqa: F401 - re-exported for API compat
@@ -814,7 +813,7 @@ class TauTuiApp(App[None]):
             if command.thinking_level is not None:
                 await self._set_thinking_level(command.thinking_level)
             if command.theme is not None:
-                self._set_tui_theme(cast(TuiThemeName, command.theme))
+                self._set_tui_theme(command.theme)
             self.state.set_skills(self.session.skills)
             if command.message:
                 if _command_message_uses_notification(text, command.message):
@@ -992,7 +991,7 @@ class TauTuiApp(App[None]):
         self._follow_transcript_output()
         self._refresh()
 
-    def _set_tui_theme(self, theme: TuiThemeName) -> None:
+    def _set_tui_theme(self, theme: str) -> None:
         self.tui_settings = TuiSettings(
             keybindings=self.tui_settings.keybindings,
             theme=theme,
@@ -1756,7 +1755,7 @@ class TauTuiApp(App[None]):
             callback=self._handle_theme_picker_result,
         )
 
-    def _handle_theme_picker_result(self, theme: TuiThemeName | None) -> None:
+    def _handle_theme_picker_result(self, theme: str | None) -> None:
         if theme is None:
             return
         self._set_tui_theme(theme)
@@ -2011,7 +2010,7 @@ class TauTuiApp(App[None]):
             model_names=self.session.available_models,
             provider_names=self.session.available_providers,
             thinking_levels=getattr(self.session, "available_thinking_levels", ()),
-            theme_names=BUILTIN_TUI_THEME_NAMES,
+            theme_names=available_theme_names(),
             session_options=_session_options(self.session),
             cwd=self.session.cwd,
         )

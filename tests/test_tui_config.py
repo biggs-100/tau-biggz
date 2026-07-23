@@ -4,7 +4,6 @@ import pytest
 
 from tau_coding.paths import TauPaths
 from tau_coding.tui.config import (
-    HIGH_CONTRAST_THEME,
     TuiConfigError,
     TuiKeybindings,
     TuiSettings,
@@ -65,7 +64,9 @@ def test_load_tui_settings_reads_keybindings(tmp_path: Path) -> None:
     assert settings.keybindings.copy_message == "ctrl+b"
     assert settings.keybindings.cancel == "escape"
     assert settings.theme == "high-contrast"
-    assert settings.resolved_theme == HIGH_CONTRAST_THEME
+    high_contrast = get_tui_theme("high-contrast")
+    assert high_contrast is not None
+    assert settings.resolved_theme == high_contrast
 
 
 def test_save_tui_settings_writes_json(tmp_path: Path) -> None:
@@ -107,9 +108,11 @@ def test_tui_keybindings_reject_duplicate_keys() -> None:
         )
 
 
-def test_tui_settings_reject_unknown_theme() -> None:
-    with pytest.raises(TuiConfigError, match="Unknown TUI theme"):
-        tui_settings_from_json({"theme": "solarized"})
+def test_tui_settings_accept_any_theme_string() -> None:
+    """Theme name validation is deferred to get_tui_theme(); any string is accepted."""
+    settings = tui_settings_from_json({"theme": "solarized"})
+    assert settings.theme == "solarized"
+    assert get_tui_theme("solarized") is None  # unknown, returns None
 
 
 def test_tui_settings_accept_light_theme() -> None:
@@ -161,6 +164,12 @@ def test_tui_keybindings_serialize_to_json() -> None:
 
 
 def test_get_tui_theme_returns_builtin_theme() -> None:
-    assert get_tui_theme("high-contrast").prompt_border == "#00ff66"
-    assert get_tui_theme("tau-light").prompt_border == "#2563eb"
-    assert get_tui_theme("tau-dark").screen_background == "#000000"
+    high_contrast = get_tui_theme("high-contrast")
+    assert high_contrast is not None
+    assert high_contrast.prompt_border == "#00ff66"
+    tau_light = get_tui_theme("tau-light")
+    assert tau_light is not None
+    assert tau_light.prompt_border == "#2563eb"
+    tau_dark = get_tui_theme("tau-dark")
+    assert tau_dark is not None
+    assert tau_dark.screen_background == "#000000"

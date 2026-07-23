@@ -2210,19 +2210,19 @@ async def test_tui_app_theme_command_opens_picker_and_persists_selection(
         picker = app.screen
         assert isinstance(picker, ThemePickerScreen)
         assert [str(item.query_one(Label).render()) for item in picker.query(ListItem)] == [
+            "  high-contrast",
             "✓ tau-dark",
             "  tau-light",
-            "  high-contrast",
         ]
 
         theme_list = picker.query_one("#theme-picker-list", ListView)
-        assert theme_list.index == 0
+        assert theme_list.index == 1
         await pilot.press("down")
         await pilot.pause()
-        assert theme_list.index == 1
+        assert theme_list.index == 2
         await pilot.press("up")
         await pilot.pause()
-        assert theme_list.index == 0
+        assert theme_list.index == 1
         await pilot.press("down", "enter")
         await pilot.pause()
 
@@ -7583,15 +7583,15 @@ async def test_theme_picker_on_key_up_down_enter() -> None:
         await pilot.pause()
 
         theme_list = screen.query_one("#theme-picker-list", ListView)
-        assert theme_list.index == 0
+        assert theme_list.index == 1
 
         # Direct Key events exercise on_key branches (unreachable via pilot
         # because the screen's priority bindings intercept these keys first).
         screen.on_key(Key(key="down", character=None))
-        assert theme_list.index == 1
+        assert theme_list.index == 2
 
         screen.on_key(Key(key="up", character=None))
-        assert theme_list.index == 0
+        assert theme_list.index == 1
 
         # Enter selects the highlighted theme
         screen.on_key(Key(key="enter", character=None))
@@ -7629,12 +7629,12 @@ async def test_theme_picker_mounts_with_all_builtin_themes_and_correct_index() -
 
         labels = [str(item.query_one(Label).render()) for item in screen.query(ListItem)]
         assert labels == [
+            "  high-contrast",
             "  tau-dark",
             "✓ tau-light",
-            "  high-contrast",
         ]
         theme_list = screen.query_one("#theme-picker-list", ListView)
-        assert theme_list.index == 1
+        assert theme_list.index == 2
 
 
 @pytest.mark.anyio

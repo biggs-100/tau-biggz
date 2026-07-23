@@ -45,6 +45,11 @@ class TauPaths:
         return self.home / "prompts"
 
     @property
+    def themes_dir(self) -> Path:
+        """Return the user-level themes directory."""
+        return self.home / "themes"
+
+    @property
     def user_agents_skills_dir(self) -> Path:
         """Return the user-level `.agents/skills` directory."""
         return self.agents_home / "skills"
@@ -61,6 +66,10 @@ class TauPaths:
     def project_agents_dir(self, cwd: Path) -> Path:
         """Return the project-local `.agents` resource directory."""
         return cwd / ".agents"
+
+    def project_themes_dir(self, cwd: Path) -> Path:
+        """Return the project-local Tau themes directory."""
+        return self.project_tau_dir(cwd) / "themes"
 
     def project_skills_dir(self, cwd: Path) -> Path:
         """Return the project-local Tau skills directory."""

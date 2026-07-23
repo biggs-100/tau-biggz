@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from json import dumps, loads
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any
 
 from tau_coding.paths import TauPaths
 
@@ -51,7 +51,7 @@ class TuiKeybindings:
         }
 
 
-type TuiThemeName = Literal["tau-dark", "tau-light", "high-contrast"]
+type TuiThemeName = str
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,7 +66,7 @@ class TuiRoleStyle:
 class TuiTheme:
     """Resolved visual theme for Tau's built-in Textual frontend."""
 
-    name: TuiThemeName
+    name: str
     screen_background: str
     screen_text: str
     chrome_background: str
@@ -94,145 +94,131 @@ class TuiTheme:
     completion_description: str
     syntax_theme: str
     role_styles: dict[str, TuiRoleStyle]
+    # New fields for Phase 2
+    success: str = ""
+    error: str = ""
+    tool_success_text: str = ""
+    tool_error_text: str = ""
+    dark: bool = True
 
 
-TAU_DARK_THEME = TuiTheme(
-    name="tau-dark",
-    screen_background="#000000",
-    screen_text="#d8dee9",
-    chrome_background="#000000",
-    chrome_text="#d8dee9",
-    muted_text="#667085",
-    sidebar_background="#000000",
-    border="#141922",
-    transcript_background="#000000",
-    prompt_background="#101419",
-    prompt_text="#e5e7eb",
-    prompt_border="#2d3748",
-    autocomplete_background="#000000",
-    accent="#db945a",
-    highlight_background="#a7f3f0",
-    highlight_text="#061a1a",
-    markdown_heading="#db945a",
-    markdown_table_header="#7b7b7b",
-    markdown_table_border="#7b7b7b",
-    markdown_inline_code="#759e95",
-    markdown_code_block_background="#161b21",
-    markdown_link="#93c5fd",
-    markdown_bullet="#db945a",
-    completion_selected="bold #061a1a on #a7f3f0",
-    completion_selected_description="#123333 on #a7f3f0",
-    completion_description="#667085",
-    syntax_theme="ansi_dark",
-    role_styles={
-        "user": TuiRoleStyle(border="#7c8ea6", body="#d8dee9 on #000000"),
-        "assistant": TuiRoleStyle(border="#6ea6a0", body="#d8dee9 on #000000"),
-        "tool": TuiRoleStyle(border="#8a7a52", body="#cbd5e1 on #000000"),
-        "error": TuiRoleStyle(border="#ff4f4f", body="#ffb4b4 on #000000"),
-        "status": TuiRoleStyle(border="#526070", body="#aab4c2 on #000000"),
-        "thinking": TuiRoleStyle(border="#4b5563", body="#9ca3af on #000000"),
-        "skill": TuiRoleStyle(border="#b48ead", body="#e5d4ef on #000000"),
-        "branch_summary": TuiRoleStyle(border="#c084fc", body="#e9d5ff on #000000"),
-        "compaction_summary": TuiRoleStyle(border="#c084fc", body="#e9d5ff on #000000"),
-    },
+def _build_tui_theme_from_registry(name: str) -> TuiTheme:
+    """Construct a TuiTheme from the registry by name.
+
+    Raises TuiConfigError if the theme is not found.
+    """
+    from tau_coding.tui.theme_registry import get_theme as _get_registry_theme
+
+    data = _get_registry_theme(name)
+    if data is None:
+        raise TuiConfigError(f"Unknown TUI theme: {name}")
+    return TuiTheme(
+        name=data.name,
+        screen_background=data.colors.get("screen_background", ""),
+        screen_text=data.colors.get("screen_text", ""),
+        chrome_background=data.colors.get("chrome_background", ""),
+        chrome_text=data.colors.get("chrome_text", ""),
+        muted_text=data.colors.get("muted_text", ""),
+        sidebar_background=data.colors.get("sidebar_background", ""),
+        border=data.colors.get("border", ""),
+        transcript_background=data.colors.get("transcript_background", ""),
+        prompt_background=data.colors.get("prompt_background", ""),
+        prompt_text=data.colors.get("prompt_text", ""),
+        prompt_border=data.colors.get("prompt_border", ""),
+        autocomplete_background=data.colors.get("autocomplete_background", ""),
+        accent=data.colors.get("accent", ""),
+        highlight_background=data.colors.get("highlight_background", ""),
+        highlight_text=data.colors.get("highlight_text", ""),
+        markdown_heading=data.colors.get("markdown_heading", ""),
+        markdown_table_header=data.colors.get("markdown_table_header", ""),
+        markdown_table_border=data.colors.get("markdown_table_border", ""),
+        markdown_inline_code=data.colors.get("markdown_inline_code", ""),
+        markdown_code_block_background=data.colors.get(
+            "markdown_code_block_background", ""
+        ),
+        markdown_link=data.colors.get("markdown_link", ""),
+        markdown_bullet=data.colors.get("markdown_bullet", ""),
+        completion_selected=data.colors.get("completion_selected", ""),
+        completion_selected_description=data.colors.get(
+            "completion_selected_description", ""
+        ),
+        completion_description=data.colors.get("completion_description", ""),
+        syntax_theme=data.syntax_theme,
+        role_styles={
+            role_name: TuiRoleStyle(
+                border=role_data.border, body=role_data.body
+            )
+            for role_name, role_data in data.roles.items()
+        },
+        success=data.colors.get("success", ""),
+        error=data.colors.get("error", ""),
+        tool_success_text=data.colors.get("tool_success_text", ""),
+        tool_error_text=data.colors.get("tool_error_text", ""),
+        dark=data.dark,
+    )
+
+
+TAU_DARK_THEME = _build_tui_theme_from_registry("tau-dark")
+TAU_LIGHT_THEME = _build_tui_theme_from_registry("tau-light")
+HIGH_CONTRAST_THEME = _build_tui_theme_from_registry("high-contrast")
+BUILTIN_TUI_THEME_NAMES: tuple[str, ...] = (
+    "tau-dark",
+    "tau-light",
+    "high-contrast",
 )
 
 
-HIGH_CONTRAST_THEME = TuiTheme(
-    name="high-contrast",
-    screen_background="#000000",
-    screen_text="#ffffff",
-    chrome_background="#111111",
-    chrome_text="#ffffff",
-    muted_text="#d0d0d0",
-    sidebar_background="#111111",
-    border="#888888",
-    transcript_background="#000000",
-    prompt_background="#1a1a1a",
-    prompt_text="#ffffff",
-    prompt_border="#00ff66",
-    autocomplete_background="#111111",
-    accent="#ffb454",
-    highlight_background="#7fffd4",
-    highlight_text="#000000",
-    markdown_heading="#ffb454",
-    markdown_table_header="#d0d0d0",
-    markdown_table_border="#d0d0d0",
-    markdown_inline_code="#7fffd4",
-    markdown_code_block_background="#161b21",
-    markdown_link="#80d8ff",
-    markdown_bullet="#ffb454",
-    completion_selected="bold black on #7fffd4",
-    completion_selected_description="black on #7fffd4",
-    completion_description="white",
-    syntax_theme="ansi_dark",
-    role_styles={
-        "user": TuiRoleStyle(border="#00b7ff", body="white on #001626"),
-        "assistant": TuiRoleStyle(border="#00ff66", body="white on #001a0b"),
-        "tool": TuiRoleStyle(border="#ffd000", body="white on #211900"),
-        "error": TuiRoleStyle(border="#ff4f4f", body="white on #260000"),
-        "status": TuiRoleStyle(border="#ffffff", body="white on #111111"),
-        "thinking": TuiRoleStyle(border="#00b7ff", body="white on #001626"),
-        "skill": TuiRoleStyle(border="#ff8cff", body="white on #260026"),
-        "branch_summary": TuiRoleStyle(border="#d8b4fe", body="white on #260026"),
-        "compaction_summary": TuiRoleStyle(border="#d8b4fe", body="white on #260026"),
-    },
-)
+def get_tui_theme(name: str = "tau-dark") -> TuiTheme | None:
+    """Get a TuiTheme by name, returning None if not found."""
+    from tau_coding.tui.theme_registry import get_theme as _get_registry_theme
 
-
-TAU_LIGHT_THEME = TuiTheme(
-    name="tau-light",
-    screen_background="#ffffff",
-    screen_text="#111827",
-    chrome_background="#f3f4f6",
-    chrome_text="#111827",
-    muted_text="#475569",
-    sidebar_background="#f8fafc",
-    border="#cbd5e1",
-    transcript_background="#ffffff",
-    prompt_background="#f8fafc",
-    prompt_text="#111827",
-    prompt_border="#2563eb",
-    autocomplete_background="#ffffff",
-    accent="#0f766e",
-    highlight_background="#dbeafe",
-    highlight_text="#1d4ed8",
-    markdown_heading="#b45309",
-    markdown_table_header="#64748b",
-    markdown_table_border="#cbd5e1",
-    markdown_inline_code="#0f766e",
-    markdown_code_block_background="#f1f5f9",
-    markdown_link="#2563eb",
-    markdown_bullet="#b45309",
-    completion_selected="bold #0f172a on #dbeafe",
-    completion_selected_description="#334155 on #dbeafe",
-    completion_description="#667085",
-    syntax_theme="ansi_light",
-    role_styles={
-        "user": TuiRoleStyle(border="#2563eb", body="#111827"),
-        "assistant": TuiRoleStyle(border="#0f766e", body="#111827"),
-        "tool": TuiRoleStyle(border="#a16207", body="#1f2937"),
-        "error": TuiRoleStyle(border="#b91c1c", body="#7f1d1d"),
-        "status": TuiRoleStyle(border="#64748b", body="#334155"),
-        "thinking": TuiRoleStyle(border="#6b7280", body="#4b5563"),
-        "skill": TuiRoleStyle(border="#7c3aed", body="#4c1d95"),
-        "branch_summary": TuiRoleStyle(border="#9333ea", body="#581c87"),
-        "compaction_summary": TuiRoleStyle(border="#9333ea", body="#581c87"),
-    },
-)
-
-
-_THEMES: dict[TuiThemeName, TuiTheme] = {
-    TAU_DARK_THEME.name: TAU_DARK_THEME,
-    TAU_LIGHT_THEME.name: TAU_LIGHT_THEME,
-    HIGH_CONTRAST_THEME.name: HIGH_CONTRAST_THEME,
-}
-BUILTIN_TUI_THEME_NAMES: tuple[TuiThemeName, ...] = tuple(_THEMES)
-
-
-def get_tui_theme(name: TuiThemeName = "tau-dark") -> TuiTheme:
-    """Return a built-in TUI theme by name."""
-    return _THEMES[name]
+    data = _get_registry_theme(name)
+    if data is None:
+        return None
+    return TuiTheme(
+        name=data.name,
+        screen_background=data.colors.get("screen_background", ""),
+        screen_text=data.colors.get("screen_text", ""),
+        chrome_background=data.colors.get("chrome_background", ""),
+        chrome_text=data.colors.get("chrome_text", ""),
+        muted_text=data.colors.get("muted_text", ""),
+        sidebar_background=data.colors.get("sidebar_background", ""),
+        border=data.colors.get("border", ""),
+        transcript_background=data.colors.get("transcript_background", ""),
+        prompt_background=data.colors.get("prompt_background", ""),
+        prompt_text=data.colors.get("prompt_text", ""),
+        prompt_border=data.colors.get("prompt_border", ""),
+        autocomplete_background=data.colors.get("autocomplete_background", ""),
+        accent=data.colors.get("accent", ""),
+        highlight_background=data.colors.get("highlight_background", ""),
+        highlight_text=data.colors.get("highlight_text", ""),
+        markdown_heading=data.colors.get("markdown_heading", ""),
+        markdown_table_header=data.colors.get("markdown_table_header", ""),
+        markdown_table_border=data.colors.get("markdown_table_border", ""),
+        markdown_inline_code=data.colors.get("markdown_inline_code", ""),
+        markdown_code_block_background=data.colors.get(
+            "markdown_code_block_background", ""
+        ),
+        markdown_link=data.colors.get("markdown_link", ""),
+        markdown_bullet=data.colors.get("markdown_bullet", ""),
+        completion_selected=data.colors.get("completion_selected", ""),
+        completion_selected_description=data.colors.get(
+            "completion_selected_description", ""
+        ),
+        completion_description=data.colors.get("completion_description", ""),
+        syntax_theme=data.syntax_theme,
+        role_styles={
+            role_name: TuiRoleStyle(
+                border=role_data.border, body=role_data.body
+            )
+            for role_name, role_data in data.roles.items()
+        },
+        success=data.colors.get("success", ""),
+        error=data.colors.get("error", ""),
+        tool_success_text=data.colors.get("tool_success_text", ""),
+        tool_error_text=data.colors.get("tool_error_text", ""),
+        dark=data.dark,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,7 +226,7 @@ class TuiSettings:
     """Tau TUI settings loaded from Tau home."""
 
     keybindings: TuiKeybindings = field(default_factory=TuiKeybindings)
-    theme: TuiThemeName = "tau-dark"
+    theme: str = "tau-dark"
     auto_copy_selection: bool = True
 
     def to_json(self) -> dict[str, Any]:
@@ -253,8 +239,12 @@ class TuiSettings:
 
     @property
     def resolved_theme(self) -> TuiTheme:
-        """Return the selected built-in theme."""
-        return get_tui_theme(self.theme)
+        """Return the selected theme, falling back to tau-dark."""
+        theme = get_tui_theme(self.theme)
+        if theme is None:
+            theme = get_tui_theme("tau-dark")
+            assert theme is not None
+        return theme
 
 
 def tui_settings_path(paths: TauPaths | None = None) -> Path:
@@ -329,13 +319,10 @@ def _key_string(value: object, field_name: str) -> str:
     return value.strip()
 
 
-def _theme_name(value: object) -> TuiThemeName:
+def _theme_name(value: object) -> str:
     if not isinstance(value, str) or not value.strip():
         raise TuiConfigError("TUI theme must be a non-empty string")
-    name = value.strip()
-    if name == "tau-dark" or name == "tau-light" or name == "high-contrast":
-        return cast(TuiThemeName, name)
-    raise TuiConfigError(f"Unknown TUI theme: {name}")
+    return value.strip()
 
 
 def _reject_duplicate_keys(values: dict[str, str]) -> None:

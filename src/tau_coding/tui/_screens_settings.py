@@ -13,7 +13,8 @@ from textual.screen import ModalScreen
 from textual.widgets import Input, Label, ListItem, ListView, Static
 
 from tau_coding.session import ModelChoice
-from tau_coding.tui.config import BUILTIN_TUI_THEME_NAMES, TuiTheme, TuiThemeName
+from tau_coding.tui.config import TuiTheme
+from tau_coding.tui.theme_registry import available_theme_names
 
 type BindingEntry = Binding | tuple[str, str] | tuple[str, str, str]
 
@@ -21,7 +22,7 @@ type BindingEntry = Binding | tuple[str, str] | tuple[str, str, str]
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
-def _theme_picker_label(theme_name: TuiThemeName, *, current_theme: TuiThemeName) -> str:
+def _theme_picker_label(theme_name: str, *, current_theme: str) -> str:
     marker = "✓" if theme_name == current_theme else " "
     return f"{marker} {theme_name}"
 
@@ -56,8 +57,8 @@ def _filter_model_choices(choices: Sequence[ModelChoice], query: str) -> tuple[M
 # ── Screen classes ───────────────────────────────────────────────────────────
 
 
-class ThemePickerScreen(ModalScreen[TuiThemeName | None]):
-    """Theme picker for the built-in TUI themes."""
+class ThemePickerScreen(ModalScreen[str | None]):
+    """Theme picker for the available TUI themes."""
 
     BINDINGS: ClassVar[list[BindingEntry]] = [
         Binding("escape", "cancel", "Cancel", priority=True),
@@ -66,10 +67,11 @@ class ThemePickerScreen(ModalScreen[TuiThemeName | None]):
         Binding("enter", "select_cursor", "Select", show=False, priority=True),
     ]
 
-    def __init__(self, *, current_theme: TuiThemeName, theme: TuiTheme) -> None:
+    def __init__(self, *, current_theme: str, theme: TuiTheme) -> None:
         super().__init__()
         self.current_theme = current_theme
         self.theme = theme
+        self._theme_names = available_theme_names()
 
     def compose(self) -> ComposeResult:
         """Compose the theme picker."""
@@ -83,7 +85,7 @@ class ThemePickerScreen(ModalScreen[TuiThemeName | None]):
                             markup=False,
                         )
                     )
-                    for theme_name in BUILTIN_TUI_THEME_NAMES
+                    for theme_name in self._theme_names
                 ],
                 id="theme-picker-list",
             )
@@ -93,7 +95,7 @@ class ThemePickerScreen(ModalScreen[TuiThemeName | None]):
         """Select the current theme."""
         theme_list = self.query_one("#theme-picker-list", ListView)
         try:
-            theme_list.index = BUILTIN_TUI_THEME_NAMES.index(self.current_theme)
+            theme_list.index = self._theme_names.index(self.current_theme)
         except ValueError:
             theme_list.index = 0
         theme_list.focus()
@@ -112,7 +114,7 @@ class ThemePickerScreen(ModalScreen[TuiThemeName | None]):
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         """Dismiss with the selected theme name."""
-        self.dismiss(BUILTIN_TUI_THEME_NAMES[event.index])
+        self.dismiss(self._theme_names[event.index])
 
     def action_cursor_up(self) -> None:
         """Move to the previous theme."""

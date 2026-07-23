@@ -27,6 +27,7 @@ class AssistantMessage(BaseModel):
     role: Literal["assistant"] = "assistant"
     content: str = ""
     tool_calls: list[ToolCall] = Field(default_factory=list)
+    thinking_text: str = ""
 
 
 class ToolResultMessage(BaseModel):

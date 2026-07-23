@@ -39,6 +39,7 @@ class ToolCall(BaseModel):
     id: str
     name: str
     arguments: dict[str, JSONValue] = Field(default_factory=dict)
+    thought_signature: str | None = None
 
 
 class AgentToolResult(BaseModel):

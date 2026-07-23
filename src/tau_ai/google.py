@@ -201,10 +201,12 @@ class _GoogleStreamParser:
             if isinstance(function_call, Mapping):
                 self.emitted_content = True
                 default_id = f"tool-call-{len(self._tool_calls)}"
+                thought_signature = function_call.get("thoughtSignature")
                 tool_call = ToolCall(
                     id=_string_or_default(function_call.get("id"), default_id),
                     name=_string_or_default(function_call.get("name"), ""),
                     arguments=_object_or_empty(function_call.get("args")),
+                    thought_signature=thought_signature,
                 )
                 self._tool_calls.append(tool_call)
                 events.append(ProviderToolCallEvent(tool_call=tool_call))
@@ -214,7 +216,9 @@ class _GoogleStreamParser:
         return [
             ProviderResponseEndEvent(
                 message=AssistantMessage(
-                    content="".join(self._content_parts), tool_calls=self._tool_calls
+                    content="".join(self._content_parts),
+                    tool_calls=self._tool_calls,
+                    thinking_text="".join(self._thinking_parts),
                 ),
                 finish_reason=_normalize_finish_reason(
                     self._finish_reason, has_tool_calls=bool(self._tool_calls)
@@ -270,9 +274,7 @@ def _google_thinking_config(
 
 
 def _google_budget(model: str, effort: str) -> int | None:
-    normalized = effort.lower()
-    if normalized == "xhigh":
-        normalized = "high"
+    normalized = _normalize_effort(effort.lower())
     if normalized not in {"minimal", "low", "medium", "high"}:
         return None
     if _is_gemini3_pro_model(model) or _is_gemini3_flash_model(model) or _is_gemma4_model(model):
@@ -287,9 +289,7 @@ def _google_budget(model: str, effort: str) -> int | None:
 
 
 def _google_level(model: str, effort: str) -> str:
-    normalized = effort.lower()
-    if normalized == "xhigh":
-        normalized = "high"
+    normalized = _normalize_effort(effort.lower())
     if _is_gemini3_pro_model(model):
         return "LOW" if normalized in {"minimal", "low"} else "HIGH"
     if _is_gemma4_model(model):
@@ -322,15 +322,14 @@ def _message_to_google(message: AgentMessage) -> dict[str, JSONValue]:
         if message.content:
             parts.append({"text": message.content})
         for tool_call in message.tool_calls:
-            parts.append(
-                {
-                    "functionCall": {
-                        "id": tool_call.id,
-                        "name": tool_call.name,
-                        "args": dict(tool_call.arguments),
-                    }
-                }
-            )
+            fc: dict[str, JSONValue] = {
+                "id": tool_call.id,
+                "name": tool_call.name,
+                "args": dict(tool_call.arguments),
+            }
+            if tool_call.thought_signature is not None:
+                fc["thoughtSignature"] = tool_call.thought_signature
+            parts.append({"functionCall": fc})
         return {"role": "model", "parts": parts or [{"text": ""}]}
     response: dict[str, JSONValue] = {
         "name": message.name,
@@ -345,7 +344,7 @@ def _tool_to_google(tool: AgentTool) -> dict[str, JSONValue]:
     return {
         "name": tool.name,
         "description": tool.description,
-        "parameters": dict(tool.input_schema),
+        "parameters": dict(_sanitize_google_schema(dict(tool.input_schema))),
     }
 
 
@@ -370,6 +369,28 @@ def _string_or_default(value: object, default: str) -> str:
 
 def _object_or_empty(value: object) -> dict[str, JSONValue]:
     return value if isinstance(value, dict) else {}
+
+
+def _normalize_effort(effort: str) -> str:
+    """Normalize reasoning effort: fold 'xhigh' -> 'high'."""
+    return "high" if effort == "xhigh" else effort
+
+
+def _sanitize_google_schema(schema: dict[str, JSONValue]) -> dict[str, JSONValue]:
+    """Deep-copy schema and strip keys that Google's API rejects.
+
+    Removes: additionalProperties, $schema, default, title.
+    """
+    BANNED_KEYS = {"additionalProperties", "$schema", "default", "title"}
+
+    def _strip(item: JSONValue) -> JSONValue:
+        if isinstance(item, dict):
+            return {k: _strip(v) for k, v in item.items() if k not in BANNED_KEYS}
+        if isinstance(item, list):
+            return [_strip(v) for v in item]
+        return item
+
+    return _strip(schema)  # type: ignore[return-value]
 
 
 def _normalize_finish_reason(reason: str | None, *, has_tool_calls: bool) -> str:

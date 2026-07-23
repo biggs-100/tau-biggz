@@ -28,17 +28,17 @@ Estimated changed lines: 450–550 across 4 PRs. Tests add ~120 lines beyond pro
 
 ## Phase 2 — Registry + Integration
 
-- [ ] 2.1 Add to `TuiTheme` in `config.py`: `success`, `error`, `tool_success_text`, `tool_error_text`, `dark` fields + `role_styles["custom"]`
-- [ ] 2.2 Set new field defaults on `TAU_DARK_THEME`, `TAU_LIGHT_THEME`, `HIGH_CONTRAST_THEME`
-- [ ] 2.3 Widen `TuiThemeName` to `str`; soften `_theme_name()` to accept any str
-- [ ] 2.4 Create `theme_registry.py`: `ThemeData` (Pydantic), `ThemeRegistry`, `init_registry()`/`get_registry()`, `available_tui_theme_names()`
-- [ ] 2.5 Update `get_tui_theme()` to delegate to registry
-- [ ] 2.6 Wire `init_registry()` in `app.py`/`app_runner.py` with built-in themes dir
-- [ ] 2.7 Update JSON files to include new fields
-- [ ] 2.8 Replace `BUILTIN_TUI_THEME_NAMES` with `available_tui_theme_names()` in `commands.py`, `_screens_settings.py`, `app.py`
-- [ ] 2.9 Update `_open_theme_picker()` — `TuiThemeName` → `str`
-- [ ] 2.10 Add `themes_dir`/`project_themes_dir()` to `TauPaths` in `paths.py`
-- [ ] 2.11 Update `__init__.py` exports
+- [x] 2.1 Add to `TuiTheme` in `config.py`: `success`, `error`, `tool_success_text`, `tool_error_text`, `dark` fields + `role_styles["custom"]`
+- [x] 2.2 Set new field defaults on `TAU_DARK_THEME`, `TAU_LIGHT_THEME`, `HIGH_CONTRAST_THEME`
+- [x] 2.3 Widen `TuiThemeName` to `str`; soften `_theme_name()` to accept any str
+- [x] 2.4 Create `theme_registry.py`: `ThemeData` (Pydantic), module-level singleton, `load_themes()`, `get_theme()`, `available_theme_names()`, `reset_cache()`
+- [x] 2.5 Update `get_tui_theme()` to delegate to registry
+- [x] 2.6 Wire registry in config.py via module-level lazy loading (no explicit init needed)
+- [x] 2.7 Update JSON files to include new fields (done in Phase 1 — already have success, error, tool_success_text, tool_error_text, dark, custom role)
+- [x] 2.8 Replace `BUILTIN_TUI_THEME_NAMES` with `available_theme_names()` in `commands.py`, `_screens_settings.py`, `app.py`
+- [x] 2.9 Update `_open_theme_picker()` — `TuiThemeName` → `str`
+- [x] 2.10 Add `themes_dir`/`project_themes_dir()` to `TauPaths` in `paths.py`
+- [x] 2.11 Update `__init__.py` exports
 - [ ] 2.12 Tests: registry load/discover via `tmp_path`, validation fallback, collision precedence, fallback on bad JSON
 
 ## Phase 3 — Remove Per-Theme Branches
@@ -49,7 +49,7 @@ Estimated changed lines: 450–550 across 4 PRs. Tests add ~120 lines beyond pro
 
 ## Phase 4 — Custom Themes
 
-- [ ] 4.1 Wire user dir (`~/.config/tau/themes/`) and project dir (`<cwd>/.tau/themes/`) into `init_registry()`
-- [ ] 4.2 Add startup diagnostics: per-dir theme count, parse failures, final name list
-- [ ] 4.3 Document theme format in `dev-notes/tui-theme-format.md`
-- [ ] 4.4 Tests: custom theme overrides built-in; unknown name returns None; missing dir is silent
+- [x] 4.1 Wire user dir (`~/.tau/themes/`) and project dir (`<cwd>/.tau/themes/`) into `load_themes()` with auto-detection and optional explicit params for testing
+- [x] 4.2 Add startup diagnostics: per-dir INFO logging for each scanned directory, skipped invalid files, skipped built-in shadow, and total theme count
+- [x] 4.3 Document theme format in `dev-notes/tui-theme-format.md`
+- [x] 4.4 Tests: custom theme appears, built-in cannot be shadowed, project overrides user, missing dir is silent, unknown name returns None

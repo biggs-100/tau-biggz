@@ -9,10 +9,10 @@ from dataclasses import dataclass, field
 from inspect import isawaitable
 from typing import Literal
 
-from tau_agent.events import AgentEvent, MessageEndEvent, MessageStartEvent, QueueUpdateEvent
+from tau_agent.events import AgentEvent, MessageEndEvent, MessageStartEvent
 from tau_agent.loop import run_agent_loop
-from tau_agent.messages import AgentMessage, AssistantMessage, ToolResultMessage, UserMessage
-from tau_agent.tools import AgentTool
+from tau_agent.messages import AgentMessage, AssistantMessage, TextContent, ToolResultMessage, UserMessage
+from tau_agent.tools import AgentTool, AgentToolResult, ToolCall
 from tau_ai.provider import ModelProvider
 
 EventListener = Callable[[AgentEvent], Awaitable[None] | None]
@@ -34,7 +34,7 @@ class QueuedMessages:
 
 @dataclass(slots=True)
 class AgentHarnessConfig:
-    """Configuration for an `AgentHarness`."""
+    """Configuration for an ``AgentHarness``."""
 
     provider: ModelProvider
     model: str
@@ -42,6 +42,8 @@ class AgentHarnessConfig:
     tools: list[AgentTool] = field(default_factory=list)
     max_turns: int | None = None
     queue_mode: QueueMode = "one_at_a_time"
+    before_tool_call: Callable[[ToolCall], Awaitable[None] | None] | None = None
+    after_tool_call: Callable[[ToolCall, AgentToolResult], Awaitable[None] | None] | None = None
 
 
 class SimpleCancellationToken:
@@ -62,7 +64,7 @@ class SimpleCancellationToken:
 class AgentHarness:
     """Reusable stateful agent brain.
 
-    The harness owns the transcript and delegates execution to `run_agent_loop`.
+    The harness owns the transcript and delegates execution to ``run_agent_loop``.
     It remains independent of CLI, Rich, Textual, session files, and coding-agent
     resource loading.
     """
@@ -136,23 +138,35 @@ class AgentHarness:
         if self._current_signal is not None:
             self._current_signal.cancel()
 
-    def steer(self, content: str) -> QueueUpdateEvent:
-        """Queue a steering message for the active or next run."""
+    def steer(self, content: str) -> QueuedMessages:
+        """Queue a steering message for the active or next run.
+
+        Returns the current queue state.
+        """
         return self.steer_message(UserMessage(content=content))
 
-    def steer_message(self, message: AgentMessage) -> QueueUpdateEvent:
-        """Queue a message to inject after the current turn/tool batch."""
-        self._steering_queue.append(message)
-        return self.queue_update_event()
+    def steer_message(self, message: AgentMessage) -> QueuedMessages:
+        """Queue a message to inject after the current turn/tool batch.
 
-    def follow_up(self, content: str) -> QueueUpdateEvent:
-        """Queue a follow-up message for when the active run would stop."""
+        Returns the current queue state.
+        """
+        self._steering_queue.append(message)
+        return self.queued_messages
+
+    def follow_up(self, content: str) -> QueuedMessages:
+        """Queue a follow-up message for when the active run would stop.
+
+        Returns the current queue state.
+        """
         return self.follow_up_message(UserMessage(content=content))
 
-    def follow_up_message(self, message: AgentMessage) -> QueueUpdateEvent:
-        """Queue a message to inject when the current run would otherwise stop."""
+    def follow_up_message(self, message: AgentMessage) -> QueuedMessages:
+        """Queue a message to inject when the current run would otherwise stop.
+
+        Returns the current queue state.
+        """
         self._follow_up_queue.append(message)
-        return self.queue_update_event()
+        return self.queued_messages
 
     def clear_queues(self) -> QueuedMessages:
         """Clear all queued messages and return the cleared snapshot."""
@@ -167,12 +181,9 @@ class AgentHarness:
             return None
         return self._follow_up_queue.pop()
 
-    def queue_update_event(self) -> QueueUpdateEvent:
-        """Return the current queue state as a portable agent event."""
-        return QueueUpdateEvent(
-            steering=tuple(message.content for message in self._steering_queue),
-            follow_up=tuple(message.content for message in self._follow_up_queue),
-        )
+    def queue_update_event(self) -> QueuedMessages:
+        """Return the current queue state as a portable snapshot."""
+        return self.queued_messages
 
     def prompt(self, content: str) -> AsyncIterator[AgentEvent]:
         """Append a user message and run the agent loop."""
@@ -193,7 +204,6 @@ class AgentHarness:
     async def _run(self, *, prompt_message: UserMessage | None = None) -> AsyncIterator[AgentEvent]:
         signal = SimpleCancellationToken()
         self._current_signal = signal
-        pending_prompt_event = prompt_message
         try:
             async for event in run_agent_loop(
                 provider=self._config.provider,
@@ -205,17 +215,12 @@ class AgentHarness:
                 signal=signal,
                 get_steering_messages=self._drain_steering_messages,
                 get_follow_up_messages=self._drain_follow_up_messages,
-                get_queue_update=self.queue_update_event,
+                prompt_message=prompt_message,
+                before_tool_call=self._config.before_tool_call,
+                after_tool_call=self._config.after_tool_call,
             ):
                 await self._notify(event)
                 yield event
-                if pending_prompt_event is not None and event.type == "turn_start":
-                    start = MessageStartEvent(message_role="user")
-                    end = MessageEndEvent(message=pending_prompt_event)
-                    for prompt_event in (start, end):
-                        await self._notify(prompt_event)
-                        yield prompt_event
-                    pending_prompt_event = None
         finally:
             if signal.is_cancelled():
                 self._append_interrupted_tool_results()
@@ -280,13 +285,11 @@ class AgentHarness:
                 if tool_call.id in returned_ids:
                     continue
                 returned_ids.add(tool_call.id)
-                content = "Tool call interrupted by user"
                 self._messages.append(
                     ToolResultMessage(
                         tool_call_id=tool_call.id,
-                        name=tool_call.name,
-                        content=content,
-                        ok=False,
-                        error=content,
+                        tool_name=tool_call.name,
+                        content=[TextContent(text="Tool call interrupted by user")],
+                        is_error=True,
                     )
                 )

@@ -6,43 +6,33 @@ These are shared helper functions (not fixtures) used by multiple test files.
 from __future__ import annotations
 
 from tau_agent.messages import AssistantMessage
-from tau_agent.provider_events import (
-    AssistantDoneEvent,
-    AssistantMessageEvent,
-    AssistantStartEvent,
-    TextDeltaEvent,
-    TextEndEvent,
-    TextStartEvent,
-    ToolCallDeltaEvent,
-    ToolCallEndEvent,
-    ToolCallStartEvent,
-)
 from tau_agent.tools import ToolCall
+from tau_ai.events import (
+    ProviderEvent,
+    ProviderResponseEndEvent,
+    ProviderResponseStartEvent,
+    ProviderTextDeltaEvent,
+)
 
 
-def text_stream(content: str) -> list[AssistantMessageEvent]:
+def text_stream(content: str) -> list[ProviderEvent]:
     """Build a text-only provider stream (Pattern A)."""
-    chunks = _chunk_text(content)
-    events: list[AssistantMessageEvent] = [
-        AssistantStartEvent(partial=AssistantMessage(content="")),
-    ]
-    for chunk in chunks:
-        events.append(TextDeltaEvent(content_index=0, delta=chunk))
-    events.append(
-        AssistantDoneEvent(
+    return [
+        ProviderResponseStartEvent(model="fake"),
+        *[ProviderTextDeltaEvent(delta=chunk) for chunk in _chunk_text(content)],
+        ProviderResponseEndEvent(
             message=AssistantMessage(content=content),
-            reason="stop",
+            finish_reason="stop",
         ),
-    )
-    return events
+    ]
 
 
 def tool_call_stream(
     tool_name: str,
     tool_args: dict[str, object],
     text: str,
-) -> list[list[AssistantMessageEvent]]:
-    """Build a tool-call -> text provider stream (Pattern B, two turns).
+) -> list[list[ProviderEvent]]:
+    """Build a tool-call → text provider stream (Pattern B, two turns).
 
     The first stream produces a tool-call response.
     The second stream produces a plain-text response.
@@ -52,12 +42,14 @@ def tool_call_stream(
         name=tool_name,
         arguments=tool_args,
     )
-    stream1: list[AssistantMessageEvent] = [
-        AssistantStartEvent(partial=AssistantMessage(content="")),
-        ToolCallDeltaEvent(content_index=0, partial=tool_call),
-        AssistantDoneEvent(
-            message=AssistantMessage(content="", tool_calls=[tool_call]),
-            reason="tool_calls",
+    stream1: list[ProviderEvent] = [
+        ProviderResponseStartEvent(model="fake"),
+        ProviderResponseEndEvent(
+            message=AssistantMessage(
+                content="",
+                tool_calls=[tool_call],
+            ),
+            finish_reason="tool_calls",
         ),
     ]
     stream2 = text_stream(text)

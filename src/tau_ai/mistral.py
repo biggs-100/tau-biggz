@@ -8,7 +8,7 @@ from typing import Any, Protocol
 
 import httpx
 
-from tau_agent.messages import AgentMessage, AssistantContent, AssistantMessage, TextContent, UserMessage
+from tau_agent.messages import AgentMessage, AssistantMessage, UserMessage
 from tau_agent.tools import AgentTool, ToolCall
 from tau_agent.types import JSONValue
 from tau_ai.env import OpenAICompatibleConfig
@@ -22,10 +22,8 @@ from tau_ai.events import (
     ProviderToolCallEvent,
 )
 from tau_ai.http_errors import provider_http_error_message
-from tau_agent.provider import CancellationToken, ModelProvider
-from tau_agent.provider_events import AssistantMessageEvent
+from tau_ai.provider import CancellationToken
 from tau_ai.retry import provider_retry_event, retry_delay_seconds, wait_for_retry
-from tau_ai.stream import canonicalize_provider_stream
 
 
 class MistralConversationsProvider:
@@ -47,27 +45,7 @@ class MistralConversationsProvider:
             await self._client.aclose()
             self._client = None
 
-    async def stream_response(
-        self,
-        *,
-        model: str,
-        system: str,
-        messages: list[AgentMessage],
-        tools: list[AgentTool],
-        signal: CancellationToken | None = None,
-    ) -> AsyncIterator[AssistantMessageEvent]:
-        """Stream one Mistral response as Pi-compatible assistant events."""
-        raw = self._stream_provider_events(
-            model=model,
-            system=system,
-            messages=messages,
-            tools=tools,
-            signal=signal,
-        )
-        async for event in canonicalize_provider_stream(raw):
-            yield event
-
-    def _stream_provider_events(
+    def stream_response(
         self,
         *,
         model: str,
@@ -243,13 +221,11 @@ class _MistralStreamParser:
         events: list[ProviderEvent] = [
             ProviderToolCallEvent(tool_call=tool_call) for tool_call in tool_calls
         ]
-        content_blocks: list[AssistantContent] = []
-        if self._content_parts:
-            content_blocks.append(TextContent(text="".join(self._content_parts)))
-        content_blocks.extend(tool_calls)
         events.append(
             ProviderResponseEndEvent(
-                message=AssistantMessage(content=content_blocks),
+                message=AssistantMessage(
+                    content="".join(self._content_parts), tool_calls=tool_calls
+                ),
                 finish_reason=self._finish_reason or ("tool_calls" if tool_calls else "stop"),
             )
         )
@@ -323,34 +299,21 @@ def _system_messages(system: str) -> list[dict[str, JSONValue]]:
     return [{"role": "system", "content": system}] if system else []
 
 
-def _msg_text(m: AgentMessage) -> str:
-    from tau_agent.messages import AssistantMessage, TextContent, ToolResultMessage
-    if isinstance(m, (AssistantMessage, ToolResultMessage)):
-        return "".join(b.text for b in m.content if isinstance(b, TextContent))
-    if isinstance(m, UserMessage):
-        if isinstance(m.content, list):
-            return "".join(b.text for b in m.content if isinstance(b, TextContent))
-        return m.content
-    return str(getattr(m, "content", ""))
-
-
 def _message_to_mistral(message: AgentMessage) -> dict[str, JSONValue]:
     if isinstance(message, UserMessage):
-        content = _msg_text(message) if isinstance(message.content, list) else message.content
-        return {"role": "user", "content": content}
+        return {"role": "user", "content": message.content}
     if isinstance(message, AssistantMessage):
-        item: dict[str, JSONValue] = {"role": "assistant", "content": _msg_text(message)}
+        item: dict[str, JSONValue] = {"role": "assistant", "content": message.content}
         if message.tool_calls:
             item["tool_calls"] = [
                 _tool_call_to_mistral(tool_call) for tool_call in message.tool_calls
             ]
         return item
-    name = message.tool_name if hasattr(message, "tool_name") else getattr(message, "name", "?")
     return {
         "role": "tool",
         "tool_call_id": message.tool_call_id,
-        "name": name,
-        "content": _msg_text(message),
+        "name": message.name,
+        "content": message.content,
     }
 
 

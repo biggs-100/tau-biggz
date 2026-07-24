@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import typer
 
-from tau_agent import AgentEvent, AssistantMessage, ErrorEvent, MessageEndEvent
+from tau_agent import AgentEvent, ErrorEvent, MessageEndEvent
 
 
 class FinalTextRenderer:
@@ -18,10 +18,7 @@ class FinalTextRenderer:
     def render(self, event: AgentEvent) -> None:
         """Record events needed for final text output."""
         if isinstance(event, MessageEndEvent):
-            if isinstance(event.message, AssistantMessage):
-                self._last_assistant_text = event.message.text
-            else:
-                self._last_assistant_text = ""
+            self._last_assistant_text = event.message.content
             return
 
         if isinstance(event, ErrorEvent):

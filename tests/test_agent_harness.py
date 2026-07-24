@@ -8,22 +8,25 @@ from tau_agent import (
     AssistantMessage,
     MessageEndEvent,
     MessageStartEvent,
-    TextContent,
     ToolCall,
     ToolResultMessage,
     UserMessage,
 )
 from tau_agent.harness import AgentHarness, AgentHarnessConfig
-from tau_agent.provider_events import AssistantDoneEvent, AssistantStartEvent, TextDeltaEvent
 from tau_agent.types import JSONValue
-from tau_ai import FakeProvider
+from tau_ai import (
+    FakeProvider,
+    ProviderResponseEndEvent,
+    ProviderResponseStartEvent,
+    ProviderTextDeltaEvent,
+)
 
 
 @pytest.mark.anyio
 async def test_prompt_appends_user_message_and_assistant_response() -> None:
-    assistant = AssistantMessage(content=[TextContent(text="Hello")])
+    assistant = AssistantMessage(content="Hello")
     provider = FakeProvider(
-        [AssistantStartEvent(partial=AssistantMessage(content=[])), AssistantDoneEvent(reason="end_turn", message=assistant)]
+        [[ProviderResponseStartEvent(model="fake"), ProviderResponseEndEvent(message=assistant)]]
     )
     harness = AgentHarness(
         AgentHarnessConfig(provider=provider, model="fake", system="You are Tau.")
@@ -41,7 +44,7 @@ async def test_prompt_appends_user_message_and_assistant_response() -> None:
         "turn_end",
         "agent_end",
     ]
-    assert events[2].message.role == "user"  # type: ignore[attr-defined]
+    assert events[2].message_role == "user"  # type: ignore[attr-defined]
     assert events[3].message == UserMessage(content="Hi")  # type: ignore[attr-defined]
     assert harness.messages == (UserMessage(content="Hi"), assistant)
 
@@ -49,9 +52,9 @@ async def test_prompt_appends_user_message_and_assistant_response() -> None:
 @pytest.mark.anyio
 async def test_continue_runs_without_adding_user_message() -> None:
     existing = UserMessage(content="Previous prompt")
-    assistant = AssistantMessage(content=[TextContent(text="Continuing")])
+    assistant = AssistantMessage(content="Continuing")
     provider = FakeProvider(
-        [AssistantStartEvent(partial=AssistantMessage(content=[])), AssistantDoneEvent(reason="end_turn", message=assistant)]
+        [[ProviderResponseStartEvent(model="fake"), ProviderResponseEndEvent(message=assistant)]]
     )
     harness = AgentHarness(
         AgentHarnessConfig(provider=provider, model="fake", system="You are Tau."),
@@ -71,10 +74,10 @@ def test_messages_property_returns_immutable_snapshot() -> None:
     )
 
     snapshot = harness.messages
-    harness.append_message(AssistantMessage(content=[TextContent(text="Hi")]))
+    harness.append_message(AssistantMessage(content="Hi"))
 
     assert snapshot == (UserMessage(content="Hello"),)
-    assert harness.messages == (UserMessage(content="Hello"), AssistantMessage(content=[TextContent(text="Hi")]))
+    assert harness.messages == (UserMessage(content="Hello"), AssistantMessage(content="Hi"))
 
 
 def test_harness_can_replace_messages() -> None:
@@ -114,21 +117,22 @@ def test_harness_can_pop_latest_follow_up_message() -> None:
     popped = harness.pop_latest_follow_up()
 
     assert popped == UserMessage(content="Second")
-    assert harness.queue_update_event().follow_up == (UserMessage(content="First"),)
+    assert harness.queue_update_event().follow_up == ("First",)
     assert harness.pop_latest_follow_up() == UserMessage(content="First")
     assert harness.pop_latest_follow_up() is None
 
 
 @pytest.mark.anyio
 async def test_subscribed_listeners_receive_events_and_can_unsubscribe() -> None:
-    assistant = AssistantMessage(content=[TextContent(text="Hello")])
+    assistant = AssistantMessage(content="Hello")
     provider = FakeProvider(
         [
-            AssistantStartEvent(partial=AssistantMessage(content=[])),
-            TextDeltaEvent(content_index=0, delta="Hello"),
-            AssistantDoneEvent(reason="end_turn", message=assistant),
-            AssistantStartEvent(partial=AssistantMessage(content=[])),
-            AssistantDoneEvent(reason="end_turn", message=assistant),
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderTextDeltaEvent(delta="Hello"),
+                ProviderResponseEndEvent(message=assistant),
+            ],
+            [ProviderResponseStartEvent(model="fake"), ProviderResponseEndEvent(message=assistant)],
         ]
     )
     harness = AgentHarness(
@@ -151,7 +155,7 @@ async def test_subscribed_listeners_receive_events_and_can_unsubscribe() -> None
         "message_start",
         "message_end",
         "message_start",
-        "message_update",
+        "message_delta",
         "message_end",
         "turn_end",
         "agent_end",
@@ -162,10 +166,12 @@ async def test_subscribed_listeners_receive_events_and_can_unsubscribe() -> None
 async def test_cancel_requests_cancellation_for_current_run() -> None:
     provider = FakeProvider(
         [
-            AssistantStartEvent(partial=AssistantMessage(content=[])),
-            TextDeltaEvent(content_index=0, delta="first"),
-            TextDeltaEvent(content_index=0, delta="second"),
-            AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="firstsecond")])),
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderTextDeltaEvent(delta="first"),
+                ProviderTextDeltaEvent(delta="second"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="firstsecond")),
+            ]
         ]
     )
     harness = AgentHarness(
@@ -175,7 +181,7 @@ async def test_cancel_requests_cancellation_for_current_run() -> None:
     events = []
     async for event in harness.prompt("Hi"):
         events.append(event)
-        if event.type == "message_update":
+        if event.type == "message_delta":
             harness.cancel()
 
     assert [event.type for event in events] == [
@@ -184,13 +190,12 @@ async def test_cancel_requests_cancellation_for_current_run() -> None:
         "message_start",
         "message_end",
         "message_start",
-        "message_update",
-        "message_update",
-        "message_end",
+        "message_delta",
+        "error",
         "turn_end",
         "agent_end",
     ]
-    assert harness.messages == (UserMessage(content="Hi"), AssistantMessage(content=[TextContent(text="firstsecond")]))
+    assert harness.messages == (UserMessage(content="Hi"),)
 
 
 @pytest.mark.anyio
@@ -200,7 +205,7 @@ async def test_cancelled_tool_run_repairs_transcript_before_next_prompt() -> Non
         signal: object | None = None,
     ) -> AgentToolResult:
         del arguments, signal
-        return AgentToolResult(content=[TextContent(text="ok")])
+        return AgentToolResult(tool_call_id="call-1", name="read", ok=True, content="ok")
 
     tool = AgentTool(
         name="read",
@@ -212,17 +217,14 @@ async def test_cancelled_tool_run_repairs_transcript_before_next_prompt() -> Non
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(
-                    partial=AssistantMessage(content=[tool_call])
-                ),
-                AssistantDoneEvent(
-                    reason="end_turn",
-                    message=AssistantMessage(content=[TextContent(text="I'll read it."), tool_call]),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(
+                    message=AssistantMessage(content="I'll read it.", tool_calls=[tool_call])
                 ),
             ],
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Recovered.")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Recovered.")),
             ],
         ]
     )
@@ -244,12 +246,13 @@ async def test_cancelled_tool_run_repairs_transcript_before_next_prompt() -> Non
 
     assert harness.messages == (
         UserMessage(content="Read README.md"),
-        AssistantMessage(content=[TextContent(text="I'll read it."), tool_call]),
+        AssistantMessage(content="I'll read it.", tool_calls=[tool_call]),
         ToolResultMessage(
             tool_call_id="call-1",
-            tool_name="read",
-            content=[TextContent(text="Tool call interrupted by user")],
-            is_error=True,
+            name="read",
+            content="Tool call interrupted by user",
+            ok=False,
+            error="Tool call interrupted by user",
         ),
     )
 
@@ -258,12 +261,13 @@ async def test_cancelled_tool_run_repairs_transcript_before_next_prompt() -> Non
     assert events[-1].type == "agent_end"
     assert provider.calls[1][2] == [
         UserMessage(content="Read README.md"),
-        AssistantMessage(content=[TextContent(text="I'll read it."), tool_call]),
+        AssistantMessage(content="I'll read it.", tool_calls=[tool_call]),
         ToolResultMessage(
             tool_call_id="call-1",
-            tool_name="read",
-            content=[TextContent(text="Tool call interrupted by user")],
-            is_error=True,
+            name="read",
+            content="Tool call interrupted by user",
+            ok=False,
+            error="Tool call interrupted by user",
         ),
         UserMessage(content="What happened?"),
     ]
@@ -274,12 +278,12 @@ async def test_harness_rejects_overlapping_prompt_runs() -> None:
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Hello")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Hello")),
             ],
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Queued answer")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Queued answer")),
             ],
         ]
     )
@@ -293,22 +297,22 @@ async def test_harness_rejects_overlapping_prompt_runs() -> None:
         events.append(event)
         if (
             isinstance(event, MessageStartEvent)
-            and event.message.role == "assistant"
+            and event.message_role == "assistant"
             and not queued
         ):
             with pytest.raises(RuntimeError, match="already running"):
                 harness.prompt("Overlapping")
             queue_event = harness.steer("Queued instead")
-            assert queue_event.steering == (UserMessage(content="Queued instead"),)
+            assert queue_event.steering == ("Queued instead",)
             queued = True
 
     assert harness.is_running is False
     assert harness.pending_message_count == 0
     assert harness.messages == (
         UserMessage(content="Hi"),
-        AssistantMessage(content=[TextContent(text="Hello")]),
+        AssistantMessage(content="Hello"),
         UserMessage(content="Queued instead"),
-        AssistantMessage(content=[TextContent(text="Queued answer")]),
+        AssistantMessage(content="Queued answer"),
     )
 
 
@@ -317,16 +321,16 @@ async def test_harness_drains_follow_up_messages_one_at_a_time_by_default() -> N
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="First")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="First")),
             ],
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Second")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Second")),
             ],
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Third")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Third")),
             ],
         ]
     )
@@ -337,17 +341,18 @@ async def test_harness_drains_follow_up_messages_one_at_a_time_by_default() -> N
     events = []
     async for event in harness.prompt("Hi"):
         events.append(event)
-        if isinstance(event, MessageEndEvent) and isinstance(event.message, AssistantMessage) and event.message.text == "First":
+        if isinstance(event, MessageEndEvent) and event.message.content == "First":
             harness.follow_up("Second prompt")
             harness.follow_up("Third prompt")
 
+    assert [event.type for event in events].count("queue_update") == 2
     assert harness.messages == (
         UserMessage(content="Hi"),
-        AssistantMessage(content=[TextContent(text="First")]),
+        AssistantMessage(content="First"),
         UserMessage(content="Second prompt"),
-        AssistantMessage(content=[TextContent(text="Second")]),
+        AssistantMessage(content="Second"),
         UserMessage(content="Third prompt"),
-        AssistantMessage(content=[TextContent(text="Third")]),
+        AssistantMessage(content="Third"),
     )
     assert provider.calls[1][2] == list(harness.messages[:3])
     assert provider.calls[2][2] == list(harness.messages[:5])
@@ -359,12 +364,12 @@ async def test_harness_can_drain_all_queued_messages_together() -> None:
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="First")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="First")),
             ],
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Second")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Second")),
             ],
         ]
     )
@@ -378,16 +383,16 @@ async def test_harness_can_drain_all_queued_messages_together() -> None:
     )
 
     async for event in harness.prompt("Hi"):
-        if isinstance(event, MessageEndEvent) and isinstance(event.message, AssistantMessage) and event.message.text == "First":
+        if isinstance(event, MessageEndEvent) and event.message.content == "First":
             harness.follow_up("Second prompt")
             harness.follow_up("Third prompt")
 
     assert harness.messages == (
         UserMessage(content="Hi"),
-        AssistantMessage(content=[TextContent(text="First")]),
+        AssistantMessage(content="First"),
         UserMessage(content="Second prompt"),
         UserMessage(content="Third prompt"),
-        AssistantMessage(content=[TextContent(text="Second")]),
+        AssistantMessage(content="Second"),
     )
     assert provider.calls[1][2] == list(harness.messages[:4])
 
@@ -400,7 +405,10 @@ async def test_harness_passes_tools_to_loop() -> None:
     ) -> AgentToolResult:
         del signal
         return AgentToolResult(
-            content=[TextContent(text=str(arguments["text"]))],
+            tool_call_id="call-1",
+            name="echo",
+            ok=True,
+            content=str(arguments["text"]),
         )
 
     tool = AgentTool(
@@ -411,8 +419,10 @@ async def test_harness_passes_tools_to_loop() -> None:
     )
     provider = FakeProvider(
         [
-            AssistantStartEvent(partial=AssistantMessage(content=[])),
-            AssistantDoneEvent(reason="end_turn", message=AssistantMessage()),
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage()),
+            ]
         ]
     )
     harness = AgentHarness(

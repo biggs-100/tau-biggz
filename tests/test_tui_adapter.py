@@ -1,19 +1,23 @@
 from pathlib import Path
 
-from tau_agent.events import (
+from tau_agent import (
     AgentEndEvent,
     AgentStartEvent,
+    AgentToolResult,
+    AssistantMessage,
+    ErrorEvent,
+    MessageDeltaEvent,
     MessageEndEvent,
     MessageStartEvent,
-    MessageUpdateEvent,
+    QueueUpdateEvent,
+    RetryEvent,
+    ThinkingDeltaEvent,
+    ToolCall,
     ToolExecutionEndEvent,
     ToolExecutionStartEvent,
     ToolExecutionUpdateEvent,
-    TurnEndEvent,
+    UserMessage,
 )
-from tau_agent.messages import AssistantMessage, TextContent, ThinkingContent, UserMessage
-from tau_agent.provider_events import TextDeltaEvent, ThinkingDeltaEvent
-from tau_agent.tools import AgentToolResult, ToolCall
 from tau_coding.skills import Skill, format_skill_invocation
 from tau_coding.tui import TuiEventAdapter, TuiState
 from tau_coding.tui.state import format_tool_call_block, format_tool_result_block
@@ -34,15 +38,9 @@ def test_tui_adapter_builds_assistant_items_from_streamed_messages() -> None:
     state = TuiState()
     adapter = TuiEventAdapter(state)
 
-    adapter.apply(MessageStartEvent(message=AssistantMessage(content=[])))
-    adapter.apply(MessageUpdateEvent(
-        message=AssistantMessage(content=[TextContent(text="Hel")]),
-        assistant_message_event=TextDeltaEvent(content_index=0, delta="Hel"),
-    ))
-    adapter.apply(MessageUpdateEvent(
-        message=AssistantMessage(content=[TextContent(text="Hello")]),
-        assistant_message_event=TextDeltaEvent(content_index=0, delta="lo"),
-    ))
+    adapter.apply(MessageStartEvent())
+    adapter.apply(MessageDeltaEvent(delta="Hel"))
+    adapter.apply(MessageDeltaEvent(delta="lo"))
     assert state.assistant_buffer == "Hello"
     assert state.items == []
 
@@ -56,7 +54,7 @@ def test_tui_adapter_builds_user_items_from_streamed_messages() -> None:
     state = TuiState()
     adapter = TuiEventAdapter(state)
 
-    adapter.apply(MessageStartEvent(message=UserMessage(content="Hello Tau")))
+    adapter.apply(MessageStartEvent(message_role="user"))
     adapter.apply(MessageEndEvent(message=UserMessage(content="Hello Tau")))
 
     assert state.assistant_buffer == ""
@@ -89,14 +87,8 @@ def test_tui_adapter_groups_thinking_deltas_separately() -> None:
     state = TuiState()
     adapter = TuiEventAdapter(state)
 
-    adapter.apply(MessageUpdateEvent(
-        message=AssistantMessage(content=[ThinkingContent(thinking="hidden ")]),
-        assistant_message_event=ThinkingDeltaEvent(content_index=0, delta="hidden "),
-    ))
-    adapter.apply(MessageUpdateEvent(
-        message=AssistantMessage(content=[ThinkingContent(thinking="hidden reasoning")]),
-        assistant_message_event=ThinkingDeltaEvent(content_index=0, delta="reasoning"),
-    ))
+    adapter.apply(ThinkingDeltaEvent(delta="hidden "))
+    adapter.apply(ThinkingDeltaEvent(delta="reasoning"))
 
     assert [(item.role, item.text) for item in state.items] == [("thinking", "hidden reasoning")]
     assert state.show_thinking is False
@@ -106,15 +98,10 @@ def test_tui_adapter_flushes_assistant_buffer_before_tool_events() -> None:
     state = TuiState()
     adapter = TuiEventAdapter(state)
 
-    adapter.apply(MessageUpdateEvent(
-        message=AssistantMessage(content=[TextContent(text="Before tool")]),
-        assistant_message_event=TextDeltaEvent(content_index=0, delta="Before tool"),
-    ))
+    adapter.apply(MessageDeltaEvent(delta="Before tool"))
     adapter.apply(
         ToolExecutionStartEvent(
-            tool_call_id="call-1",
-            tool_name="read",
-            args={"path": "README.md"},
+            tool_call=ToolCall(id="call-1", name="read", arguments={"path": "README.md"})
         )
     )
 
@@ -137,27 +124,26 @@ def test_tui_adapter_renders_skill_file_reads_with_skill_style() -> None:
 
     adapter.apply(
         ToolExecutionStartEvent(
-            tool_call_id="call-1",
-            tool_name="read",
-            args={"path": "/workspace/.tau/skills/review.md"},
+            tool_call=ToolCall(
+                id="call-1",
+                name="read",
+                arguments={"path": "/workspace/.tau/skills/review.md"},
+            )
         )
     )
     adapter.apply(
         ToolExecutionEndEvent(
-            tool_call_id="call-1",
-            tool_name="read",
             result=AgentToolResult(
                 tool_call_id="call-1",
                 name="read",
-                content=[TextContent(text="# Review\nFull instructions.")],
-            ),
-            is_error=False,
+                ok=True,
+                content="# Review\nFull instructions.",
+            )
         )
     )
 
     assert [(item.role, item.text, item.tool_result_text) for item in state.items] == [
-        ("skill", "Loading skill: review", None),
-        ("tool", "# Review\nFull instructions.", None),
+        ("skill", "Loading skill: review", "✓ read\n# Review\nFull instructions.")
     ]
 
 
@@ -173,9 +159,11 @@ def test_tui_adapter_leaves_ordinary_reads_as_tool_items() -> None:
 
     adapter.apply(
         ToolExecutionStartEvent(
-            tool_call_id="call-1",
-            tool_name="read",
-            args={"path": "/workspace/README.md"},
+            tool_call=ToolCall(
+                id="call-1",
+                name="read",
+                arguments={"path": "/workspace/README.md"},
+            )
         )
     )
 
@@ -220,42 +208,57 @@ def test_tui_adapter_records_tool_updates_and_results() -> None:
     state = TuiState()
     adapter = TuiEventAdapter(state)
 
-    adapter.apply(ToolExecutionUpdateEvent(
-        tool_call_id="call-1",
-        tool_name="read",
-        args={},
-        partial_result=AgentToolResult(content=[TextContent(text="reading")]),
-    ))
+    adapter.apply(ToolExecutionUpdateEvent(tool_call_id="call-1", message="reading"))
     adapter.apply(
         ToolExecutionEndEvent(
-            tool_call_id="call-1",
-            tool_name="read",
-            result=AgentToolResult(
-                content=[TextContent(text="done")],
-                tool_call_id="call-1",
-                name="read",
-            ),
-            is_error=False,
+            result=AgentToolResult(tool_call_id="call-1", name="read", ok=True, content="done")
         )
     )
     adapter.apply(
         ToolExecutionEndEvent(
-            tool_call_id="call-2",
-            tool_name="bash",
             result=AgentToolResult(
-                content=[TextContent(text="failed")],
                 tool_call_id="call-2",
                 name="bash",
-            ),
-            is_error=True,
+                ok=False,
+                content="failed",
+            )
         )
     )
 
     assert [(item.role, item.text, item.tool_result_text) for item in state.items] == [
-        ("tool", "… read", None),
-        ("tool", "done", None),
-        ("tool", "failed", None),
+        ("tool", "… reading", None),
+        ("tool", "✓ read", "✓ read\ndone"),
+        ("tool", "✗ bash", "✗ bash\nfailed"),
     ]
+
+
+def test_tui_adapter_records_retry_status() -> None:
+    state = TuiState()
+    adapter = TuiEventAdapter(state)
+
+    adapter.apply(
+        RetryEvent(
+            attempt=2,
+            max_attempts=3,
+            delay_seconds=0,
+            message="Retrying provider request 2/3 after HTTP 503.",
+        )
+    )
+
+    assert [(item.role, item.text) for item in state.items] == [
+        ("status", "… Retrying provider request 2/3 after HTTP 503.")
+    ]
+
+
+def test_tui_adapter_records_queue_updates() -> None:
+    state = TuiState()
+    adapter = TuiEventAdapter(state)
+
+    adapter.apply(QueueUpdateEvent(steering=("adjust",), follow_up=("after",)))
+
+    assert state.queued_steering == ("adjust",)
+    assert state.queued_follow_up == ("after",)
+    assert state.queued_message_count == 2
 
 
 def test_tool_result_blocks_preview_long_content() -> None:
@@ -275,27 +278,48 @@ def test_tui_adapter_renders_live_edit_patch() -> None:
 
     adapter.apply(
         ToolExecutionEndEvent(
-            tool_call_id="call-1",
-            tool_name="edit",
             result=AgentToolResult(
                 tool_call_id="call-1",
                 name="edit",
-                content=[TextContent(text="Successfully replaced 1 block.")],
-            ),
-            is_error=False,
+                ok=True,
+                content="Successfully replaced 1 block.",
+                data={"patch": "--- a.py\n+++ a.py\n@@\n-old\n+new"},
+            )
         )
     )
 
     assert [(item.role, item.text, item.tool_result_text) for item in state.items] == [
-        ("tool", "Successfully replaced 1 block.", None),
+        (
+            "tool",
+            "✓ edit",
+            "✓ edit\nSuccessfully replaced 1 block.\n\nPatch:\n--- a.py\n+++ a.py\n@@\n-old\n+new",
+        )
     ]
 
 
-def test_tui_adapter_flushes_buffer_on_turn_end() -> None:
+def test_tui_adapter_records_errors_and_stops_on_non_recoverable_error() -> None:
     state = TuiState(running=True, assistant_buffer="partial")
     adapter = TuiEventAdapter(state)
 
-    adapter.apply(TurnEndEvent())
+    adapter.apply(ErrorEvent(message="provider failed", recoverable=False))
 
-    assert state.assistant_buffer == ""
-    assert [(item.role, item.text) for item in state.items] == [("assistant", "partial")]
+    assert state.running is False
+    assert state.error == "provider failed"
+    assert [(item.role, item.text) for item in state.items] == [
+        ("assistant", "partial"),
+        ("error", "Error: provider failed"),
+    ]
+
+
+def test_tui_adapter_renders_cancellation_as_status() -> None:
+    state = TuiState(running=True, assistant_buffer="partial")
+    adapter = TuiEventAdapter(state)
+
+    adapter.apply(ErrorEvent(message="Agent run cancelled", recoverable=True))
+
+    assert state.running is True
+    assert state.error is None
+    assert [(item.role, item.text) for item in state.items] == [
+        ("assistant", "partial"),
+        ("status", "Agent run cancelled."),
+    ]

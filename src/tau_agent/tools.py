@@ -2,26 +2,13 @@
 
 from __future__ import annotations
 
-import dataclasses
-import json
 from collections.abc import Awaitable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Protocol
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from tau_agent.types import JSONValue
-
-
-@dataclass
-class ToolCall:
-    """A request from the assistant to execute a named tool."""
-
-    id: str
-    name: str
-    arguments: dict[str, JSONValue] = field(default_factory=dict)
-    thought_signature: str | None = None
-
-    def model_dump(self) -> dict:
-        return dataclasses.asdict(self)
 
 
 class ToolCancellationToken(Protocol):
@@ -44,24 +31,29 @@ class ToolExecutor(Protocol):
         ...
 
 
-@dataclass
-class AgentToolResult:
+class ToolCall(BaseModel):
+    """A request from the assistant to execute a named tool."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: str
+    arguments: dict[str, JSONValue] = Field(default_factory=dict)
+    thought_signature: str | None = None
+
+
+class AgentToolResult(BaseModel):
     """Structured result returned by a tool execution."""
 
-    content: list = field(default_factory=list)
-    details: JSONValue = None
-    added_tool_names: tuple[str, ...] = ()
-    terminate: bool = False
-    tool_call_id: str = ""
-    name: str = ""
-    ok: bool = True
+    model_config = ConfigDict(extra="forbid")
+
+    tool_call_id: str
+    name: str
+    ok: bool
+    content: str
+    data: dict[str, JSONValue] | None = None
+    details: dict[str, JSONValue] | None = None
     error: str | None = None
-
-    def model_dump(self) -> dict:
-        return dataclasses.asdict(self)
-
-    def model_dump_json(self) -> str:
-        return json.dumps(dataclasses.asdict(self), default=str)
 
 
 @dataclass(frozen=True, slots=True)

@@ -11,7 +11,6 @@ from tau_agent import (
     AgentTool,
     AssistantMessage,
     QueueUpdateEvent,
-    TextContent,
     ToolCall,
     ToolResultMessage,
     UserMessage,
@@ -25,15 +24,14 @@ from tau_agent.session import (
     SessionInfoEntry,
     ThinkingLevelChangeEntry,
 )
-from tau_agent.provider_events import (
-    AssistantDoneEvent,
-    AssistantErrorEvent,
-    AssistantStartEvent,
-)
 from tau_ai import (
     CancellationToken,
     FakeProvider,
     ModelProvider,
+    ProviderErrorEvent,
+    ProviderEvent,
+    ProviderResponseEndEvent,
+    ProviderResponseStartEvent,
 )
 from tau_coding import (
     CodingSession,
@@ -90,10 +88,10 @@ class RaisingProvider:
         messages: list[AgentMessage],
         tools: list[AgentTool],
         signal: CancellationToken | None = None,
-    ) -> AsyncIterator[AssistantStartEvent | AssistantDoneEvent]:
+    ) -> AsyncIterator[ProviderEvent]:
         del model, system, messages, tools, signal
 
-        async def iterator() -> AsyncIterator[AssistantStartEvent | AssistantDoneEvent]:
+        async def iterator() -> AsyncIterator[ProviderEvent]:
             raise RuntimeError("provider exploded")
             yield  # pragma: no cover
 
@@ -115,21 +113,21 @@ class WaitingProvider:
         messages: list[AgentMessage],
         tools: list[AgentTool],
         signal: CancellationToken | None = None,
-    ) -> AsyncIterator[AssistantStartEvent | AssistantDoneEvent]:
+    ) -> AsyncIterator[ProviderEvent]:
         del model, system, tools, signal
         call_index = self.call_count
         self.call_count += 1
         self.calls.append(list(messages))
 
-        async def iterator() -> AsyncIterator[AssistantStartEvent | AssistantDoneEvent]:
+        async def iterator() -> AsyncIterator[ProviderEvent]:
             if call_index == 0:
-                yield AssistantStartEvent(partial=AssistantMessage(content=[]))
+                yield ProviderResponseStartEvent(model="fake")
                 self.started.set()
                 await self.release.wait()
-                yield AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="First")]))
+                yield ProviderResponseEndEvent(message=AssistantMessage(content="First"))
                 return
-            yield AssistantStartEvent(partial=AssistantMessage(content=[]))
-            yield AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Second")]))
+            yield ProviderResponseStartEvent(model="fake")
+            yield ProviderResponseEndEvent(message=AssistantMessage(content="Second"))
 
         return iterator()
 
@@ -148,18 +146,18 @@ class CancellableWaitingProvider:
         messages: list[AgentMessage],
         tools: list[AgentTool],
         signal: CancellationToken | None = None,
-    ) -> AsyncIterator[AssistantStartEvent | AssistantDoneEvent]:
+    ) -> AsyncIterator[ProviderEvent]:
         del model, system, tools
         self.calls.append(list(messages))
 
-        async def iterator() -> AsyncIterator[AssistantStartEvent | AssistantDoneEvent]:
-            yield AssistantStartEvent(partial=AssistantMessage(content=[]))
+        async def iterator() -> AsyncIterator[ProviderEvent]:
+            yield ProviderResponseStartEvent(model="fake")
             self.started.set()
             while not self.release.is_set():
                 if signal is not None and signal.is_cancelled():
                     return
                 await asyncio.sleep(0)
-            yield AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Finished")]))
+            yield ProviderResponseEndEvent(message=AssistantMessage(content="Finished"))
 
         return iterator()
 
@@ -251,25 +249,44 @@ async def test_prompt_logs_unexpected_agent_call_exception(tmp_path: Path) -> No
 
 
 @pytest.mark.anyio
-async def test_prompt_handles_provider_error_event_gracefully(tmp_path: Path) -> None:
+async def test_prompt_logs_error_event_diagnostic_data(tmp_path: Path) -> None:
     storage = JsonlSessionStorage(tmp_path / "session.jsonl")
-    from tau_agent.provider_events import AssistantErrorEvent
+    tau_paths = TauPaths(home=tmp_path / "tau-home", agents_home=tmp_path / "agents-home")
     provider = FakeProvider(
         [
             [
-                AssistantErrorEvent(
-                    reason="error",
-                    error=AssistantMessage(content=[TextContent(text="provider failed")]),
+                ProviderErrorEvent(
+                    message="provider failed",
+                    data={"status_code": 400, "body": "bad request"},
                 )
             ]
         ]
     )
-    session = await CodingSession.load(_config(tmp_path, provider, storage))
+    session = await CodingSession.load(
+        CodingSessionConfig(
+            provider=provider,
+            model="fake",
+            system="You are Tau.",
+            storage=storage,
+            cwd=tmp_path,
+            provider_name="fake-provider",
+            session_id="session-1",
+            resource_paths=TauResourcePaths(root=tau_paths.home, paths=tau_paths),
+        )
+    )
 
-    events = await _collect_session_events(session.prompt("Hello"))
+    await _collect_session_events(session.prompt("Hello"))
 
-    assert session.messages == (UserMessage(content="Hello"),)
-    assert "Hello" in str(events)
+    log_path = tau_paths.agent_calls_log_path
+    assert session.last_diagnostic_log_path == log_path
+    entry = json.loads(log_path.read_text(encoding="utf-8").splitlines()[-1])
+    assert entry["kind"] == "error_event"
+    assert entry["error"] == {
+        "message": "provider failed",
+        "recoverable": False,
+        "data": {"status_code": 400, "body": "bad request"},
+    }
+    assert "Hello" not in log_path.read_text(encoding="utf-8")
 
 
 @pytest.mark.anyio
@@ -282,7 +299,7 @@ async def test_load_persists_repair_for_session_with_interrupted_tail_tool_call(
     tool_call = ToolCall(id="call-1", name="read", arguments={"path": "README.md"})
     assistant_entry = MessageEntry(
         parent_id=user_entry.id,
-        message=AssistantMessage(content=[TextContent(text="I'll read it."), tool_call]),
+        message=AssistantMessage(content="I'll read it.", tool_calls=[tool_call]),
     )
     await storage.append(assistant_entry)
     await storage.append(LeafEntry(parent_id=assistant_entry.id, entry_id=assistant_entry.id))
@@ -290,8 +307,8 @@ async def test_load_persists_repair_for_session_with_interrupted_tail_tool_call(
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Recovered.")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Recovered.")),
             ]
         ]
     )
@@ -307,14 +324,15 @@ async def test_load_persists_repair_for_session_with_interrupted_tail_tool_call(
 
     expected_repair = ToolResultMessage(
         tool_call_id="call-1",
-        tool_name="read",
-        content=[TextContent(text="Tool call interrupted by user")],
-        is_error=True,
+        name="read",
+        content="Tool call interrupted by user",
+        ok=False,
+        error="Tool call interrupted by user",
     )
     assert provider.calls == []
     assert session.messages == (
         UserMessage(content="Read README.md"),
-        AssistantMessage(content=[TextContent(text="I'll read it."), tool_call]),
+        AssistantMessage(content="I'll read it.", tool_calls=[tool_call]),
         expected_repair,
     )
 
@@ -322,7 +340,7 @@ async def test_load_persists_repair_for_session_with_interrupted_tail_tool_call(
     message_entries = [entry for entry in entries if entry.type == "message"]
     assert [entry.message for entry in message_entries] == [
         UserMessage(content="Read README.md"),
-        AssistantMessage(content=[TextContent(text="I'll read it."), tool_call]),
+        AssistantMessage(content="I'll read it.", tool_calls=[tool_call]),
         expected_repair,
     ]
 
@@ -337,7 +355,7 @@ async def test_load_persists_repair_for_historical_interrupted_tool_call(
     tool_call = ToolCall(id="call-1", name="read", arguments={"path": "README.md"})
     assistant_entry = MessageEntry(
         parent_id=user_entry.id,
-        message=AssistantMessage(content=[TextContent(text="I'll read it."), tool_call]),
+        message=AssistantMessage(content="I'll read it.", tool_calls=[tool_call]),
     )
     await storage.append(assistant_entry)
     continued_entry = MessageEntry(
@@ -360,14 +378,15 @@ async def test_load_persists_repair_for_historical_interrupted_tool_call(
 
     expected_repair = ToolResultMessage(
         tool_call_id="call-1",
-        tool_name="read",
-        content=[TextContent(text="Tool call interrupted by user")],
-        is_error=True,
+        name="read",
+        content="Tool call interrupted by user",
+        ok=False,
+        error="Tool call interrupted by user",
     )
     assert provider.calls == []
     assert session.messages == (
         UserMessage(content="Read README.md"),
-        AssistantMessage(content=[TextContent(text="I'll read it."), tool_call]),
+        AssistantMessage(content="I'll read it.", tool_calls=[tool_call]),
         expected_repair,
         UserMessage(content="continue"),
     )
@@ -397,8 +416,8 @@ async def test_prompt_persists_user_assistant_and_leaf_entries(tmp_path: Path) -
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Hi")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Hi")),
             ]
         ]
     )
@@ -548,8 +567,7 @@ async def test_prompt_queues_steering_while_session_is_running(tmp_path: Path) -
     provider.release.set()
     await task
 
-    # Steering is queued via QueuedMessages return (no QueueUpdateEvent emitted)
-    assert len(queue_events) >= 0
+    assert queue_events == [QueueUpdateEvent(steering=("Queued steering",))]
     before_release_messages = [
         entry.message for entry in entries_before_release if entry.type == "message"
     ]
@@ -560,9 +578,9 @@ async def test_prompt_queues_steering_while_session_is_running(tmp_path: Path) -
     )
     assert session.messages == (
         UserMessage(content="Hello"),
-        AssistantMessage(content=[TextContent(text="First")]),
+        AssistantMessage(content="First"),
         UserMessage(content="Queued steering"),
-        AssistantMessage(content=[TextContent(text="Second")]),
+        AssistantMessage(content="Second"),
     )
     assert provider.calls[1] == list(session.messages[:3])
     entries = await storage.read_all()
@@ -570,7 +588,7 @@ async def test_prompt_queues_steering_while_session_is_running(tmp_path: Path) -
     leaf_entries = [entry for entry in entries if entry.type == "leaf"]
     assert [entry.message for entry in message_entries] == list(session.messages)
     assert [entry.entry_id for entry in leaf_entries] == [entry.id for entry in message_entries]
-    assert not any(isinstance(event, QueueUpdateEvent) for event in run_events)
+    assert any(isinstance(event, QueueUpdateEvent) for event in run_events)
 
 
 @pytest.mark.anyio
@@ -670,15 +688,14 @@ async def test_context_usage_recalculates_after_prompt_and_compaction(tmp_path: 
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(
-                    reason="end_turn",
-                    message=AssistantMessage(content=[TextContent(text="Long answer " * 80)]),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(
+                    message=AssistantMessage(content="Long answer " * 80),
                 ),
             ],
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Short summary")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Short summary")),
             ],
         ]
     )
@@ -1158,12 +1175,12 @@ async def test_persist_after_branch_keeps_state_on_active_branch(tmp_path: Path)
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="New answer")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="New answer")),
             ],
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Branch summary")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Branch summary")),
             ],
         ]
     )
@@ -1326,10 +1343,9 @@ async def test_session_branch_with_summary_rebuilds_context(tmp_path: Path) -> N
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(
-                    reason="end_turn",
-                    message=AssistantMessage(content=[TextContent(text="The abandoned branch went left.")])
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(
+                    message=AssistantMessage(content="The abandoned branch went left.")
                 ),
             ]
         ]
@@ -1379,10 +1395,9 @@ async def test_session_branch_with_summary_accepts_custom_instructions(tmp_path:
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(
-                    reason="end_turn",
-                    message=AssistantMessage(content=[TextContent(text="Custom branch summary.")])
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(
+                    message=AssistantMessage(content="Custom branch summary.")
                 ),
             ]
         ]
@@ -1417,8 +1432,8 @@ async def test_session_branch_with_summary_tracks_file_operations(tmp_path: Path
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="File work summary.")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="File work summary.")),
             ]
         ]
     )
@@ -1428,7 +1443,7 @@ async def test_session_branch_with_summary_tracks_file_operations(tmp_path: Path
     assistant = MessageEntry(
         id="assistant",
         parent_id="root",
-        message=AssistantMessage(content=[TextContent(text="Using tools"), read_call, edit_call]),
+        message=AssistantMessage(content="Using tools", tool_calls=[read_call, edit_call]),
     )
     await storage.append(root)
     await storage.append(assistant)
@@ -1482,8 +1497,8 @@ async def test_continue_persists_only_new_messages(tmp_path: Path) -> None:
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Continued")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Continued")),
             ]
         ]
     )
@@ -1506,15 +1521,15 @@ async def test_tool_results_are_persisted(tmp_path: Path) -> None:
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(
-                    reason="tool_calls",
-                    message=AssistantMessage(content=[TextContent(text="Using tool"), tool_call]),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(
+                    message=AssistantMessage(content="Using tool", tool_calls=[tool_call]),
+                    finish_reason="tool_calls",
                 ),
             ],
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Done")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Done")),
             ],
         ]
     )
@@ -1532,8 +1547,8 @@ async def test_session_preserves_explicit_empty_system_prompt(tmp_path: Path) ->
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Done")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Done")),
             ]
         ]
     )
@@ -1565,8 +1580,8 @@ async def test_session_builds_system_prompt_when_system_is_omitted(tmp_path: Pat
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Done")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Done")),
             ]
         ]
     )
@@ -1597,8 +1612,8 @@ async def test_session_touches_session_manager_after_persisting_messages(tmp_pat
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Done")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Done")),
             ]
         ]
     )
@@ -1631,8 +1646,8 @@ async def test_session_loads_and_expands_skills(tmp_path: Path) -> None:
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Done")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Done")),
             ]
         ]
     )
@@ -1696,8 +1711,8 @@ async def test_session_expands_prompt_templates_as_slash_commands(tmp_path: Path
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Done")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Done")),
             ]
         ]
     )
@@ -1733,15 +1748,15 @@ async def test_session_skill_index_lets_agent_read_relevant_skill_file(tmp_path:
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(
-                    reason="tool_calls",
-                    message=AssistantMessage(content=[TextContent(text="Reading skill."), tool_call]),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(
+                    message=AssistantMessage(content="Reading skill.", tool_calls=[tool_call]),
+                    finish_reason="tool_calls",
                 ),
             ],
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Skill applied.")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Skill applied.")),
             ],
         ]
     )
@@ -1764,12 +1779,11 @@ async def test_session_skill_index_lets_agent_read_relevant_skill_file(tmp_path:
     tool_result = provider.calls[1][2][-1]
     assert isinstance(tool_result, ToolResultMessage)
     assert tool_result.tool_call_id == "call-1"
-    assert tool_result.tool_name == "read"
-    assert tool_result.is_error is False
-    text = "".join(b.text for b in tool_result.content if isinstance(b, TextContent))
-    assert "# Testing\nRun pytest." in text
-    assert tool_result.details is not None
-    assert tool_result.details["path"] == str(skill_path)
+    assert tool_result.name == "read"
+    assert tool_result.ok is True
+    assert "# Testing\nRun pytest." in tool_result.content
+    assert tool_result.data is not None
+    assert tool_result.data["path"] == str(skill_path)
 
 
 @pytest.mark.anyio
@@ -1806,8 +1820,8 @@ async def test_session_reload_refreshes_resources_and_system_prompt(tmp_path: Pa
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Done")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Done")),
             ]
         ]
     )
@@ -1951,19 +1965,18 @@ async def test_session_compact_persists_summary_and_rebuilds_context(tmp_path: P
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Session answer")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Session answer")),
             ],
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(
-                    reason="end_turn",
-                    message=AssistantMessage(content=[TextContent(text="Generated session summary")])
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(
+                    message=AssistantMessage(content="Generated session summary")
                 ),
             ],
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Next answer")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Next answer")),
             ],
         ]
     )
@@ -2005,23 +2018,22 @@ async def test_session_auto_compacts_after_response_when_threshold_is_exceeded(
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="First answer")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="First answer")),
             ],
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Second answer")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Second answer")),
             ],
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(
-                    reason="end_turn",
-                    message=AssistantMessage(content=[TextContent(text="Generated automatic summary")])
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(
+                    message=AssistantMessage(content="Generated automatic summary")
                 ),
             ],
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Third answer")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Third answer")),
             ],
         ]
     )
@@ -2063,18 +2075,17 @@ async def test_session_auto_compacts_with_pi_style_default_threshold(
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="First answer")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="First answer")),
             ],
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Second answer")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Second answer")),
             ],
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(
-                    reason="end_turn",
-                    message=AssistantMessage(content=[TextContent(text="Default threshold summary")])
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(
+                    message=AssistantMessage(content="Default threshold summary")
                 ),
             ],
         ]
@@ -2123,29 +2134,23 @@ async def test_session_compacts_and_retries_once_after_context_overflow(
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="First answer")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="First answer")),
             ],
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Second answer")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Second answer")),
             ],
+            [ProviderErrorEvent(message="This model's maximum context length was exceeded.")],
             [
-                AssistantErrorEvent(
-                    reason="error",
-                    error=AssistantMessage(content=[TextContent(text="This model's maximum context length was exceeded.")]),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(
+                    message=AssistantMessage(content="Overflow recovery summary")
                 ),
             ],
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(
-                    reason="end_turn",
-                    message=AssistantMessage(content=[TextContent(text="Overflow recovery summary")])
-                ),
-            ],
-            [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Recovered answer")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Recovered answer")),
             ],
         ]
     )
@@ -2469,8 +2474,8 @@ async def test_session_resumes_indexed_session(tmp_path: Path) -> None:
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Second answer")])),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=AssistantMessage(content="Second answer")),
             ]
         ]
     )
@@ -2496,14 +2501,10 @@ async def test_session_resumes_indexed_session(tmp_path: Path) -> None:
     assert message == f"Resumed session: {second_record.id}"
     assert session.session_id == second_record.id
     assert session.cwd == second_record.cwd
-    from tau_agent import AssistantMessage as _AM
-    assert [
-        item.text if isinstance(item, _AM) else item.content
-        for item in session.messages[:2]
-    ] == ["Earlier", "Restored"]
+    assert [item.content for item in session.messages[:2]] == ["Earlier", "Restored"]
     assert provider.calls[0][2] == [
         UserMessage(content="Earlier"),
-        AssistantMessage(content=[TextContent(text="Restored")]),
+        AssistantMessage(content="Restored"),
         UserMessage(content="Continue."),
     ]
 
@@ -2945,8 +2946,8 @@ async def test_session_new_session_is_indexed_after_first_message(
         return FakeProvider(
             [
                 [
-                    AssistantStartEvent(partial=AssistantMessage(content=[])),
-                    AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="Done")])),
+                    ProviderResponseStartEvent(model="gpt-5"),
+                    ProviderResponseEndEvent(message=AssistantMessage(content="Done")),
                 ]
             ]
         )

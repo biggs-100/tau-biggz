@@ -1,43 +1,36 @@
-"""Pure provider/tool agent loop — Pi event protocol."""
+"""Pure provider/tool agent loop."""
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
-from inspect import isawaitable
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 
 from tau_agent.events import (
     AgentEndEvent,
     AgentEvent,
     AgentStartEvent,
     ErrorEvent,
+    MessageDeltaEvent,
     MessageEndEvent,
     MessageStartEvent,
-    MessageUpdateEvent,
+    QueueUpdateEvent,
+    RetryEvent,
+    ThinkingDeltaEvent,
     ToolExecutionEndEvent,
     ToolExecutionStartEvent,
-    ToolExecutionUpdateEvent,
     TurnEndEvent,
     TurnStartEvent,
 )
-from tau_agent.messages import (
-    AgentMessage,
-    AssistantContent,
-    AssistantMessage,
-    TextContent,
-    ThinkingContent,
-    ToolResultMessage,
-    UserMessage,
-)
-from tau_agent.provider_events import (
-    AssistantDoneEvent,
-    AssistantErrorEvent,
-    AssistantMessageEvent,
-    AssistantStartEvent,
-    TextDeltaEvent,
-    ThinkingDeltaEvent,
-    ToolCallDeltaEvent,
-)
+from tau_agent.messages import AgentMessage, AssistantMessage, ToolResultMessage
 from tau_agent.tools import AgentTool, AgentToolResult, ToolCall
+from tau_agent.types import JSONValue
+from tau_ai.events import (
+    ProviderErrorEvent,
+    ProviderResponseEndEvent,
+    ProviderResponseStartEvent,
+    ProviderRetryEvent,
+    ProviderTextDeltaEvent,
+    ProviderThinkingDeltaEvent,
+)
 from tau_ai.provider import CancellationToken, ModelProvider
 
 
@@ -52,13 +45,11 @@ async def run_agent_loop(
     signal: CancellationToken | None = None,
     get_steering_messages: Callable[[], Sequence[AgentMessage]] | None = None,
     get_follow_up_messages: Callable[[], Sequence[AgentMessage]] | None = None,
-    prompt_message: UserMessage | None = None,
-    before_tool_call: Callable[[ToolCall], Awaitable[None] | None] | None = None,
-    after_tool_call: Callable[[ToolCall, AgentToolResult], Awaitable[None] | None] | None = None,
+    get_queue_update: Callable[[], QueueUpdateEvent] | None = None,
 ) -> AsyncIterator[AgentEvent]:
-    """Run the pure agent loop and stream Pi-compatible agent events.
+    """Run the pure agent loop and stream provider-neutral agent events.
 
-    The passed ``messages`` list is the transcript owned by the caller. The loop
+    The passed `messages` list is the transcript owned by the caller. The loop
     appends assistant messages and tool result messages to it as the run
     progresses. This keeps the loop stateless while allowing a future harness to
     own transcript state.
@@ -66,7 +57,8 @@ async def run_agent_loop(
     yield AgentStartEvent()
 
     if max_turns is not None and max_turns < 1:
-        yield AgentEndEvent(messages=list(messages))
+        yield ErrorEvent(message="max_turns must be at least 1", recoverable=False)
+        yield AgentEndEvent()
         return
 
     tool_by_name = {tool.name: tool for tool in tools}
@@ -74,44 +66,74 @@ async def run_agent_loop(
 
     while max_turns is None or turn <= max_turns:
         if signal is not None and signal.is_cancelled():
+            yield ErrorEvent(message="Agent run cancelled", recoverable=True)
             break
 
-        yield TurnStartEvent()
+        yield TurnStartEvent(turn=turn)
+        assistant_message: AssistantMessage | None = None
+        saw_provider_error = False
 
-        if prompt_message is not None:
-            yield MessageStartEvent(message=prompt_message)
-            yield MessageEndEvent(message=prompt_message)
-            prompt_message = None
-
-        assistant_box: list[AssistantMessage | None] = [None]
-        async for agent_event in _assistant_events(
-            provider.stream_response(  # type: ignore[arg-type]
-                model=model,
-                system=system,
-                messages=messages,
-                tools=tools,
-                signal=signal,
-            ),
-            out=assistant_box,
+        async for provider_event in provider.stream_response(
+            model=model,
+            system=system,
+            messages=messages,
+            tools=tools,
+            signal=signal,
         ):
-            yield agent_event
-        assistant_message = assistant_box[0]
+            if isinstance(provider_event, ProviderResponseStartEvent):
+                yield MessageStartEvent()
+            elif isinstance(provider_event, ProviderTextDeltaEvent):
+                yield MessageDeltaEvent(delta=provider_event.delta)
+            elif isinstance(provider_event, ProviderThinkingDeltaEvent):
+                yield ThinkingDeltaEvent(delta=provider_event.delta)
+            elif isinstance(provider_event, ProviderRetryEvent):
+                yield RetryEvent(
+                    attempt=provider_event.attempt,
+                    max_attempts=provider_event.max_attempts,
+                    delay_seconds=provider_event.delay_seconds,
+                    message=provider_event.message,
+                    data=provider_event.data,
+                )
+            elif isinstance(provider_event, ProviderResponseEndEvent):
+                assistant_message = provider_event.message
+                messages.append(assistant_message)
+                yield MessageEndEvent(message=assistant_message)
+            elif isinstance(provider_event, ProviderErrorEvent):
+                saw_provider_error = True
+                yield ErrorEvent(
+                    message=provider_event.message,
+                    recoverable=False,
+                    data=provider_event.data,
+                )
 
         if assistant_message is None:
+            if signal is not None and signal.is_cancelled():
+                yield ErrorEvent(message="Agent run cancelled", recoverable=True)
+                yield TurnEndEvent(turn=turn)
+                break
+            yield TurnEndEvent(turn=turn)
+            if saw_provider_error:
+                break
+            yield ErrorEvent(message="Provider stream ended without an assistant message")
             break
 
-        messages.append(assistant_message)
-        tool_results: list[AgentToolResult] = []
-
         if not assistant_message.tool_calls:
-            yield TurnEndEvent(message=assistant_message, tool_results=[])
-            queue_events = _inject_queued_messages(messages, get_steering_messages)
+            yield TurnEndEvent(turn=turn)
+            queue_events = _drain_queued_messages(
+                messages,
+                get_steering_messages,
+                get_queue_update,
+            )
             if queue_events:
                 for queue_event in queue_events:
                     yield queue_event
                 turn += 1
                 continue
-            queue_events = _inject_queued_messages(messages, get_follow_up_messages)
+            queue_events = _drain_queued_messages(
+                messages,
+                get_follow_up_messages,
+                get_queue_update,
+            )
             if queue_events:
                 for queue_event in queue_events:
                     yield queue_event
@@ -124,71 +146,30 @@ async def run_agent_loop(
             tool_by_name,
             messages,
             signal,
-            before_tool_call=before_tool_call,
-            after_tool_call=after_tool_call,
         ):
-            if isinstance(tool_event, ToolExecutionEndEvent) and tool_event.result is not None:
-                tool_results.append(tool_event.result)
             yield tool_event
 
-        yield TurnEndEvent(message=assistant_message, tool_results=tool_results)
-        for queue_event in _inject_queued_messages(messages, get_steering_messages):
+        yield TurnEndEvent(turn=turn)
+        for queue_event in _drain_queued_messages(
+            messages,
+            get_steering_messages,
+            get_queue_update,
+        ):
             yield queue_event
         turn += 1
+    else:
+        yield ErrorEvent(
+            message=f"Agent loop stopped after reaching max_turns={max_turns}",
+            recoverable=True,
+        )
 
-    yield AgentEndEvent(messages=list(messages))
-
-
-async def _assistant_events(
-    provider_stream: AsyncIterator[AssistantMessageEvent],
-    *,
-    out: list[AssistantMessage | None],
-) -> AsyncIterator[AgentEvent]:
-    """Consume a provider assistant event stream and yield agent Message events.
-
-    Stores the final ``AssistantMessage`` in ``out[0]``, or ``None`` on error.
-    """
-    text_parts: list[str] = []
-    thinking_parts: list[str] = []
-    tool_call_map: dict[int, ToolCall] = {}
-
-    def _build_message() -> AssistantMessage:
-        blocks: list[AssistantContent] = []
-        if text_parts:
-            blocks.append(TextContent(text="".join(text_parts)))
-        if thinking_parts:
-            blocks.append(ThinkingContent(thinking="".join(thinking_parts)))
-        for idx in sorted(tool_call_map):
-            blocks.append(tool_call_map[idx])
-        return AssistantMessage(content=blocks)
-
-    async for event in provider_stream:
-        if isinstance(event, AssistantStartEvent):
-            yield MessageStartEvent(message=event.partial)
-        elif isinstance(event, TextDeltaEvent):
-            text_parts.append(event.delta)
-            yield MessageUpdateEvent(message=_build_message(), assistant_message_event=event)
-        elif isinstance(event, ThinkingDeltaEvent):
-            thinking_parts.append(event.delta)
-            yield MessageUpdateEvent(message=_build_message(), assistant_message_event=event)
-        elif isinstance(event, ToolCallDeltaEvent):
-            tool_call_map[event.content_index] = event.partial
-            yield MessageUpdateEvent(message=_build_message(), assistant_message_event=event)
-        elif isinstance(event, AssistantDoneEvent):
-            out[0] = event.message
-            if event.message is not None:
-                yield MessageEndEvent(message=event.message)
-            return
-        elif isinstance(event, AssistantErrorEvent):
-            out[0] = None
-            error_text = event.error.text if event.error else "Assistant error"
-            yield ErrorEvent(message=error_text, recoverable=False)
-            return
+    yield AgentEndEvent()
 
 
-def _inject_queued_messages(
+def _drain_queued_messages(
     messages: list[AgentMessage],
     get_messages: Callable[[], Sequence[AgentMessage]] | None,
+    get_queue_update: Callable[[], QueueUpdateEvent] | None,
 ) -> tuple[AgentEvent, ...]:
     if get_messages is None:
         return ()
@@ -199,8 +180,10 @@ def _inject_queued_messages(
     messages.extend(queued_messages)
     events: list[AgentEvent] = []
     for message in queued_messages:
-        events.append(MessageStartEvent(message=message))
+        events.append(MessageStartEvent(message_role=message.role))
         events.append(MessageEndEvent(message=message))
+    if get_queue_update is not None:
+        events.append(get_queue_update())
     return tuple(events)
 
 
@@ -209,34 +192,17 @@ async def _execute_tool_calls(
     tool_by_name: Mapping[str, AgentTool],
     messages: list[AgentMessage],
     signal: CancellationToken | None,
-    before_tool_call: Callable[[ToolCall], Awaitable[None] | None] | None = None,
-    after_tool_call: Callable[[ToolCall, AgentToolResult], Awaitable[None] | None] | None = None,
 ) -> AsyncIterator[AgentEvent]:
     for index, tool_call in enumerate(tool_calls):
         if signal is not None and signal.is_cancelled():
             for cancelled_tool_call in tool_calls[index:]:
                 result = _cancelled_tool_result(cancelled_tool_call)
-                messages.append(
-                    _tool_result_message(result, cancelled_tool_call.id, cancelled_tool_call.name, is_error=True)
-                )
-                yield ToolExecutionEndEvent(
-                    tool_call_id=cancelled_tool_call.id,
-                    tool_name=cancelled_tool_call.name,
-                    result=result,
-                    is_error=True,
-                )
+                messages.append(_tool_result_message(result))
+                yield ToolExecutionEndEvent(result=result)
+            yield ErrorEvent(message="Agent run cancelled", recoverable=True)
             return
 
-        yield ToolExecutionStartEvent(
-            tool_call_id=tool_call.id,
-            tool_name=tool_call.name,
-            args=tool_call.arguments,
-        )
-
-        if before_tool_call is not None:
-            hook_result = before_tool_call(tool_call)
-            if isawaitable(hook_result):
-                await hook_result
+        yield ToolExecutionStartEvent(tool_call=tool_call)
 
         tool = tool_by_name.get(tool_call.name)
         if tool is None:
@@ -244,27 +210,8 @@ async def _execute_tool_calls(
         else:
             result = await _execute_tool(tool, tool_call, signal)
 
-        if after_tool_call is not None:
-            hook_result = after_tool_call(tool_call, result)
-            if isawaitable(hook_result):
-                await hook_result
-
-        is_error = tool is None
-        messages.append(
-            _tool_result_message(result, tool_call.id, tool_call.name, is_error=is_error)
-        )
-        yield ToolExecutionUpdateEvent(
-            tool_call_id=tool_call.id,
-            tool_name=tool_call.name,
-            args=tool_call.arguments,
-            partial_result=result,
-        )
-        yield ToolExecutionEndEvent(
-            tool_call_id=tool_call.id,
-            tool_name=tool_call.name,
-            result=result,
-            is_error=is_error,
-        )
+        messages.append(_tool_result_message(result))
+        yield ToolExecutionEndEvent(result=result)
 
 
 async def _execute_tool(
@@ -273,40 +220,57 @@ async def _execute_tool(
     signal: CancellationToken | None,
 ) -> AgentToolResult:
     try:
-        return await tool.execute(tool_call.arguments, signal=signal)
+        result = await tool.execute(tool_call.arguments, signal=signal)
     except Exception as exc:  # noqa: BLE001 - tools are an isolation boundary
         return AgentToolResult(
-            content=[TextContent(text=str(exc))],
+            tool_call_id=tool_call.id,
+            name=tool_call.name,
+            ok=False,
+            content=str(exc),
+            error=str(exc),
         )
+
+    if result.tool_call_id != tool_call.id:
+        return result.model_copy(update={"tool_call_id": tool_call.id})
+    return result
 
 
 def _unknown_tool_result(tool_call: ToolCall) -> AgentToolResult:
+    message = f"Unknown tool: {tool_call.name}"
     return AgentToolResult(
-        content=[TextContent(text=f"Unknown tool: {tool_call.name}")],
+        tool_call_id=tool_call.id,
+        name=tool_call.name,
+        ok=False,
+        content=message,
+        error=message,
     )
 
 
 def _cancelled_tool_result(tool_call: ToolCall) -> AgentToolResult:
+    message = "Tool call cancelled"
     return AgentToolResult(
-        content=[TextContent(text="Tool call cancelled")],
+        tool_call_id=tool_call.id,
+        name=tool_call.name,
+        ok=False,
+        content=message,
+        error=message,
     )
 
 
-def _tool_result_message(
-    result: AgentToolResult,
-    tool_call_id: str,
-    tool_name: str,
-    *,
-    is_error: bool = False,
-) -> ToolResultMessage:
+def _tool_result_message(result: AgentToolResult) -> ToolResultMessage:
+    data: dict[str, JSONValue] | None = result.data
     content = result.content
-    if isinstance(content, str):
-        content = [TextContent(text=content)]
+    if not result.ok and result.error and result.error not in content:
+        content = f"{content}\n\nError: {result.error}"
+    if data is not None and not content:
+        content = str(data)
 
     return ToolResultMessage(
-        tool_call_id=tool_call_id,
-        tool_name=tool_name,
+        tool_call_id=result.tool_call_id,
+        name=result.name,
         content=content,
-        is_error=is_error,
+        ok=result.ok,
+        data=result.data,
         details=result.details,
+        error=result.error,
     )

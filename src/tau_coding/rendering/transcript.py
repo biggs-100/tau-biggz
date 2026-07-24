@@ -10,24 +10,15 @@ from tau_agent import (
     AgentEndEvent,
     AgentEvent,
     ErrorEvent,
+    MessageDeltaEvent,
     MessageEndEvent,
     MessageStartEvent,
-    MessageUpdateEvent,
+    RetryEvent,
     ToolExecutionEndEvent,
     ToolExecutionStartEvent,
     ToolExecutionUpdateEvent,
 )
-
-from tau_agent.messages import TextContent
-from tau_agent.provider_events import TextDeltaEvent
-from tau_agent.tools import ToolCall
 from tau_coding.tui.state import format_tool_call_block
-
-
-def _result_text(content: list | str) -> str:
-    if isinstance(content, str):
-        return content
-    return "".join(b.text for b in content if isinstance(b, TextContent))
 
 
 class TranscriptRenderer:
@@ -46,33 +37,32 @@ class TranscriptRenderer:
             self._assistant_ended = False
             return
 
-        if isinstance(event, MessageUpdateEvent):
+        if isinstance(event, MessageDeltaEvent):
             self._assistant_started = True
-            if isinstance(event.assistant_message_event, TextDeltaEvent):
-                typer.echo(event.assistant_message_event.delta, nl=False)
+            typer.echo(event.delta, nl=False)
             return
 
         if isinstance(event, ToolExecutionStartEvent):
             self._ensure_assistant_newline()
-            tc = ToolCall(id=event.tool_call_id, name=event.tool_name, arguments=dict(event.args))
-            self._console.print(Text(format_tool_call_block(tc), style="cyan"))
+            self._console.print(Text(format_tool_call_block(event.tool_call), style="cyan"))
             return
 
         if isinstance(event, ToolExecutionUpdateEvent):
             self._ensure_assistant_newline()
-            msg = _result_text(event.partial_result.content) if event.partial_result and event.partial_result.content else ""
-            self._console.print(Text(f"… {msg}", style="bright_black"))
+            self._console.print(Text(f"… {event.message}", style="bright_black"))
+            return
+
+        if isinstance(event, RetryEvent):
+            self._ensure_assistant_newline()
+            self._console.print(Text(f"… {event.message}", style="bright_black"))
             return
 
         if isinstance(event, ToolExecutionEndEvent):
-            if event.result is None:
-                return
             status = "✓" if event.result.ok else "✗"
             style = "green" if event.result.ok else "red"
-            self._print_tool_line(status, event.result.name or event.tool_name, style=style)
+            self._print_tool_line(status, event.result.name, style=style)
             if event.result.content:
-                text = _result_text(event.result.content)
-                self._print_tool_content(text)
+                self._print_tool_content(event.result.content)
             return
 
         if isinstance(event, ErrorEvent):

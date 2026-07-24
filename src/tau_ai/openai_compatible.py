@@ -16,7 +16,7 @@ from typing import Any, Protocol
 
 import httpx
 
-from tau_agent.messages import AgentMessage, AssistantContent, AssistantMessage, TextContent, ToolResultMessage, UserMessage
+from tau_agent.messages import AgentMessage, AssistantMessage, ToolResultMessage, UserMessage
 from tau_agent.tools import AgentTool, ToolCall
 from tau_agent.types import JSONValue
 from tau_ai.env import OpenAICompatibleConfig
@@ -30,10 +30,8 @@ from tau_ai.events import (
     ProviderToolCallEvent,
 )
 from tau_ai.http_errors import provider_http_error_message
-from tau_agent.provider import CancellationToken, ModelProvider
-from tau_agent.provider_events import AssistantMessageEvent
+from tau_ai.provider import CancellationToken
 from tau_ai.retry import provider_retry_event, retry_delay_seconds, wait_for_retry
-from tau_ai.stream import canonicalize_provider_stream
 
 # Models that reject function tools + reasoning_effort on /chat/completions and
 # must use the /v1/responses endpoint instead.
@@ -70,27 +68,7 @@ class OpenAICompatibleProvider:
             await self._client.aclose()
             self._client = None
 
-    async def stream_response(
-        self,
-        *,
-        model: str,
-        system: str,
-        messages: list[AgentMessage],
-        tools: list[AgentTool],
-        signal: CancellationToken | None = None,
-    ) -> AsyncIterator[AssistantMessageEvent]:
-        """Stream one model response as Pi-compatible assistant events."""
-        raw = self._stream_provider_events(
-            model=model,
-            system=system,
-            messages=messages,
-            tools=tools,
-            signal=signal,
-        )
-        async for event in canonicalize_provider_stream(raw):
-            yield event
-
-    def _stream_provider_events(
+    def stream_response(
         self,
         *,
         model: str,
@@ -374,13 +352,11 @@ class _ChatStreamParser:
         events: list[ProviderEvent] = [
             ProviderToolCallEvent(tool_call=tool_call) for tool_call in tool_calls
         ]
-        content_blocks: list[AssistantContent] = []
-        if self._content_parts:
-            content_blocks.append(TextContent(text="".join(self._content_parts)))
-        content_blocks.extend(tool_calls)
         events.append(
             ProviderResponseEndEvent(
-                message=AssistantMessage(content=content_blocks),
+                message=AssistantMessage(
+                    content="".join(self._content_parts), tool_calls=tool_calls
+                ),
                 finish_reason=self._finish_reason,
             )
         )
@@ -479,13 +455,11 @@ class _ResponsesStreamParser:
             ProviderToolCallEvent(tool_call=tool_call) for tool_call in tool_calls
         ]
         finish_reason = _normalize_finish_reason(self._status, has_tool_calls=bool(tool_calls))
-        content_blocks: list[AssistantContent] = []
-        if self._content_parts:
-            content_blocks.append(TextContent(text="".join(self._content_parts)))
-        content_blocks.extend(tool_calls)
         events.append(
             ProviderResponseEndEvent(
-                message=AssistantMessage(content=content_blocks),
+                message=AssistantMessage(
+                    content="".join(self._content_parts), tool_calls=tool_calls
+                ),
                 finish_reason=finish_reason,
             )
         )
@@ -725,16 +699,10 @@ def _messages_to_responses_input(
     items: list[JSONValue] = []
     for message in messages:
         if isinstance(message, UserMessage):
-            content = (
-                "".join(b.text for b in message.content if isinstance(b, TextContent))
-                if isinstance(message.content, list)
-                else message.content
-            )
-            items.append({"role": "user", "content": content})
+            items.append({"role": "user", "content": message.content})
         elif isinstance(message, AssistantMessage):
-            text = message.text
-            if text:
-                items.append({"role": "assistant", "content": text})
+            if message.content:
+                items.append({"role": "assistant", "content": message.content})
             for tool_call in message.tool_calls:
                 items.append(
                     {
@@ -745,16 +713,11 @@ def _messages_to_responses_input(
                     }
                 )
         elif isinstance(message, ToolResultMessage):
-            output = (
-                "".join(b.text for b in message.content if isinstance(b, TextContent))
-                if isinstance(message.content, list)
-                else message.content
-            )
             items.append(
                 {
                     "type": "function_call_output",
                     "call_id": message.tool_call_id,
-                    "output": output,
+                    "output": message.content,
                 }
             )
     return items
@@ -874,14 +837,10 @@ def _system_message(system: str) -> dict[str, JSONValue]:
 
 def _message_to_openai(message: AgentMessage) -> dict[str, JSONValue]:
     if isinstance(message, UserMessage):
-        if isinstance(message.content, list):
-            return {"role": "user", "content": "".join(
-                b.text for b in message.content if isinstance(b, TextContent)
-            )}
         return {"role": "user", "content": message.content}
 
     if isinstance(message, AssistantMessage):
-        item: dict[str, JSONValue] = {"role": "assistant", "content": message.text}
+        item: dict[str, JSONValue] = {"role": "assistant", "content": message.content}
         if message.tool_calls:
             item["tool_calls"] = [
                 _tool_call_to_openai(tool_call) for tool_call in message.tool_calls
@@ -889,16 +848,11 @@ def _message_to_openai(message: AgentMessage) -> dict[str, JSONValue]:
         return item
 
     if isinstance(message, ToolResultMessage):
-        content_str = (
-            "".join(b.text for b in message.content if isinstance(b, TextContent))
-            if isinstance(message.content, list)
-            else message.content
-        )
         return {
             "role": "tool",
             "tool_call_id": message.tool_call_id,
-            "name": message.tool_name,
-            "content": content_str,
+            "name": message.name,
+            "content": message.content,
         }
 
 

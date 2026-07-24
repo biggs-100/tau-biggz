@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 
-from tau_agent.messages import AgentMessage, AssistantContent, AssistantMessage, TextContent, ToolResultMessage, UserMessage
+from tau_agent.messages import AgentMessage, AssistantMessage, ToolResultMessage, UserMessage
 from tau_agent.tools import AgentTool, ToolCall
 from tau_agent.types import JSONValue
 from tau_ai.env import (
@@ -28,10 +28,8 @@ from tau_ai.events import (
     ProviderToolCallEvent,
 )
 from tau_ai.http_errors import provider_http_error_message
-from tau_agent.provider import CancellationToken, ModelProvider
-from tau_agent.provider_events import AssistantMessageEvent
+from tau_ai.provider import CancellationToken
 from tau_ai.retry import provider_retry_event, retry_delay_seconds, wait_for_retry
-from tau_ai.stream import canonicalize_provider_stream
 
 DEFAULT_OPENAI_CODEX_BASE_URL = "https://chatgpt.com/backend-api"
 
@@ -82,27 +80,7 @@ class OpenAICodexProvider:
             await self._client.aclose()
             self._client = None
 
-    async def stream_response(
-        self,
-        *,
-        model: str,
-        system: str,
-        messages: list[AgentMessage],
-        tools: list[AgentTool],
-        signal: CancellationToken | None = None,
-    ) -> AsyncIterator[AssistantMessageEvent]:
-        """Stream one Codex Responses request as Pi-compatible assistant events."""
-        raw = self._stream_provider_events(
-            model=model,
-            system=system,
-            messages=messages,
-            tools=tools,
-            signal=signal,
-        )
-        async for event in canonicalize_provider_stream(raw):
-            yield event
-
-    def _stream_provider_events(
+    def stream_response(
         self,
         *,
         model: str,
@@ -311,17 +289,6 @@ def _build_codex_payload(
     return payload
 
 
-def _msg_text(m: AgentMessage) -> str:
-    from tau_agent.messages import AssistantMessage, TextContent, ToolResultMessage, UserMessage
-    if isinstance(m, (AssistantMessage, ToolResultMessage)):
-        return "".join(b.text for b in m.content if isinstance(b, TextContent))
-    if isinstance(m, UserMessage):
-        if isinstance(m.content, list):
-            return "".join(b.text for b in m.content if isinstance(b, TextContent))
-        return m.content
-    return str(getattr(m, "content", ""))
-
-
 def _messages_to_responses_input(messages: list[AgentMessage]) -> list[JSONValue]:
     items: list[JSONValue] = []
     assistant_index = 0
@@ -330,12 +297,11 @@ def _messages_to_responses_input(messages: list[AgentMessage]) -> list[JSONValue
             items.append(
                 {
                     "role": "user",
-                    "content": [{"type": "input_text", "text": _msg_text(message)}],
+                    "content": [{"type": "input_text", "text": message.content}],
                 }
             )
         elif isinstance(message, AssistantMessage):
-            text = _msg_text(message)
-            if text:
+            if message.content:
                 items.append(
                     {
                         "type": "message",
@@ -343,7 +309,7 @@ def _messages_to_responses_input(messages: list[AgentMessage]) -> list[JSONValue
                         "content": [
                             {
                                 "type": "output_text",
-                                "text": text,
+                                "text": message.content,
                                 "annotations": [],
                             }
                         ],
@@ -369,7 +335,7 @@ def _messages_to_responses_input(messages: list[AgentMessage]) -> list[JSONValue
                 {
                     "type": "function_call_output",
                     "call_id": call_id,
-                    "output": _msg_text(message),
+                    "output": message.content,
                 }
             )
     return items
@@ -522,12 +488,8 @@ async def _codex_provider_events(
             finish_reason = _finish_reason_from_response(event)
             break
 
-    content_blocks: list[AssistantContent] = []
-    if content_parts:
-        content_blocks.append(TextContent(text="".join(content_parts)))
-    content_blocks.extend(tool_calls)
     yield ProviderResponseEndEvent(
-        message=AssistantMessage(content=content_blocks),
+        message=AssistantMessage(content="".join(content_parts), tool_calls=tool_calls),
         finish_reason=finish_reason,
     )
 

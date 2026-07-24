@@ -7,25 +7,28 @@ from tau_agent import (
     AgentTool,
     AgentToolResult,
     AssistantMessage,
+    ErrorEvent,
+    QueueUpdateEvent,
+    RetryEvent,
     SimpleCancellationToken,
-    TextContent,
+    ThinkingDeltaEvent,
     ToolCall,
     ToolExecutionEndEvent,
     ToolResultMessage,
     UserMessage,
 )
 from tau_agent.loop import run_agent_loop
-from tau_agent.provider_events import (
-    AssistantDoneEvent,
-    AssistantErrorEvent,
-    AssistantStartEvent,
-    TextDeltaEvent,
-    TextEndEvent,
-    TextStartEvent,
-    ThinkingDeltaEvent,
-)
 from tau_agent.types import JSONValue
-from tau_ai import CancellationToken, FakeProvider
+from tau_ai import (
+    CancellationToken,
+    FakeProvider,
+    ProviderErrorEvent,
+    ProviderResponseEndEvent,
+    ProviderResponseStartEvent,
+    ProviderRetryEvent,
+    ProviderTextDeltaEvent,
+    ProviderThinkingDeltaEvent,
+)
 
 
 async def _collect(stream: AsyncIterator[AgentEvent]) -> list[AgentEvent]:
@@ -35,13 +38,15 @@ async def _collect(stream: AsyncIterator[AgentEvent]) -> list[AgentEvent]:
 @pytest.mark.anyio
 async def test_agent_loop_streams_text_and_appends_assistant_message() -> None:
     messages = [UserMessage(content="Say hello")]
-    assistant = AssistantMessage(content=[TextContent(text="Hello")])
+    assistant = AssistantMessage(content="Hello")
     provider = FakeProvider(
         [
-            AssistantStartEvent(partial=AssistantMessage(content=[])),
-            TextDeltaEvent(content_index=0, delta="Hel"),
-            TextDeltaEvent(content_index=0, delta="lo"),
-            AssistantDoneEvent(reason="end_turn", message=assistant),
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderTextDeltaEvent(delta="Hel"),
+                ProviderTextDeltaEvent(delta="lo"),
+                ProviderResponseEndEvent(message=assistant, finish_reason="stop"),
+            ]
         ]
     )
 
@@ -59,8 +64,8 @@ async def test_agent_loop_streams_text_and_appends_assistant_message() -> None:
         "agent_start",
         "turn_start",
         "message_start",
-        "message_update",
-        "message_update",
+        "message_delta",
+        "message_delta",
         "message_end",
         "turn_end",
         "agent_end",
@@ -71,14 +76,16 @@ async def test_agent_loop_streams_text_and_appends_assistant_message() -> None:
 @pytest.mark.anyio
 async def test_agent_loop_streams_thinking_deltas_without_recording_them() -> None:
     messages = [UserMessage(content="Think briefly")]
-    assistant = AssistantMessage(content=[TextContent(text="Done")])
+    assistant = AssistantMessage(content="Done")
     provider = FakeProvider(
         [
-            AssistantStartEvent(partial=AssistantMessage(content=[])),
-            ThinkingDeltaEvent(content_index=0, delta="hidden "),
-            ThinkingDeltaEvent(content_index=0, delta="reasoning"),
-            TextDeltaEvent(content_index=1, delta="Done"),
-            AssistantDoneEvent(reason="end_turn", message=assistant),
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderThinkingDeltaEvent(delta="hidden "),
+                ProviderThinkingDeltaEvent(delta="reasoning"),
+                ProviderTextDeltaEvent(delta="Done"),
+                ProviderResponseEndEvent(message=assistant, finish_reason="stop"),
+            ]
         ]
     )
 
@@ -92,21 +99,15 @@ async def test_agent_loop_streams_thinking_deltas_without_recording_them() -> No
         )
     )
 
-    thinking_events = [
-        event.assistant_message_event
-        for event in events
-        if isinstance(event, AgentEvent) and getattr(event, "type", None) == "message_update"
-        and event.assistant_message_event is not None
-        and isinstance(event.assistant_message_event, ThinkingDeltaEvent)
-    ]
+    thinking_events = [event for event in events if isinstance(event, ThinkingDeltaEvent)]
     assert [event.delta for event in thinking_events] == ["hidden ", "reasoning"]
     assert [event.type for event in events] == [
         "agent_start",
         "turn_start",
         "message_start",
-        "message_update",
-        "message_update",
-        "message_update",
+        "thinking_delta",
+        "thinking_delta",
+        "message_delta",
         "message_end",
         "turn_end",
         "agent_end",
@@ -122,7 +123,11 @@ async def test_agent_loop_executes_tools_and_continues_until_no_tool_calls() -> 
     ) -> AgentToolResult:
         del signal
         return AgentToolResult(
-            content=[TextContent(text=f"contents of {arguments['path']}")],
+            tool_call_id="call-1",
+            name="read",
+            ok=True,
+            content=f"contents of {arguments['path']}",
+            data={"path": arguments["path"]},
             details={"source": "fake"},
         )
 
@@ -133,19 +138,19 @@ async def test_agent_loop_executes_tools_and_continues_until_no_tool_calls() -> 
         executor=executor,
     )
     tool_call = ToolCall(id="call-1", name="read", arguments={"path": "README.md"})
-    first_assistant = AssistantMessage(content=[TextContent(text="I'll read it."), tool_call])
-    final_assistant = AssistantMessage(content=[TextContent(text="README.md contains project documentation.")])
+    first_assistant = AssistantMessage(content="I'll read it.", tool_calls=[tool_call])
+    final_assistant = AssistantMessage(content="README.md contains project documentation.")
     messages = [UserMessage(content="Read README.md")]
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[tool_call])),
-                AssistantDoneEvent(reason="end_turn", message=first_assistant),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=first_assistant, finish_reason="tool_calls"),
             ],
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                TextDeltaEvent(content_index=0, delta=final_assistant.text),
-                AssistantDoneEvent(reason="end_turn", message=final_assistant),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderTextDeltaEvent(delta=final_assistant.content),
+                ProviderResponseEndEvent(message=final_assistant, finish_reason="stop"),
             ],
         ]
     )
@@ -166,12 +171,11 @@ async def test_agent_loop_executes_tools_and_continues_until_no_tool_calls() -> 
         "message_start",
         "message_end",
         "tool_execution_start",
-        "tool_execution_update",
         "tool_execution_end",
         "turn_end",
         "turn_start",
         "message_start",
-        "message_update",
+        "message_delta",
         "message_end",
         "turn_end",
         "agent_end",
@@ -181,8 +185,10 @@ async def test_agent_loop_executes_tools_and_continues_until_no_tool_calls() -> 
         first_assistant,
         ToolResultMessage(
             tool_call_id="call-1",
-            tool_name="read",
-            content=[TextContent(text="contents of README.md")],
+            name="read",
+            content="contents of README.md",
+            ok=True,
+            data={"path": "README.md"},
             details={"source": "fake"},
         ),
         final_assistant,
@@ -201,7 +207,7 @@ async def test_agent_loop_passes_cancellation_signal_to_tools() -> None:
     ) -> AgentToolResult:
         del arguments
         observed.append(signal)
-        return AgentToolResult(content=[TextContent(text="ok")])
+        return AgentToolResult(tool_call_id="call-1", name="read", ok=True, content="ok")
 
     tool = AgentTool(
         name="read",
@@ -210,17 +216,17 @@ async def test_agent_loop_passes_cancellation_signal_to_tools() -> None:
         executor=executor,
     )
     tool_call = ToolCall(id="call-1", name="read", arguments={"path": "README.md"})
-    first_assistant = AssistantMessage(content=[TextContent(text="I'll read it."), tool_call])
-    final_assistant = AssistantMessage(content=[TextContent(text="Done.")])
+    first_assistant = AssistantMessage(content="I'll read it.", tool_calls=[tool_call])
+    final_assistant = AssistantMessage(content="Done.")
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[tool_call])),
-                AssistantDoneEvent(reason="end_turn", message=first_assistant),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=first_assistant),
             ],
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=final_assistant),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=final_assistant),
             ],
         ]
     )
@@ -250,7 +256,7 @@ async def test_agent_loop_records_cancelled_results_for_skipped_tool_calls() -> 
         del arguments
         if signal is not None:
             signal.cancel()
-        return AgentToolResult(content=[TextContent(text="ok")])
+        return AgentToolResult(tool_call_id="call-1", name="read", ok=True, content="ok")
 
     tool = AgentTool(
         name="read",
@@ -262,10 +268,10 @@ async def test_agent_loop_records_cancelled_results_for_skipped_tool_calls() -> 
         ToolCall(id="call-1", name="read", arguments={"path": "README.md"}),
         ToolCall(id="call-2", name="read", arguments={"path": "pyproject.toml"}),
     ]
-    assistant = AssistantMessage(content=[TextContent(text="I'll read both."), *tool_calls])
+    assistant = AssistantMessage(content="I'll read both.", tool_calls=tool_calls)
     messages = [UserMessage(content="Read project files")]
     provider = FakeProvider(
-        [AssistantStartEvent(partial=AssistantMessage(content=[*tool_calls])), AssistantDoneEvent(reason="end_turn", message=assistant)]
+        [[ProviderResponseStartEvent(model="fake"), ProviderResponseEndEvent(message=assistant)]]
     )
     signal = SimpleCancellationToken()
 
@@ -283,12 +289,13 @@ async def test_agent_loop_records_cancelled_results_for_skipped_tool_calls() -> 
     assert messages == [
         UserMessage(content="Read project files"),
         assistant,
-        ToolResultMessage(tool_call_id="call-1", tool_name="read", content=[TextContent(text="ok")]),
+        ToolResultMessage(tool_call_id="call-1", name="read", content="ok", ok=True),
         ToolResultMessage(
             tool_call_id="call-2",
-            tool_name="read",
-            content=[TextContent(text="Tool call cancelled")],
-            is_error=True,
+            name="read",
+            content="Tool call cancelled",
+            ok=False,
+            error="Tool call cancelled",
         ),
     ]
     assert [event.type for event in events].count("tool_execution_end") == 2
@@ -302,7 +309,10 @@ async def test_agent_loop_injects_steering_after_tool_batch() -> None:
     ) -> AgentToolResult:
         del signal
         return AgentToolResult(
-            content=[TextContent(text=f"contents of {arguments['path']}")],
+            tool_call_id="call-1",
+            name="read",
+            ok=True,
+            content=f"contents of {arguments['path']}",
         )
 
     tool = AgentTool(
@@ -312,19 +322,19 @@ async def test_agent_loop_injects_steering_after_tool_batch() -> None:
         executor=executor,
     )
     tool_call = ToolCall(id="call-1", name="read", arguments={"path": "README.md"})
-    first_assistant = AssistantMessage(content=[TextContent(text="I'll read it."), tool_call])
-    final_assistant = AssistantMessage(content=[TextContent(text="Updated plan.")])
+    first_assistant = AssistantMessage(content="I'll read it.", tool_calls=[tool_call])
+    final_assistant = AssistantMessage(content="Updated plan.")
     messages = [UserMessage(content="Read README.md")]
     steering_queue = [UserMessage(content="Also summarize it")]
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[tool_call])),
-                AssistantDoneEvent(reason="end_turn", message=first_assistant),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=first_assistant, finish_reason="tool_calls"),
             ],
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=final_assistant),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=final_assistant, finish_reason="stop"),
             ],
         ]
     )
@@ -342,6 +352,7 @@ async def test_agent_loop_injects_steering_after_tool_batch() -> None:
             messages=messages,
             tools=[tool],
             get_steering_messages=get_steering_messages,
+            get_queue_update=lambda: QueueUpdateEvent(),
         )
     )
 
@@ -351,11 +362,11 @@ async def test_agent_loop_injects_steering_after_tool_batch() -> None:
         "message_start",
         "message_end",
         "tool_execution_start",
-        "tool_execution_update",
         "tool_execution_end",
         "turn_end",
         "message_start",
         "message_end",
+        "queue_update",
         "turn_start",
         "message_start",
         "message_end",
@@ -368,8 +379,9 @@ async def test_agent_loop_injects_steering_after_tool_batch() -> None:
         first_assistant,
         ToolResultMessage(
             tool_call_id="call-1",
-            tool_name="read",
-            content=[TextContent(text="contents of README.md")],
+            name="read",
+            content="contents of README.md",
+            ok=True,
         ),
         UserMessage(content="Also summarize it"),
         final_assistant,
@@ -378,19 +390,19 @@ async def test_agent_loop_injects_steering_after_tool_batch() -> None:
 
 @pytest.mark.anyio
 async def test_agent_loop_injects_follow_up_only_when_run_would_stop() -> None:
-    first_assistant = AssistantMessage(content=[TextContent(text="Initial answer.")])
-    final_assistant = AssistantMessage(content=[TextContent(text="Follow-up answer.")])
+    first_assistant = AssistantMessage(content="Initial answer.")
+    final_assistant = AssistantMessage(content="Follow-up answer.")
     messages = [UserMessage(content="Start")]
     follow_up_queue = [UserMessage(content="One more thing")]
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=first_assistant),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=first_assistant, finish_reason="stop"),
             ],
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[])),
-                AssistantDoneEvent(reason="end_turn", message=final_assistant),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=final_assistant, finish_reason="stop"),
             ],
         ]
     )
@@ -408,6 +420,7 @@ async def test_agent_loop_injects_follow_up_only_when_run_would_stop() -> None:
             messages=messages,
             tools=[],
             get_follow_up_messages=get_follow_up_messages,
+            get_queue_update=lambda: QueueUpdateEvent(),
         )
     )
 
@@ -419,6 +432,7 @@ async def test_agent_loop_injects_follow_up_only_when_run_would_stop() -> None:
         "turn_end",
         "message_start",
         "message_end",
+        "queue_update",
         "turn_start",
         "message_start",
         "message_end",
@@ -438,10 +452,15 @@ async def test_agent_loop_injects_follow_up_only_when_run_would_stop() -> None:
 @pytest.mark.anyio
 async def test_agent_loop_records_unknown_tool_as_failed_tool_result() -> None:
     tool_call = ToolCall(id="call-1", name="missing", arguments={})
-    assistant = AssistantMessage(content=[TextContent(text="I'll use a tool."), tool_call])
+    assistant = AssistantMessage(content="I'll use a tool.", tool_calls=[tool_call])
     messages = [UserMessage(content="Use a missing tool")]
     provider = FakeProvider(
-        [AssistantStartEvent(partial=AssistantMessage(content=[tool_call])), AssistantDoneEvent(reason="end_turn", message=assistant)]
+        [
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=assistant, finish_reason="tool_calls"),
+            ]
+        ]
     )
 
     events = await _collect(
@@ -457,19 +476,21 @@ async def test_agent_loop_records_unknown_tool_as_failed_tool_result() -> None:
 
     tool_end_events = [event for event in events if isinstance(event, ToolExecutionEndEvent)]
 
-    assert tool_end_events[0].is_error is True
+    assert tool_end_events[0].result.ok is False
+    assert tool_end_events[0].result.error == "Unknown tool: missing"
     assert messages[-1] == ToolResultMessage(
         tool_call_id="call-1",
-        tool_name="missing",
-        content=[TextContent(text="Unknown tool: missing")],
-        is_error=True,
+        name="missing",
+        content="Unknown tool: missing",
+        ok=False,
+        error="Unknown tool: missing",
     )
 
 
 @pytest.mark.anyio
-async def test_agent_loop_converts_assistant_error_to_loop_exit() -> None:
+async def test_agent_loop_converts_provider_error_to_agent_error() -> None:
     messages = [UserMessage(content="hello")]
-    provider = FakeProvider([AssistantErrorEvent(reason="error")])
+    provider = FakeProvider([[ProviderErrorEvent(message="provider failed")]])
 
     events = await _collect(
         run_agent_loop(
@@ -481,28 +502,36 @@ async def test_agent_loop_converts_assistant_error_to_loop_exit() -> None:
         )
     )
 
+    errors = [event for event in events if isinstance(event, ErrorEvent)]
+
+    assert errors == [ErrorEvent(message="provider failed", recoverable=False)]
     assert [event.type for event in events] == [
         "agent_start",
         "turn_start",
         "error",
+        "turn_end",
         "agent_end",
     ]
     assert messages == [UserMessage(content="hello")]
 
 
 @pytest.mark.anyio
-async def test_agent_loop_has_no_default_max_turn_limit() -> None:
-    tool_call = ToolCall(id="call-1", name="missing", arguments={})
-    looping_assistant = AssistantMessage(content=[TextContent(text="Again."), tool_call])
-    final_assistant = AssistantMessage(content=[TextContent(text="Done.")])
-    messages = [UserMessage(content="loop for a while")]
+async def test_agent_loop_forwards_provider_retry_events() -> None:
+    messages = [UserMessage(content="hello")]
+    assistant = AssistantMessage(content="ok")
     provider = FakeProvider(
         [
-            [AssistantStartEvent(partial=AssistantMessage(content=[tool_call])), AssistantDoneEvent(reason="end_turn", message=looping_assistant)]
-            for _ in range(9)
-        ]
-        + [
-            [AssistantStartEvent(partial=AssistantMessage(content=[])), AssistantDoneEvent(reason="end_turn", message=final_assistant)]
+            [
+                ProviderRetryEvent(
+                    attempt=2,
+                    max_attempts=3,
+                    delay_seconds=0,
+                    message="Retrying provider request 2/3 after HTTP 503.",
+                    data={"status_code": 503},
+                ),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=assistant),
+            ]
         ]
     )
 
@@ -516,6 +545,53 @@ async def test_agent_loop_has_no_default_max_turn_limit() -> None:
         )
     )
 
+    retries = [event for event in events if isinstance(event, RetryEvent)]
+
+    assert retries == [
+        RetryEvent(
+            attempt=2,
+            max_attempts=3,
+            delay_seconds=0,
+            message="Retrying provider request 2/3 after HTTP 503.",
+            data={"status_code": 503},
+        )
+    ]
+    assert messages == [UserMessage(content="hello"), assistant]
+
+
+@pytest.mark.anyio
+async def test_agent_loop_has_no_default_max_turn_limit() -> None:
+    tool_call = ToolCall(id="call-1", name="missing", arguments={})
+    looping_assistant = AssistantMessage(content="Again.", tool_calls=[tool_call])
+    final_assistant = AssistantMessage(content="Done.")
+    messages = [UserMessage(content="loop for a while")]
+    provider = FakeProvider(
+        [
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=looping_assistant, finish_reason="tool_calls"),
+            ]
+            for _ in range(9)
+        ]
+        + [
+            [
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=final_assistant),
+            ]
+        ]
+    )
+
+    events = await _collect(
+        run_agent_loop(
+            provider=provider,
+            model="fake",
+            system="You are Tau.",
+            messages=messages,
+            tools=[],
+        )
+    )
+
+    assert not [event for event in events if isinstance(event, ErrorEvent)]
     assert len(provider.calls) == 10
     assert messages[-1] == final_assistant
 
@@ -523,17 +599,17 @@ async def test_agent_loop_has_no_default_max_turn_limit() -> None:
 @pytest.mark.anyio
 async def test_agent_loop_stops_after_configured_max_turns() -> None:
     tool_call = ToolCall(id="call-1", name="missing", arguments={})
-    assistant = AssistantMessage(content=[TextContent(text="Again."), tool_call])
+    assistant = AssistantMessage(content="Again.", tool_calls=[tool_call])
     messages = [UserMessage(content="loop forever")]
     provider = FakeProvider(
         [
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[tool_call])),
-                AssistantDoneEvent(reason="end_turn", message=assistant),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=assistant, finish_reason="tool_calls"),
             ],
             [
-                AssistantStartEvent(partial=AssistantMessage(content=[tool_call])),
-                AssistantDoneEvent(reason="end_turn", message=assistant),
+                ProviderResponseStartEvent(model="fake"),
+                ProviderResponseEndEvent(message=assistant, finish_reason="tool_calls"),
             ],
         ]
     )
@@ -549,4 +625,9 @@ async def test_agent_loop_stops_after_configured_max_turns() -> None:
         )
     )
 
+    errors = [event for event in events if isinstance(event, ErrorEvent)]
+
+    assert errors == [
+        ErrorEvent(message="Agent loop stopped after reaching max_turns=1", recoverable=True)
+    ]
     assert len(provider.calls) == 1

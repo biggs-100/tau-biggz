@@ -7,7 +7,7 @@ from json import JSONDecodeError, loads
 
 import httpx
 
-from tau_agent.messages import AgentMessage, AssistantContent, AssistantMessage, TextContent, ToolResultMessage, UserMessage
+from tau_agent.messages import AgentMessage, AssistantMessage, UserMessage
 from tau_agent.tools import AgentTool, ToolCall
 from tau_agent.types import JSONValue
 from tau_ai.env import OpenAICompatibleConfig
@@ -21,10 +21,8 @@ from tau_ai.events import (
     ProviderToolCallEvent,
 )
 from tau_ai.http_errors import provider_http_error_message
-from tau_agent.provider import CancellationToken, ModelProvider
-from tau_agent.provider_events import AssistantMessageEvent
+from tau_ai.provider import CancellationToken
 from tau_ai.retry import provider_retry_event, retry_delay_seconds, wait_for_retry
-from tau_ai.stream import canonicalize_provider_stream
 
 
 class GoogleGenerativeAIProvider:
@@ -46,27 +44,7 @@ class GoogleGenerativeAIProvider:
             await self._client.aclose()
             self._client = None
 
-    async def stream_response(
-        self,
-        *,
-        model: str,
-        system: str,
-        messages: list[AgentMessage],
-        tools: list[AgentTool],
-        signal: CancellationToken | None = None,
-    ) -> AsyncIterator[AssistantMessageEvent]:
-        """Stream one Gemini response as Pi-compatible assistant events."""
-        raw = self._stream_provider_events(
-            model=model,
-            system=system,
-            messages=messages,
-            tools=tools,
-            signal=signal,
-        )
-        async for event in canonicalize_provider_stream(raw):
-            yield event
-
-    def _stream_provider_events(
+    def stream_response(
         self,
         *,
         model: str,
@@ -235,16 +213,13 @@ class _GoogleStreamParser:
         return events
 
     def finalize(self) -> list[ProviderEvent]:
-        content_blocks: list[AssistantContent] = []
-        if self._content_parts:
-            content_blocks.append(TextContent(text="".join(self._content_parts)))
-        if self._thinking_parts:
-            from tau_agent.messages import ThinkingContent
-            content_blocks.append(ThinkingContent(thinking="".join(self._thinking_parts)))
-        content_blocks.extend(self._tool_calls)
         return [
             ProviderResponseEndEvent(
-                message=AssistantMessage(content=content_blocks),
+                message=AssistantMessage(
+                    content="".join(self._content_parts),
+                    tool_calls=self._tool_calls,
+                    thinking_text="".join(self._thinking_parts),
+                ),
                 finish_reason=_normalize_finish_reason(
                     self._finish_reason, has_tool_calls=bool(self._tool_calls)
                 ),
@@ -339,24 +314,13 @@ def _is_gemma4_model(model: str) -> bool:
     return "gemma-4" in model.lower() or "gemma4" in model.lower()
 
 
-def _msg_text(m: AgentMessage) -> str:
-    if isinstance(m, (AssistantMessage, ToolResultMessage)):
-        return "".join(b.text for b in m.content if isinstance(b, TextContent))
-    if isinstance(m, UserMessage):
-        if isinstance(m.content, list):
-            return "".join(b.text for b in m.content if isinstance(b, TextContent))
-        return m.content
-    return str(getattr(m, "content", ""))
-
-
 def _message_to_google(message: AgentMessage) -> dict[str, JSONValue]:
     if isinstance(message, UserMessage):
-        return {"role": "user", "parts": [{"text": _msg_text(message)}]}
+        return {"role": "user", "parts": [{"text": message.content}]}
     if isinstance(message, AssistantMessage):
         parts: list[JSONValue] = []
-        text = _msg_text(message)
-        if text:
-            parts.append({"text": text})
+        if message.content:
+            parts.append({"text": message.content})
         for tool_call in message.tool_calls:
             fc: dict[str, JSONValue] = {
                 "id": tool_call.id,
@@ -367,16 +331,9 @@ def _message_to_google(message: AgentMessage) -> dict[str, JSONValue]:
                 fc["thoughtSignature"] = tool_call.thought_signature
             parts.append({"functionCall": fc})
         return {"role": "model", "parts": parts or [{"text": ""}]}
-    name = message.tool_name if hasattr(message, "tool_name") else getattr(message, "name", "?")
-    if hasattr(message, "is_error"):
-        ok = not message.is_error
-    elif hasattr(message, "ok"):
-        ok = message.ok
-    else:
-        ok = True
     response: dict[str, JSONValue] = {
-        "name": name,
-        "response": {"output" if ok else "error": _msg_text(message)},
+        "name": message.name,
+        "response": {"output" if message.ok else "error": message.content},
     }
     if message.tool_call_id:
         response["id"] = message.tool_call_id

@@ -1,58 +1,43 @@
-"""Fake provider for testing — emits Pi-compatible AssistantMessageEvent."""
+"""Deterministic model provider for tests."""
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Iterable
 
-from tau_agent.messages import AssistantMessage, TextContent, ToolCall
-from tau_agent.provider import CancellationToken, ModelProvider
-from tau_agent.provider_events import (
-    AssistantDoneEvent,
-    AssistantMessageEvent,
-    AssistantStartEvent,
-    TextDeltaEvent,
-    TextEndEvent,
-    TextStartEvent,
-    ToolCallDeltaEvent,
-    ToolCallEndEvent,
-    ToolCallStartEvent,
-)
+from tau_agent.messages import AgentMessage
+from tau_agent.tools import AgentTool
+from tau_ai.events import ProviderEvent
+from tau_ai.provider import CancellationToken
 
 
-class FakeProvider(ModelProvider):
-    """Provider that replays scripted Pi events for testing.
+class FakeProvider:
+    """A provider that replays predefined event streams.
 
-    Accepts either a flat sequence of events (single batch) or a sequence
-    of sequences (one batch per ``stream_response`` call) to support
-    multi-turn loops.
+    Each call to `stream_response` consumes the next scripted stream. This gives
+    agent-loop tests deterministic model behavior without network access.
     """
 
-    def __init__(self, scripted_events: Sequence[AssistantMessageEvent] | Sequence[Sequence[AssistantMessageEvent]]) -> None:
-        events = list(scripted_events)
-        if events and isinstance(events[0], (list, tuple)):
-            self._batches = [list(b) for b in events]  # type: ignore[union-attr]
-        else:
-            self._batches = [events]
-        self._batch_index = 0
-        self._calls: list[tuple] = []
+    def __init__(self, streams: Iterable[Iterable[ProviderEvent]]) -> None:
+        self._streams = [list(stream) for stream in streams]
+        self.calls: list[tuple[str, str, list[AgentMessage], list[AgentTool]]] = []
 
-    @property
-    def calls(self) -> list[tuple]:
-        return list(self._calls)
-
-    async def stream_response(
+    def stream_response(
         self,
         *,
         model: str,
         system: str,
-        messages: list,
-        tools: list,
+        messages: list[AgentMessage],
+        tools: list[AgentTool],
         signal: CancellationToken | None = None,
-    ) -> AsyncIterator[AssistantMessageEvent]:
-        self._calls.append((model, system, list(messages), list(tools), signal))
-        batch: list[AssistantMessageEvent] = []
-        if self._batch_index < len(self._batches):
-            batch = self._batches[self._batch_index]
-            self._batch_index += 1
-        for event in batch:
-            yield event
+    ) -> AsyncIterator[ProviderEvent]:
+        """Replay the next scripted stream."""
+        self.calls.append((model, system, list(messages), list(tools)))
+        stream = self._streams.pop(0) if self._streams else []
+
+        async def iterator() -> AsyncIterator[ProviderEvent]:
+            for event in stream:
+                if signal is not None and signal.is_cancelled():
+                    return
+                yield event
+
+        return iterator()

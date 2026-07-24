@@ -1,31 +1,34 @@
-"""Provider protocol — re-exports Pi-compatible contract (backward compat)."""
+"""Provider protocol for Tau model adapters."""
 
-from tau_agent.provider import CancellationToken as CancellationToken
-from tau_agent.provider import ModelProvider as ModelProvider
-from tau_agent.provider_events import (
-    AssistantDoneEvent as AssistantDoneEvent,
-    AssistantErrorEvent as AssistantErrorEvent,
-    AssistantMessageEvent as AssistantMessageEvent,
-    AssistantStartEvent as AssistantStartEvent,
-)
+from __future__ import annotations
 
-from tau_ai._provider_events import (
-    ProviderErrorEvent as ProviderErrorEvent,
-    ProviderEvent as ProviderEvent,
-    ProviderResponseEndEvent as ProviderResponseEndEvent,
-    ProviderResponseStartEvent as ProviderResponseStartEvent,
-    ProviderRetryEvent as ProviderRetryEvent,
-    ProviderTextDeltaEvent as ProviderTextDeltaEvent,
-    ProviderThinkingDeltaEvent as ProviderThinkingDeltaEvent,
-    ProviderToolCallEvent as ProviderToolCallEvent,
-)
+from collections.abc import AsyncIterator
+from typing import Protocol
 
-__all__ = [
-    "CancellationToken", "ModelProvider",
-    "AssistantMessageEvent",
-    "AssistantStartEvent", "AssistantDoneEvent", "AssistantErrorEvent",
-    "ProviderEvent", "ProviderResponseStartEvent",
-    "ProviderTextDeltaEvent", "ProviderThinkingDeltaEvent",
-    "ProviderToolCallEvent", "ProviderResponseEndEvent",
-    "ProviderErrorEvent", "ProviderRetryEvent",
-]
+from tau_agent.messages import AgentMessage
+from tau_agent.tools import AgentTool
+from tau_ai.events import ProviderEvent
+
+
+class CancellationToken(Protocol):
+    """Minimal cancellation interface accepted by providers."""
+
+    def is_cancelled(self) -> bool:
+        """Return whether the current stream should stop."""
+        ...
+
+
+class ModelProvider(Protocol):
+    """Provider-neutral interface for streaming model responses."""
+
+    def stream_response(
+        self,
+        *,
+        model: str,
+        system: str,
+        messages: list[AgentMessage],
+        tools: list[AgentTool],
+        signal: CancellationToken | None = None,
+    ) -> AsyncIterator[ProviderEvent]:
+        """Stream one model response as Tau provider events."""
+        ...

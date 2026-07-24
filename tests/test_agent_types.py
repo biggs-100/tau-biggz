@@ -1,7 +1,7 @@
 from collections.abc import Mapping
 
 import pytest
-
+from pydantic import ValidationError
 
 from tau_agent import (
     AgentTool,
@@ -54,7 +54,7 @@ def test_tool_result_message_records_tool_output() -> None:
 
 
 def test_models_reject_unknown_fields() -> None:
-    with pytest.raises(TypeError):
+    with pytest.raises(ValidationError):
         UserMessage(content="hello", unexpected=True)  # type: ignore[call-arg]
 
 
@@ -104,8 +104,8 @@ def test_events_have_stable_type_names() -> None:
         QueueUpdateEvent(steering=("adjust",), follow_up=()),
         ThinkingDeltaEvent(delta="reasoning"),
         MessageEndEvent(message=message),
-        ToolExecutionStartEvent(tool_call_id=tool_call.id, tool_name=tool_call.name, args=tool_call.arguments),
-        ToolExecutionEndEvent(tool_call_id=tool_call.id, tool_name=tool_call.name, result=result, is_error=False),
+        ToolExecutionStartEvent(tool_call=tool_call),
+        ToolExecutionEndEvent(result=result),
         ErrorEvent(message="boom", recoverable=True),
     ]
 

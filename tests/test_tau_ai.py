@@ -9,24 +9,9 @@ from tau_agent import (
     AgentToolResult,
     AssistantMessage,
     SimpleCancellationToken,
-    TextContent,
     ToolCall,
     ToolResultMessage,
     UserMessage,
-)
-from tau_agent.provider_events import (
-    AssistantDoneEvent,
-    AssistantErrorEvent,
-    AssistantStartEvent,
-    TextDeltaEvent,
-    TextEndEvent,
-    TextStartEvent,
-    ThinkingDeltaEvent,
-    ThinkingEndEvent,
-    ThinkingStartEvent,
-    ToolCallDeltaEvent,
-    ToolCallEndEvent,
-    ToolCallStartEvent,
 )
 from tau_agent.types import JSONValue
 from tau_ai import (
@@ -44,6 +29,8 @@ from tau_ai import (
     ProviderResponseStartEvent,
     ProviderRetryEvent,
     ProviderTextDeltaEvent,
+    ProviderThinkingDeltaEvent,
+    ProviderToolCallEvent,
     openai_compatible_config_from_env,
 )
 
@@ -55,9 +42,9 @@ async def _collect(stream: AsyncIterator[object]) -> list[object]:
 @pytest.mark.anyio
 async def test_fake_provider_replays_scripted_events() -> None:
     scripted = [
-        AssistantStartEvent(partial=AssistantMessage(content=[TextContent(text="hello")])),
-        TextDeltaEvent(content_index=0, delta="hello"),
-        AssistantDoneEvent(reason="end_turn", message=AssistantMessage(content=[TextContent(text="hello")])),
+        ProviderResponseStartEvent(model="fake-model"),
+        ProviderTextDeltaEvent(delta="hello"),
+        ProviderResponseEndEvent(message={"role": "assistant", "content": "hello"}),
     ]
     provider = FakeProvider([scripted])
 
@@ -164,16 +151,15 @@ async def test_openai_compatible_provider_formats_request_and_streams_text() -> 
             )
         )
 
-    assert isinstance(events[0], AssistantStartEvent)
-    assert isinstance(events[1], TextStartEvent)
-    assert isinstance(events[2], TextDeltaEvent)
-    assert events[2].delta == "Hel"
-    assert isinstance(events[3], TextDeltaEvent)
-    assert events[3].delta == "lo"
-    assert isinstance(events[4], TextEndEvent)
-    assert isinstance(events[-1], AssistantDoneEvent)
-    assert events[-1].message.text == "Hello"
-    assert events[-1].reason == "stop"
+    assert [event.type for event in events] == [
+        "response_start",
+        "text_delta",
+        "text_delta",
+        "response_end",
+    ]
+    assert isinstance(events[-1], ProviderResponseEndEvent)
+    assert events[-1].message.content == "Hello"
+    assert events[-1].finish_reason == "stop"
 
     request = requests[0]
     assert request.url == "https://example.test/v1/chat/completions"
@@ -221,7 +207,7 @@ async def test_openai_compatible_provider_includes_configured_reasoning_effort()
             )
         )
 
-    assert isinstance(events[-1], AssistantDoneEvent)
+    assert isinstance(events[-1], ProviderResponseEndEvent)
     assert loads(requests[0].content)["reasoning_effort"] == "high"
 
 
@@ -370,19 +356,17 @@ async def test_openai_compatible_provider_streams_reasoning_content() -> None:
             )
         )
 
-    assert isinstance(events[0], AssistantStartEvent)
-    assert isinstance(events[1], ThinkingStartEvent)
-    assert isinstance(events[2], ThinkingDeltaEvent)
-    assert events[2].delta == "plan "
-    assert isinstance(events[3], ThinkingDeltaEvent)
-    assert events[3].delta == "steps"
-    assert isinstance(events[4], ThinkingEndEvent)
-    assert isinstance(events[5], TextStartEvent)
-    assert isinstance(events[6], TextDeltaEvent)
-    assert events[6].delta == "done"
-    assert isinstance(events[7], TextEndEvent)
-    assert isinstance(events[-1], AssistantDoneEvent)
-    assert events[-1].message.text == "done"
+    assert [event.type for event in events] == [
+        "response_start",
+        "thinking_delta",
+        "thinking_delta",
+        "text_delta",
+        "response_end",
+    ]
+    thinking_events = [event for event in events if isinstance(event, ProviderThinkingDeltaEvent)]
+    assert [event.delta for event in thinking_events] == ["plan ", "steps"]
+    assert isinstance(events[-1], ProviderResponseEndEvent)
+    assert events[-1].message.content == "done"
 
 
 @pytest.mark.anyio
@@ -445,14 +429,18 @@ async def test_openai_compatible_provider_streams_tool_calls() -> None:
             )
         )
 
-    tool_call_events = [event for event in events if isinstance(event, ToolCallDeltaEvent)]
+    tool_call_events = [event for event in events if isinstance(event, ProviderToolCallEvent)]
 
-    assert len(tool_call_events) == 1
-    assert tool_call_events[0].partial == ToolCall(id="call-1", name="read", arguments={"path": "README.md"})
-    assert isinstance(events[-1], AssistantDoneEvent)
+    assert tool_call_events == [
+        ProviderToolCallEvent(
+            tool_call=ToolCall(id="call-1", name="read", arguments={"path": "README.md"})
+        )
+    ]
+    assert isinstance(events[-1], ProviderResponseEndEvent)
     assert events[-1].message.tool_calls == [
         ToolCall(id="call-1", name="read", arguments={"path": "README.md"})
     ]
+    assert events[-1].finish_reason == "tool_calls"
 
 
 @pytest.mark.anyio
@@ -493,7 +481,17 @@ async def test_openai_compatible_provider_retries_transient_status() -> None:
         )
 
     assert len(requests) == 2
-    assert isinstance(events[0], AssistantStartEvent)
+    assert isinstance(events[0], ProviderRetryEvent)
+    assert events[0].attempt == 2
+    assert events[0].max_attempts == 2
+    assert events[0].delay_seconds == 0
+    assert events[0].data == {"status_code": 500, "body": "try again"}
+    assert [event.type for event in events] == [
+        "retry",
+        "response_start",
+        "text_delta",
+        "response_end",
+    ]
 
 
 @pytest.mark.anyio
@@ -528,8 +526,8 @@ async def test_openai_compatible_provider_cancellation_stops_retry_backoff() -> 
             if isinstance(event, ProviderRetryEvent):
                 signal.cancel()
 
-    assert len(requests) == 3
-    assert isinstance(events[-1], AssistantErrorEvent)
+    assert len(requests) == 1
+    assert [event.type for event in events] == ["retry"]
 
 
 @pytest.mark.anyio
@@ -565,12 +563,16 @@ async def test_openai_compatible_provider_does_not_retry_non_transient_status() 
         )
 
     assert len(requests) == 1
-    assert isinstance(events[-1], AssistantErrorEvent)
-    assert events[-1].error is not None
-    assert events[-1].error.text == (
+    assert isinstance(events[-1], ProviderErrorEvent)
+    assert events[-1].message == (
         "test-openai request failed with status 400 for model test-model: "
         "The selected model is unavailable."
     )
+    assert events[-1].data == {
+        "status_code": 400,
+        "body": '{"error":{"message":"The selected model is unavailable."}}',
+        "attempts": 1,
+    }
 
 
 @pytest.mark.anyio
@@ -598,11 +600,15 @@ async def test_openai_compatible_provider_includes_plain_http_error_body_in_mess
             )
         )
 
-    assert isinstance(events[-1], AssistantErrorEvent)
-    assert events[-1].error is not None
-    assert events[-1].error.text == (
+    assert isinstance(events[-1], ProviderErrorEvent)
+    assert events[-1].message == (
         "test-openai request failed with status 400 for model test-model: bad request details"
     )
+    assert events[-1].data == {
+        "status_code": 400,
+        "body": "bad request details",
+        "attempts": 1,
+    }
 
 
 @pytest.mark.anyio
@@ -636,12 +642,16 @@ async def test_openai_codex_provider_includes_http_error_detail_in_message() -> 
             )
         )
 
-    assert isinstance(events[-1], AssistantErrorEvent)
-    assert events[-1].error is not None
-    assert events[-1].error.text == (
+    assert isinstance(events[-1], ProviderErrorEvent)
+    assert events[-1].message == (
         "openai-codex request failed with status 400 for model gpt-5.5: "
         "The requested model does not exist."
     )
+    assert events[-1].data == {
+        "status_code": 400,
+        "body": '{"error":{"message":"The requested model does not exist."}}',
+        "attempts": 1,
+    }
 
 
 @pytest.mark.anyio
@@ -672,11 +682,15 @@ async def test_openai_codex_provider_includes_plain_http_error_body_in_message()
             )
         )
 
-    assert isinstance(events[-1], AssistantErrorEvent)
-    assert events[-1].error is not None
-    assert events[-1].error.text == (
+    assert isinstance(events[-1], ProviderErrorEvent)
+    assert events[-1].message == (
         "openai-codex request failed with status 400 for model gpt-5.5: bad request details"
     )
+    assert events[-1].data == {
+        "status_code": 400,
+        "body": "bad request details",
+        "attempts": 1,
+    }
 
 
 @pytest.mark.anyio
@@ -728,15 +742,15 @@ async def test_openai_codex_provider_formats_request_and_streams_text() -> None:
             )
         )
 
-    assert isinstance(events[0], AssistantStartEvent)
-    assert isinstance(events[1], TextStartEvent)
-    assert isinstance(events[2], TextDeltaEvent)
-    assert events[2].delta == "Hel"
-    assert isinstance(events[3], TextDeltaEvent)
-    assert events[3].delta == "lo"
-    assert isinstance(events[4], TextEndEvent)
-    assert isinstance(events[-1], AssistantDoneEvent)
-    assert events[-1].message.text == "Hello"
+    assert [event.type for event in events] == [
+        "response_start",
+        "text_delta",
+        "text_delta",
+        "response_end",
+    ]
+    assert isinstance(events[-1], ProviderResponseEndEvent)
+    assert events[-1].message.content == "Hello"
+    assert events[-1].finish_reason == "completed"
 
     request = requests[0]
     assert request.url == "https://chatgpt.test/backend-api/codex/responses"
@@ -858,19 +872,17 @@ async def test_openai_codex_provider_streams_reasoning_deltas() -> None:
             )
         )
 
-    assert isinstance(events[0], AssistantStartEvent)
-    assert isinstance(events[1], ThinkingStartEvent)
-    assert isinstance(events[2], ThinkingDeltaEvent)
-    assert events[2].delta == "trace "
-    assert isinstance(events[3], ThinkingDeltaEvent)
-    assert events[3].delta == "details"
-    assert isinstance(events[4], ThinkingEndEvent)
-    assert isinstance(events[5], TextStartEvent)
-    assert isinstance(events[6], TextDeltaEvent)
-    assert events[6].delta == "Done"
-    assert isinstance(events[7], TextEndEvent)
-    assert isinstance(events[-1], AssistantDoneEvent)
-    assert events[-1].message.text == "Done"
+    assert [event.type for event in events] == [
+        "response_start",
+        "thinking_delta",
+        "thinking_delta",
+        "text_delta",
+        "response_end",
+    ]
+    thinking_events = [event for event in events if isinstance(event, ProviderThinkingDeltaEvent)]
+    assert [event.delta for event in thinking_events] == ["trace ", "details"]
+    assert isinstance(events[-1], ProviderResponseEndEvent)
+    assert events[-1].message.content == "Done"
 
 
 @pytest.mark.anyio
@@ -942,11 +954,14 @@ async def test_openai_codex_provider_streams_tool_calls() -> None:
             )
         )
 
-    tool_call_events = [event for event in events if isinstance(event, ToolCallDeltaEvent)]
+    tool_call_events = [event for event in events if isinstance(event, ProviderToolCallEvent)]
 
-    assert len(tool_call_events) == 1
-    assert tool_call_events[0].partial == ToolCall(id="call-1|fc-1", name="read", arguments={"path": "README.md"})
-    assert isinstance(events[-1], AssistantDoneEvent)
+    assert tool_call_events == [
+        ProviderToolCallEvent(
+            tool_call=ToolCall(id="call-1|fc-1", name="read", arguments={"path": "README.md"})
+        )
+    ]
+    assert isinstance(events[-1], ProviderResponseEndEvent)
     assert events[-1].message.tool_calls == [
         ToolCall(id="call-1|fc-1", name="read", arguments={"path": "README.md"})
     ]
@@ -1000,24 +1015,20 @@ async def test_openai_codex_provider_routes_parallel_tool_argument_streams() -> 
             )
         )
 
-    tool_call_events = [event for event in events if isinstance(event, ToolCallDeltaEvent)]
+    tool_call_events = [event for event in events if isinstance(event, ProviderToolCallEvent)]
 
-    expected_tc1 = ToolCall(id="call-1|fc-1", name="read", arguments={"path": "README.md"})
-    expected_tc2 = ToolCall(id="call-2|fc-2", name="run", arguments={"cmd": "pwd"})
-    assert len(tool_call_events) == 2
-    idx = 0
-    for event in tool_call_events:
-        if event.partial.id == "call-1|fc-1":
-            assert event.partial == expected_tc1
-            idx |= 1
-        elif event.partial.id == "call-2|fc-2":
-            assert event.partial == expected_tc2
-            idx |= 2
-    assert idx == 3
-    assert isinstance(events[-1], AssistantDoneEvent)
+    assert tool_call_events == [
+        ProviderToolCallEvent(
+            tool_call=ToolCall(id="call-1|fc-1", name="read", arguments={"path": "README.md"})
+        ),
+        ProviderToolCallEvent(
+            tool_call=ToolCall(id="call-2|fc-2", name="run", arguments={"cmd": "pwd"})
+        ),
+    ]
+    assert isinstance(events[-1], ProviderResponseEndEvent)
     assert events[-1].message.tool_calls == [
-        expected_tc1,
-        expected_tc2,
+        ToolCall(id="call-1|fc-1", name="read", arguments={"path": "README.md"}),
+        ToolCall(id="call-2|fc-2", name="run", arguments={"cmd": "pwd"}),
     ]
 
 
@@ -1060,16 +1071,15 @@ async def test_anthropic_provider_formats_request_and_streams_text() -> None:
             )
         )
 
-    assert isinstance(events[0], AssistantStartEvent)
-    assert isinstance(events[1], TextStartEvent)
-    assert isinstance(events[2], TextDeltaEvent)
-    assert events[2].delta == "Hel"
-    assert isinstance(events[3], TextDeltaEvent)
-    assert events[3].delta == "lo"
-    assert isinstance(events[4], TextEndEvent)
-    assert isinstance(events[-1], AssistantDoneEvent)
-    assert events[-1].message.text == "Hello"
-    assert events[-1].reason == "end_turn"
+    assert [event.type for event in events] == [
+        "response_start",
+        "text_delta",
+        "text_delta",
+        "response_end",
+    ]
+    assert isinstance(events[-1], ProviderResponseEndEvent)
+    assert events[-1].message.content == "Hello"
+    assert events[-1].finish_reason == "end_turn"
 
     request = requests[0]
     assert request.url == "https://api.anthropic.test/v1/messages"
@@ -1154,19 +1164,17 @@ async def test_anthropic_provider_streams_thinking_deltas() -> None:
             )
         )
 
-    assert isinstance(events[0], AssistantStartEvent)
-    assert isinstance(events[1], ThinkingStartEvent)
-    assert isinstance(events[2], ThinkingDeltaEvent)
-    assert events[2].delta == "trace "
-    assert isinstance(events[3], ThinkingDeltaEvent)
-    assert events[3].delta == "details"
-    assert isinstance(events[4], ThinkingEndEvent)
-    assert isinstance(events[5], TextStartEvent)
-    assert isinstance(events[6], TextDeltaEvent)
-    assert events[6].delta == "Done"
-    assert isinstance(events[7], TextEndEvent)
-    assert isinstance(events[-1], AssistantDoneEvent)
-    assert events[-1].message.text == "Done"
+    assert [event.type for event in events] == [
+        "response_start",
+        "thinking_delta",
+        "thinking_delta",
+        "text_delta",
+        "response_end",
+    ]
+    thinking_events = [event for event in events if isinstance(event, ProviderThinkingDeltaEvent)]
+    assert [event.delta for event in thinking_events] == ["trace ", "details"]
+    assert isinstance(events[-1], ProviderResponseEndEvent)
+    assert events[-1].message.content == "Done"
 
 
 @pytest.mark.anyio
@@ -1209,7 +1217,14 @@ async def test_anthropic_provider_retries_transient_status_with_event() -> None:
         )
 
     assert len(requests) == 2
-    assert isinstance(events[0], AssistantStartEvent)
+    assert isinstance(events[0], ProviderRetryEvent)
+    assert events[0].data == {"status_code": 503, "body": "overloaded"}
+    assert [event.type for event in events] == [
+        "retry",
+        "response_start",
+        "text_delta",
+        "response_end",
+    ]
 
 
 @pytest.mark.anyio
@@ -1240,12 +1255,16 @@ async def test_anthropic_provider_includes_http_error_detail_in_message() -> Non
             )
         )
 
-    assert isinstance(events[-1], AssistantErrorEvent)
-    assert events[-1].error is not None
-    assert events[-1].error.text == (
+    assert isinstance(events[-1], ProviderErrorEvent)
+    assert events[-1].message == (
         "anthropic request failed with status 400 for model claude-test: "
         "model: invalid-model is not supported"
     )
+    assert events[-1].data == {
+        "status_code": 400,
+        "body": '{"error":{"message":"model: invalid-model is not supported"}}',
+        "attempts": 1,
+    }
 
 
 def _weather_tool() -> AgentTool:
@@ -1255,7 +1274,7 @@ def _weather_tool() -> AgentTool:
     ) -> AgentToolResult:
         del signal
         return AgentToolResult(
-            content=[TextContent(text=str(arguments))]
+            tool_call_id="call_1", name="get_weather", ok=True, content=str(arguments)
         )
 
     return AgentTool(
@@ -1299,9 +1318,10 @@ async def test_responses_api_formats_request_for_restricted_model() -> None:
     messages = [
         UserMessage(content="weather in Paris?"),
         AssistantMessage(
-            content=[ToolCall(id="call_1", name="get_weather", arguments={"city": "Paris"})],
+            content="",
+            tool_calls=[ToolCall(id="call_1", name="get_weather", arguments={"city": "Paris"})],
         ),
-        ToolResultMessage(tool_call_id="call_1", tool_name="get_weather", content=[TextContent(text='{"temp_c": 19}')]),
+        ToolResultMessage(tool_call_id="call_1", name="get_weather", content='{"temp_c": 19}'),
         UserMessage(content="summarize"),
     ]
 
@@ -1324,15 +1344,15 @@ async def test_responses_api_formats_request_for_restricted_model() -> None:
             )
         )
 
-    assert isinstance(events[0], AssistantStartEvent)
-    assert isinstance(events[1], TextStartEvent)
-    assert isinstance(events[2], TextDeltaEvent)
-    assert events[2].delta == "Sun"
-    assert isinstance(events[3], TextDeltaEvent)
-    assert events[3].delta == "ny"
-    assert isinstance(events[4], TextEndEvent)
-    assert isinstance(events[-1], AssistantDoneEvent)
-    assert events[-1].message.text == "Sunny"
+    assert [event.type for event in events] == [
+        "response_start",
+        "text_delta",
+        "text_delta",
+        "response_end",
+    ]
+    assert isinstance(events[-1], ProviderResponseEndEvent)
+    assert events[-1].message.content == "Sunny"
+    assert events[-1].finish_reason == "stop"
 
     request = requests[0]
     assert request.url == "https://example.test/v1/responses"
@@ -1408,18 +1428,18 @@ async def test_responses_api_parses_streamed_tool_call() -> None:
             )
         )
 
-    tool_call_events = [e for e in events if isinstance(e, ToolCallDeltaEvent)]
+    tool_call_events = [e for e in events if isinstance(e, ProviderToolCallEvent)]
     assert len(tool_call_events) == 1
-    assert tool_call_events[0].partial.id == "call_abc"
-    assert tool_call_events[0].partial.name == "get_weather"
-    assert tool_call_events[0].partial.arguments == {"city": "Paris"}
+    assert tool_call_events[0].tool_call.id == "call_abc"
+    assert tool_call_events[0].tool_call.name == "get_weather"
+    assert tool_call_events[0].tool_call.arguments == {"city": "Paris"}
 
     end = events[-1]
-    assert isinstance(end, AssistantDoneEvent)
+    assert isinstance(end, ProviderResponseEndEvent)
     assert len(end.message.tool_calls) == 1
     assert end.message.tool_calls[0].id == "call_abc"
     assert end.message.tool_calls[0].arguments == {"city": "Paris"}
-    assert end.reason == "tool_calls"
+    assert end.finish_reason == "tool_calls"
 
 
 @pytest.mark.anyio
@@ -1452,14 +1472,18 @@ async def test_responses_api_streams_refusal_as_text() -> None:
             )
         )
 
-    assert isinstance(events[0], AssistantStartEvent)
-    text_deltas = [e for e in events if isinstance(e, TextDeltaEvent)]
-    assert len(text_deltas) == 2
-    assert text_deltas[0].delta == "I can"
-    assert text_deltas[1].delta == "not help with that."
+    assert [event.type for event in events] == [
+        "response_start",
+        "text_delta",
+        "text_delta",
+        "response_end",
+    ]
+    text_deltas = [e.delta for e in events if isinstance(e, ProviderTextDeltaEvent)]
+    assert text_deltas == ["I can", "not help with that."]
     end = events[-1]
-    assert isinstance(end, AssistantDoneEvent)
-    assert end.message.text == "I cannot help with that."
+    assert isinstance(end, ProviderResponseEndEvent)
+    assert end.message.content == "I cannot help with that."
+    assert end.finish_reason == "stop"
 
 
 @pytest.mark.anyio
@@ -1495,16 +1519,14 @@ async def test_responses_api_streams_reasoning_summary_as_thinking() -> None:
             )
         )
 
-    assert isinstance(events[0], AssistantStartEvent)
-    assert isinstance(events[1], ThinkingStartEvent)
-    assert isinstance(events[2], ThinkingDeltaEvent)
-    assert events[2].delta == "Considering"
-    assert isinstance(events[3], ThinkingEndEvent)
-    assert isinstance(events[4], TextStartEvent)
-    assert isinstance(events[5], TextDeltaEvent)
-    assert events[5].delta == "Answer"
-    assert isinstance(events[6], TextEndEvent)
-    assert isinstance(events[-1], AssistantDoneEvent)
+    assert [event.type for event in events] == [
+        "response_start",
+        "thinking_delta",
+        "text_delta",
+        "response_end",
+    ]
+    thinking = next(e for e in events if isinstance(e, ProviderThinkingDeltaEvent))
+    assert thinking.delta == "Considering"
 
 
 @pytest.mark.anyio
@@ -1572,10 +1594,12 @@ async def test_responses_api_surfaces_stream_failure() -> None:
             )
         )
 
-    error_events = [e for e in events if isinstance(e, AssistantErrorEvent)]
+    error_events = [e for e in events if isinstance(e, ProviderErrorEvent)]
     assert len(error_events) == 1
-    assert error_events[0].error is not None
-    assert error_events[0].error.text == "model exploded"
+    assert error_events[0].message == "model exploded"
+    # The raw event is preserved for debugging (code/param/type, etc.).
+    assert error_events[0].data is not None
+    assert error_events[0].data["event"]["type"] == "response.failed"
 
 
 @pytest.mark.anyio
@@ -1618,7 +1642,7 @@ async def test_responses_api_orders_parallel_tool_calls_by_output_index() -> Non
         )
 
     end = events[-1]
-    assert isinstance(end, AssistantDoneEvent)
+    assert isinstance(end, ProviderResponseEndEvent)
     assert [tc.id for tc in end.message.tool_calls] == ["call_a", "call_b"]
     assert [tc.arguments["city"] for tc in end.message.tool_calls] == ["A", "B"]
 
@@ -1647,10 +1671,9 @@ async def test_responses_api_surfaces_top_level_error_event() -> None:
             )
         )
 
-    error_events = [e for e in events if isinstance(e, AssistantErrorEvent)]
+    error_events = [e for e in events if isinstance(e, ProviderErrorEvent)]
     assert len(error_events) == 1
-    assert error_events[0].error is not None
-    assert error_events[0].error.text == "rate limited"
+    assert error_events[0].message == "rate limited"
 
 
 @pytest.mark.anyio
@@ -1681,5 +1704,6 @@ async def test_responses_api_maps_incomplete_status_to_length() -> None:
         )
 
     end = events[-1]
-    assert isinstance(end, AssistantDoneEvent)
-    assert end.message.text == "partial"
+    assert isinstance(end, ProviderResponseEndEvent)
+    assert end.message.content == "partial"
+    assert end.finish_reason == "length"

@@ -14,7 +14,7 @@ from tau_agent.events import (
     ToolExecutionUpdateEvent,
     TurnEndEvent,
 )
-from tau_agent.messages import AssistantMessage, TextContent, ThinkingContent, ToolCall, UserMessage
+from tau_agent.messages import AssistantMessage, TextContent, ThinkingContent, UserMessage
 from tau_agent.provider_events import TextDeltaEvent, ThinkingDeltaEvent, ToolCallDeltaEvent
 from tau_coding.tui.state import TuiState
 
@@ -24,12 +24,14 @@ class TuiEventAdapter:
 
     def __init__(self, state: TuiState) -> None:
         self.state = state
+        self._assistant_start_item_index: int | None = None
 
     def apply(self, event: AgentEvent) -> None:
         """Apply one agent event to the display state."""
         if isinstance(event, AgentStartEvent):
             self.state.running = True
             self.state.error = None
+            self._assistant_start_item_index = None
             return
 
         if isinstance(event, AgentEndEvent):
@@ -38,9 +40,12 @@ class TuiEventAdapter:
             return
 
         if isinstance(event, MessageStartEvent):
-            role = event.message.role if event.message else ""
-            if role == "assistant":
+            msg = event.message
+            if msg is None:
+                return
+            if msg.role == "assistant":
                 self.state.assistant_buffer = ""
+                self._assistant_start_item_index = len(self.state.items)
             return
 
         if isinstance(event, MessageUpdateEvent):
@@ -59,17 +64,27 @@ class TuiEventAdapter:
             if msg is None:
                 return
             if isinstance(msg, UserMessage):
-                content = msg.text if isinstance(msg.content, list) else msg.content
-                self.state.add_user_message(str(content))
+                text = msg.text if hasattr(msg, "text") else str(msg.content)
+                self.state.add_user_message(text)
                 return
             if msg.role == "toolResult":
                 return
-            text = msg.text if isinstance(msg, AssistantMessage) else str(msg.content)
-            if not text:
-                text = self.state.assistant_buffer
+            if isinstance(msg, AssistantMessage):
+                # Clear provisional streaming items before inserting final message
+                if self._assistant_start_item_index is not None:
+                    del self.state.items[self._assistant_start_item_index:]
+                    self._assistant_start_item_index = None
+                text = msg.text if hasattr(msg, "text") else ""
+                if not text:
+                    text = self.state.assistant_buffer
+                if text:
+                    self.state.add_item("assistant", text)
+                self.state.assistant_buffer = ""
+                return
+            # Fallback for other message types
+            text = str(msg.content) if hasattr(msg, "content") else ""
             if text:
                 self.state.add_item("assistant", text)
-            self.state.assistant_buffer = ""
             return
 
         if isinstance(event, ToolExecutionStartEvent):

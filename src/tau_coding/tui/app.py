@@ -1116,7 +1116,7 @@ class TauTuiApp(App[None]):
             )
             self._refresh_chrome()
             return
-        if isinstance(event, ToolExecutionUpdateEvent | ErrorEvent):
+        if isinstance(event, ToolExecutionUpdateEvent):
             await transcript.finish_assistant_message()
             if self.state.items:
                 await transcript.append_item(

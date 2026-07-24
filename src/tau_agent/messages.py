@@ -80,6 +80,15 @@ class UserMessage:
     def model_dump_json(self) -> str:
         return json.dumps(self.model_dump(), default=str)
 
+    @property
+    def text(self) -> str:
+        if isinstance(self.content, list):
+            return "".join(
+                block.text if isinstance(block, TextContent) else ""
+                for block in self.content
+            )
+        return self.content
+
 
 @dataclass
 class AssistantMessage:

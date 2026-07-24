@@ -1,43 +1,38 @@
-"""Deterministic model provider for tests."""
+"""Fake provider for testing — emits Pi-compatible AssistantMessageEvent."""
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Iterable
+from collections.abc import AsyncIterator, Sequence
 
-from tau_agent.messages import AgentMessage
-from tau_agent.tools import AgentTool
-from tau_ai.events import ProviderEvent
-from tau_ai.provider import CancellationToken
+from tau_agent.messages import AssistantMessage, TextContent, ToolCall
+from tau_agent.provider import CancellationToken, ModelProvider
+from tau_agent.provider_events import (
+    AssistantDoneEvent,
+    AssistantMessageEvent,
+    AssistantStartEvent,
+    TextDeltaEvent,
+    TextEndEvent,
+    TextStartEvent,
+    ToolCallDeltaEvent,
+    ToolCallEndEvent,
+    ToolCallStartEvent,
+)
 
 
-class FakeProvider:
-    """A provider that replays predefined event streams.
+class FakeProvider(ModelProvider):
+    """Provider that replays scripted Pi events for testing."""
 
-    Each call to `stream_response` consumes the next scripted stream. This gives
-    agent-loop tests deterministic model behavior without network access.
-    """
+    def __init__(self, scripted_events: Sequence[AssistantMessageEvent]) -> None:
+        self._scripted = list(scripted_events)
 
-    def __init__(self, streams: Iterable[Iterable[ProviderEvent]]) -> None:
-        self._streams = [list(stream) for stream in streams]
-        self.calls: list[tuple[str, str, list[AgentMessage], list[AgentTool]]] = []
-
-    def stream_response(
+    async def stream_response(
         self,
         *,
         model: str,
         system: str,
-        messages: list[AgentMessage],
-        tools: list[AgentTool],
+        messages: list,
+        tools: list,
         signal: CancellationToken | None = None,
-    ) -> AsyncIterator[ProviderEvent]:
-        """Replay the next scripted stream."""
-        self.calls.append((model, system, list(messages), list(tools)))
-        stream = self._streams.pop(0) if self._streams else []
-
-        async def iterator() -> AsyncIterator[ProviderEvent]:
-            for event in stream:
-                if signal is not None and signal.is_cancelled():
-                    return
-                yield event
-
-        return iterator()
+    ) -> AsyncIterator[AssistantMessageEvent]:
+        for event in self._scripted:
+            yield event

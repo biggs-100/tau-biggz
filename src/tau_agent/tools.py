@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
-from pydantic import BaseModel, ConfigDict, Field
-
 from tau_agent.types import JSONValue
+
+
+@dataclass
+class ToolCall:
+    """A request from the assistant to execute a named tool."""
+
+    id: str
+    name: str
+    arguments: dict[str, JSONValue] = field(default_factory=dict)
+    thought_signature: str | None = None
 
 
 class ToolCancellationToken(Protocol):
@@ -31,29 +39,14 @@ class ToolExecutor(Protocol):
         ...
 
 
-class ToolCall(BaseModel):
-    """A request from the assistant to execute a named tool."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    name: str
-    arguments: dict[str, JSONValue] = Field(default_factory=dict)
-    thought_signature: str | None = None
-
-
-class AgentToolResult(BaseModel):
+@dataclass
+class AgentToolResult:
     """Structured result returned by a tool execution."""
 
-    model_config = ConfigDict(extra="forbid")
-
-    tool_call_id: str
-    name: str
-    ok: bool
-    content: str
-    data: dict[str, JSONValue] | None = None
-    details: dict[str, JSONValue] | None = None
-    error: str | None = None
+    content: list = field(default_factory=list)
+    details: JSONValue = None
+    added_tool_names: tuple[str, ...] = ()
+    terminate: bool = False
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,134 +1,118 @@
-"""Events emitted by Tau's portable agent layer."""
+"""Agent-level events (Pi-compatible)."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
-
 from tau_agent.messages import AgentMessage
+from tau_agent.provider_events import AssistantMessageEvent
 from tau_agent.tools import AgentToolResult, ToolCall
 from tau_agent.types import JSONValue
 
 
-class AgentStartEvent(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    type: Literal["agent_start"] = "agent_start"
-
-
-class AgentEndEvent(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    type: Literal["agent_end"] = "agent_end"
+@dataclass
+class AgentStartEvent:
+    pass
 
 
-class TurnStartEvent(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    type: Literal["turn_start"] = "turn_start"
-    turn: int
+@dataclass
+class AgentEndEvent:
+    messages: list[AgentMessage] = field(default_factory=list)
 
 
-class TurnEndEvent(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    type: Literal["turn_end"] = "turn_end"
-    turn: int
+@dataclass
+class TurnStartEvent:
+    pass
 
 
-class RetryEvent(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    type: Literal["retry"] = "retry"
-    attempt: int
-    max_attempts: int
-    delay_seconds: float
-    message: str
-    data: dict[str, JSONValue] | None = None
+@dataclass
+class TurnEndEvent:
+    message: AgentMessage | None = None
+    tool_results: list = field(default_factory=list)
 
 
-class QueueUpdateEvent(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+@dataclass
+class MessageStartEvent:
+    message: AgentMessage | None = None
 
+
+@dataclass
+class MessageUpdateEvent:
+    message: AgentMessage | None = None
+    assistant_message_event: AssistantMessageEvent | None = None
+
+
+@dataclass
+class MessageEndEvent:
+    message: AgentMessage | None = None
+
+
+@dataclass
+class ToolExecutionStartEvent:
+    tool_call_id: str = ""
+    tool_name: str = ""
+    args: dict[str, JSONValue] = field(default_factory=dict)
+
+
+@dataclass
+class ToolExecutionUpdateEvent:
+    tool_call_id: str = ""
+    tool_name: str = ""
+    args: dict[str, JSONValue] = field(default_factory=dict)
+    partial_result: AgentToolResult | None = None
+
+
+@dataclass
+class ToolExecutionEndEvent:
+    tool_call_id: str = ""
+    tool_name: str = ""
+    result: AgentToolResult | None = None
+    is_error: bool = False
+
+
+AgentEvent = (
+    AgentStartEvent | AgentEndEvent
+    | TurnStartEvent | TurnEndEvent
+    | MessageStartEvent | MessageUpdateEvent | MessageEndEvent
+    | ToolExecutionStartEvent | ToolExecutionUpdateEvent | ToolExecutionEndEvent
+)
+
+
+# ── Backward-compat aliases (removed from AgentEvent union in Wave 1) ────
+
+@dataclass
+class ErrorEvent:
+    type: Literal["error"] = "error"
+    message: str = ""
+    recoverable: bool = False
+    data: JSONValue = None
+
+
+@dataclass
+class QueueUpdateEvent:
     type: Literal["queue_update"] = "queue_update"
     steering: tuple[str, ...] = ()
     follow_up: tuple[str, ...] = ()
 
 
-class MessageStartEvent(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    type: Literal["message_start"] = "message_start"
-    message_role: Literal["user", "assistant", "tool"] = "assistant"
-
-
-class MessageDeltaEvent(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    type: Literal["message_delta"] = "message_delta"
-    delta: str
+@dataclass
+class RetryEvent:
+    type: Literal["retry"] = "retry"
+    attempt: int = 0
+    max_attempts: int = 0
+    delay_seconds: float = 0.0
+    message: str = ""
+    data: JSONValue = None
 
 
-class ThinkingDeltaEvent(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+@dataclass
+class ThinkingDeltaEvent:
     type: Literal["thinking_delta"] = "thinking_delta"
-    delta: str
+    delta: str = ""
 
 
-class MessageEndEvent(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    type: Literal["message_end"] = "message_end"
-    message: AgentMessage
-
-
-class ToolExecutionStartEvent(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    type: Literal["tool_execution_start"] = "tool_execution_start"
-    tool_call: ToolCall
-
-
-class ToolExecutionUpdateEvent(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    type: Literal["tool_execution_update"] = "tool_execution_update"
-    tool_call_id: str
-    message: str
-    data: dict[str, JSONValue] | None = None
-
-
-class ToolExecutionEndEvent(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    type: Literal["tool_execution_end"] = "tool_execution_end"
-    result: AgentToolResult
-
-
-class ErrorEvent(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    type: Literal["error"] = "error"
-    message: str
-    recoverable: bool = False
-    data: dict[str, JSONValue] | None = None
-
-
-type AgentEvent = (
-    AgentStartEvent
-    | AgentEndEvent
-    | TurnStartEvent
-    | TurnEndEvent
-    | QueueUpdateEvent
-    | RetryEvent
-    | MessageStartEvent
-    | MessageDeltaEvent
-    | ThinkingDeltaEvent
-    | MessageEndEvent
-    | ToolExecutionStartEvent
-    | ToolExecutionUpdateEvent
-    | ToolExecutionEndEvent
-    | ErrorEvent
-)
+@dataclass
+class MessageDeltaEvent:
+    type: Literal["message_delta"] = "message_delta"
+    delta: str = ""

@@ -79,7 +79,7 @@ def _wrap_tool_with_events(
             {
                 "tool_name": tool.name,
                 "input": dict(arguments),
-                "result": {"ok": result.ok, "content": result.content},
+                "result": {"content": result.content},
             },
         )
         return result

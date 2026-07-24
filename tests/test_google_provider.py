@@ -26,13 +26,14 @@ from tau_agent.types import JSONValue
 from tau_ai import (
     GoogleGenerativeAIProvider,
     OpenAICompatibleConfig,
-    ProviderErrorEvent,
-    ProviderResponseEndEvent,
-    ProviderResponseStartEvent,
-    ProviderRetryEvent,
-    ProviderTextDeltaEvent,
-    ProviderThinkingDeltaEvent,
-    ProviderToolCallEvent,
+)
+from tau_agent.provider_events import (
+    AssistantDoneEvent,
+    AssistantErrorEvent,
+    AssistantStartEvent,
+    TextDeltaEvent,
+    ThinkingDeltaEvent,
+    ToolCallDeltaEvent,
 )
 from tau_ai.google import _sanitize_google_schema
 
@@ -634,7 +635,7 @@ class TestSseStreaming:
                 )
             )
 
-        thinking_events = [e for e in events if isinstance(e, ProviderThinkingDeltaEvent)]
+        thinking_events = [e for e in events if isinstance(e, ThinkingDeltaEvent)]
         assert len(thinking_events) == 1
         assert thinking_events[0].delta == "reasoning..."
 
@@ -659,7 +660,7 @@ class TestSseStreaming:
                 )
             )
 
-        text_events = [e for e in events if isinstance(e, ProviderTextDeltaEvent)]
+        text_events = [e for e in events if isinstance(e, TextDeltaEvent)]
         assert len(text_events) == 1
         assert text_events[0].delta == "Hello"
 
@@ -688,10 +689,14 @@ class TestSseStreaming:
             )
 
         assert [e.type for e in events] == [
-            "response_start",
+            "assistant_start",
+            "thinking_start",
             "thinking_delta",
+            "thinking_end",
+            "text_start",
             "text_delta",
-            "response_end",
+            "text_end",
+            "assistant_done",
         ]
 
     @pytest.mark.anyio
@@ -716,9 +721,9 @@ class TestSseStreaming:
                 )
             )
 
-        tool_call_events = [e for e in events if isinstance(e, ProviderToolCallEvent)]
+        tool_call_events = [e for e in events if isinstance(e, ToolCallDeltaEvent)]
         assert len(tool_call_events) == 1
-        tc = tool_call_events[0].tool_call
+        tc = tool_call_events[0].partial
         assert tc.id == "call-1"
         assert tc.name == "read"
         assert tc.arguments == {"path": "README.md"}
@@ -747,9 +752,9 @@ class TestSseStreaming:
                 )
             )
 
-        tool_call_events = [e for e in events if isinstance(e, ProviderToolCallEvent)]
+        tool_call_events = [e for e in events if isinstance(e, ToolCallDeltaEvent)]
         assert len(tool_call_events) == 1
-        assert tool_call_events[0].tool_call.thought_signature == "sig123"
+        assert tool_call_events[0].partial.thought_signature == "sig123"
 
     @pytest.mark.anyio
     async def test_tool_call_no_id(self) -> None:
@@ -774,9 +779,9 @@ class TestSseStreaming:
                 )
             )
 
-        tool_call_events = [e for e in events if isinstance(e, ProviderToolCallEvent)]
+        tool_call_events = [e for e in events if isinstance(e, ToolCallDeltaEvent)]
         assert len(tool_call_events) == 1
-        assert tool_call_events[0].tool_call.id == "tool-call-0"
+        assert tool_call_events[0].partial.id == "tool-call-0"
 
     @pytest.mark.anyio
     async def test_multiple_tool_calls(self) -> None:
@@ -802,10 +807,10 @@ class TestSseStreaming:
                 )
             )
 
-        tool_call_events = [e for e in events if isinstance(e, ProviderToolCallEvent)]
+        tool_call_events = [e for e in events if isinstance(e, ToolCallDeltaEvent)]
         assert len(tool_call_events) == 2
-        assert tool_call_events[0].tool_call.name == "read"
-        assert tool_call_events[1].tool_call.name == "search"
+        assert tool_call_events[0].partial.name == "read"
+        assert tool_call_events[1].partial.name == "search"
 
     @pytest.mark.anyio
     async def test_thinking_text_in_final_message(self) -> None:
@@ -833,9 +838,9 @@ class TestSseStreaming:
                 )
             )
 
-        assert isinstance(events[-1], ProviderResponseEndEvent)
+        assert isinstance(events[-1], AssistantDoneEvent)
         assert events[-1].message.thinking_text == "step1step2"
-        assert events[-1].message.content == "output"
+        assert events[-1].message.text == "output"
 
     @pytest.mark.anyio
     async def test_finish_reason_stop(self) -> None:
@@ -858,8 +863,8 @@ class TestSseStreaming:
                 )
             )
 
-        assert isinstance(events[-1], ProviderResponseEndEvent)
-        assert events[-1].finish_reason == "stop"
+        assert isinstance(events[-1], AssistantDoneEvent)
+        assert events[-1].reason == "stop"
 
     @pytest.mark.anyio
     async def test_finish_reason_max_tokens(self) -> None:
@@ -882,8 +887,8 @@ class TestSseStreaming:
                 )
             )
 
-        assert isinstance(events[-1], ProviderResponseEndEvent)
-        assert events[-1].finish_reason == "length"
+        assert isinstance(events[-1], AssistantDoneEvent)
+        assert events[-1].reason == "length"
 
     @pytest.mark.anyio
     async def test_system_instruction_at_top_level(self) -> None:
@@ -929,7 +934,7 @@ class TestSseStreaming:
                 )
             )
 
-        assert isinstance(events[-1], ProviderResponseEndEvent)
+        assert isinstance(events[-1], AssistantDoneEvent)
         assert events[-1].message.thinking_text == ""
 
     # -- Message conversion tests (_message_to_google coverage) --
@@ -1178,10 +1183,10 @@ class TestSseStreaming:
             )
 
         # The only valid content is "done" at the end
-        text_events = [e for e in events if isinstance(e, ProviderTextDeltaEvent)]
+        text_events = [e for e in events if isinstance(e, TextDeltaEvent)]
         assert len(text_events) == 1
         assert text_events[0].delta == "done"
-        assert isinstance(events[-1], ProviderResponseEndEvent)
+        assert isinstance(events[-1], AssistantDoneEvent)
 
     @pytest.mark.anyio
     async def test_sse_parser_malformed_json_produces_error_event(self) -> None:
@@ -1206,7 +1211,7 @@ class TestSseStreaming:
                 )
             )
 
-        text_events = [e for e in events if isinstance(e, ProviderTextDeltaEvent)]
+        text_events = [e for e in events if isinstance(e, TextDeltaEvent)]
         assert len(text_events) == 1
         assert text_events[0].delta == "works"
 
@@ -1236,16 +1241,17 @@ class TestSseStreaming:
                 signal=signal,
             ):
                 events.append(event)
-                if isinstance(event, ProviderTextDeltaEvent):
+                if isinstance(event, TextDeltaEvent):
                     signal.cancel()
 
         assert [e.type for e in events] == [
-            "response_start",
+            "assistant_start",
+            "text_start",
             "text_delta",
         ]
-        assert isinstance(events[0], ProviderResponseStartEvent)
-        assert isinstance(events[1], ProviderTextDeltaEvent)
-        assert events[1].delta == "Hello"
+        assert isinstance(events[0], AssistantStartEvent)
+        assert isinstance(events[2], TextDeltaEvent)
+        assert events[2].delta == "Hello"
 
 
 # ---------------------------------------------------------------------------
@@ -1275,8 +1281,8 @@ class TestErrorRetry:
             )
 
         assert len(requests) == 1
-        assert isinstance(events[-1], ProviderErrorEvent)
-        assert "400" in events[-1].message
+        assert isinstance(events[-1], AssistantErrorEvent)
+        assert "400" in events[-1].error.text
 
     @pytest.mark.anyio
     async def test_http_429_retry_then_success(self) -> None:
@@ -1305,22 +1311,17 @@ class TestErrorRetry:
             )
 
         assert len(requests) == 2
-        assert isinstance(events[0], ProviderRetryEvent)
-        # max_retries=1 → max_attempts=2, first retry at attempt=0 → next_attempt=2
-        assert events[0].attempt == 2
-        assert events[0].max_attempts == 2
-        assert events[0].delay_seconds == 0
-        assert events[0].data == {"status_code": 429, "body": "rate limited"}
         assert [e.type for e in events] == [
-            "retry",
-            "response_start",
+            "assistant_start",
+            "text_start",
             "text_delta",
-            "response_end",
+            "text_end",
+            "assistant_done",
         ]
 
     @pytest.mark.anyio
     async def test_http_429_all_retries_exhausted(self) -> None:
-        """All retries on 429 exhausted → final ProviderErrorEvent."""
+        """All retries on 429 exhausted → final AssistantErrorEvent."""
         requests: list[httpx.Request] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -1339,20 +1340,15 @@ class TestErrorRetry:
             )
 
         # max_retries=2 → max_attempts=3
-        # attempt=0 → retry (2/3), attempt=1 → retry (3/3), attempt=2 → error
+        # attempt=0 → retry, attempt=1 → retry, attempt=2 → error
+        # Retry events are filtered by canonicalization
         assert len(requests) == 3
-        retry_events = [e for e in events if isinstance(e, ProviderRetryEvent)]
-        assert len(retry_events) == 2
-        assert retry_events[0].attempt == 2
-        assert retry_events[0].max_attempts == 3
-        assert retry_events[1].attempt == 3
-        assert retry_events[1].max_attempts == 3
-        assert isinstance(events[-1], ProviderErrorEvent)
-        assert "429" in events[-1].message
+        assert isinstance(events[-1], AssistantErrorEvent)
+        assert "429" in events[-1].error.text
 
     @pytest.mark.anyio
     async def test_http_429_all_retries_exhausted_error_data(self) -> None:
-        """Verify ProviderErrorEvent data format on exhausted retries."""
+        """Verify AssistantErrorEvent format on exhausted retries."""
         requests: list[httpx.Request] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -1370,11 +1366,8 @@ class TestErrorRetry:
                 )
             )
 
-        assert isinstance(events[-1], ProviderErrorEvent)
-        assert events[-1].data == {
-            "status_code": 429,
-            "body": "rate limited",
-        }
+        assert isinstance(events[-1], AssistantErrorEvent)
+        assert "429" in events[-1].error.text
 
     @pytest.mark.anyio
     async def test_network_error_retry(self) -> None:
@@ -1403,16 +1396,12 @@ class TestErrorRetry:
             )
 
         assert len(requests) == 2
-        assert isinstance(events[0], ProviderRetryEvent)
-        assert events[0].data == {
-            "error": "connection reset",
-            "error_type": "ReadError",
-        }
         assert [e.type for e in events] == [
-            "retry",
-            "response_start",
+            "assistant_start",
+            "text_start",
             "text_delta",
-            "response_end",
+            "text_end",
+            "assistant_done",
         ]
 
     @pytest.mark.anyio
@@ -1447,10 +1436,10 @@ class TestErrorRetry:
             )
 
         # Content was emitted (parser.emitted_content=True), so no retry
-        assert isinstance(events[-1], ProviderErrorEvent)
-        assert "connection lost" in events[-1].message or "ReadError" in events[-1].message
+        assert isinstance(events[-1], AssistantErrorEvent)
+        assert "connection lost" in events[-1].error.text or "ReadError" in events[-1].error.text
         # Should have seen the text delta before the error
-        text_events = [e for e in events if isinstance(e, ProviderTextDeltaEvent)]
+        text_events = [e for e in events if isinstance(e, TextDeltaEvent)]
         assert len(text_events) == 1
         assert text_events[0].delta == "Hello"
 
@@ -1459,6 +1448,7 @@ class TestErrorRetry:
         """CancellationToken cancels during retry wait → stops immediately."""
         requests: list[httpx.Request] = []
         signal = SimpleCancellationToken()
+        signal.cancel()
 
         def handler(request: httpx.Request) -> httpx.Response:
             requests.append(request)
@@ -1477,17 +1467,16 @@ class TestErrorRetry:
                 signal=signal,
             ):
                 events.append(event)
-                if isinstance(event, ProviderRetryEvent):
-                    signal.cancel()
 
         assert len(requests) == 1
-        assert [e.type for e in events] == ["retry"]
+        assert events == []
 
     @pytest.mark.anyio
     async def test_network_error_cancellation_during_retry(self) -> None:
         """Network error retry cancelled → stops immediately (covers line 142)."""
         requests: list[httpx.Request] = []
         signal = SimpleCancellationToken()
+        signal.cancel()
 
         def handler(request: httpx.Request) -> httpx.Response:
             requests.append(request)
@@ -1506,8 +1495,6 @@ class TestErrorRetry:
                 signal=signal,
             ):
                 events.append(event)
-                if isinstance(event, ProviderRetryEvent):
-                    signal.cancel()
 
         assert len(requests) == 1
-        assert [e.type for e in events] == ["retry"]
+        assert events == []

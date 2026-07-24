@@ -123,6 +123,12 @@ def _message_text_preview(message: AgentMessage) -> str:
     content = message.content
     if isinstance(content, str):
         return _short_preview(content)
+    if isinstance(content, list):
+        from tau_agent.messages import TextContent
+        text = "".join(b.text for b in content if isinstance(b, TextContent))
+        if text:
+            return _short_preview(text)
+        return _short_preview(str(content))
     return _short_preview(str(content))
 
 

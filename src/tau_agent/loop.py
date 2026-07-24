@@ -9,6 +9,7 @@ from tau_agent.events import (
     AgentEndEvent,
     AgentEvent,
     AgentStartEvent,
+    ErrorEvent,
     MessageEndEvent,
     MessageStartEvent,
     MessageUpdateEvent,
@@ -180,6 +181,8 @@ async def _assistant_events(
             return
         elif isinstance(event, AssistantErrorEvent):
             out[0] = None
+            error_text = event.error.text if event.error else "Assistant error"
+            yield ErrorEvent(message=error_text, recoverable=False)
             return
 
 

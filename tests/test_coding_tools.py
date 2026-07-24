@@ -23,6 +23,13 @@ from tau_coding import (
 )
 from tau_coding.agents import AgentDef
 from tau_coding.tools import create_subagent_tool, create_web_search_tool
+from tau_agent.messages import TextContent
+
+
+def _text(r):
+    return "".join(b.text for b in r.content if isinstance(b, TextContent))
+
+
 from tau_coding.tools_types import ToolInputError
 
 
@@ -78,12 +85,10 @@ async def test_read_tool_reads_file_with_offset_and_limit(tmp_path: Path) -> Non
 
     result = await tool.execute({"path": "notes.txt", "offset": 2, "limit": 1})
 
-    assert result.ok is True
-    assert result.name == "read"
-    assert result.content == "two\n\n[2 more lines in file. Use offset=3 to continue.]"
-    assert result.data is not None
-    assert result.data["path"] == str(path)
-    assert isinstance(result.data["truncation"], dict)
+    assert _text(result) == "two\n\n[2 more lines in file. Use offset=3 to continue.]"
+    assert result.details is not None
+    assert result.details["path"] == str(path)
+    assert isinstance(result.details["truncation"], dict)
 
 
 @pytest.mark.anyio
@@ -94,8 +99,7 @@ async def test_read_tool_treats_zero_offset_as_start_of_file(tmp_path: Path) -> 
 
     result = await tool.execute({"path": "notes.txt", "offset": 0, "limit": 1})
 
-    assert result.ok is True
-    assert result.content == "one\n\n[3 more lines in file. Use offset=2 to continue.]"
+    assert _text(result) == "one\n\n[3 more lines in file. Use offset=2 to continue.]"
 
 
 @pytest.mark.anyio
@@ -104,7 +108,6 @@ async def test_write_tool_creates_parent_directories(tmp_path: Path) -> None:
 
     result = await tool.execute({"path": "nested/file.txt", "content": "hello"})
 
-    assert result.ok is True
     assert (tmp_path / "nested" / "file.txt").read_text() == "hello"
 
 
@@ -124,7 +127,6 @@ async def test_edit_tool_applies_multiple_exact_replacements(tmp_path: Path) -> 
         }
     )
 
-    assert result.ok is True
     assert path.read_text() == "one\nbeta\nthree\n"
 
 
@@ -170,11 +172,10 @@ async def test_bash_tool_captures_stdout_and_exit_code(tmp_path: Path) -> None:
 
     result = await tool.execute({"command": "printf hello"})
 
-    assert result.ok is True
-    assert result.content == "hello"
-    assert result.data is not None
-    assert result.data["exit_code"] == 0
-    assert result.data["timed_out"] is False
+    assert _text(result) == "hello"
+    assert result.details is not None
+    assert result.details["exit_code"] == 0
+    assert result.details["timed_out"] is False
 
 
 @pytest.mark.anyio
@@ -190,10 +191,9 @@ async def test_create_coding_tools_applies_shell_command_prefix(
 
     result = await bash_tool.execute({"command": "greet"})
 
-    assert result.ok is True
-    assert result.content == "coding-tool-alias"
-    assert result.data is not None
-    assert result.data["shell_command_prefix_applied"] is True
+    assert _text(result) == "coding-tool-alias"
+    assert result.details is not None
+    assert result.details["shell_command_prefix_applied"] is True
 
 
 @pytest.mark.anyio
@@ -210,10 +210,9 @@ async def test_bash_tool_applies_opt_in_shell_command_prefix(tmp_path: Path) -> 
 
     result = await tool.execute({"command": "greet"})
 
-    assert result.ok is True
-    assert result.content == "alias-output"
-    assert result.data is not None
-    assert result.data["shell_command_prefix_applied"] is True
+    assert _text(result) == "alias-output"
+    assert result.details is not None
+    assert result.details["shell_command_prefix_applied"] is True
     assert not marker.exists()
 
 
@@ -223,10 +222,9 @@ async def test_bash_tool_reports_timeout(tmp_path: Path) -> None:
 
     result = await tool.execute({"command": "sleep 1", "timeout": 0.01})
 
-    assert result.ok is False
-    assert result.data is not None
-    assert result.data["timed_out"] is True
-    assert "timed out" in result.content
+    assert result.details is not None
+    assert result.details["timed_out"] is True
+    assert "timed out" in _text(result)
 
 
 @pytest.mark.anyio
@@ -239,9 +237,8 @@ async def test_bash_tool_timeout_kills_shell_children(tmp_path: Path) -> None:
     duration = monotonic() - start
     await asyncio.sleep(0.35)
 
-    assert result.ok is False
-    assert result.data is not None
-    assert result.data["timed_out"] is True
+    assert result.details is not None
+    assert result.details["timed_out"] is True
     assert duration < 1.5
     assert not marker.exists()
 
@@ -258,10 +255,9 @@ async def test_bash_tool_cancellation_kills_shell_children(tmp_path: Path) -> No
     result = await task
     duration = monotonic() - start
 
-    assert result.ok is False
-    assert result.data is not None
-    assert result.data["cancelled"] is True
-    assert "cancelled" in result.content
+    assert result.details is not None
+    assert result.details["cancelled"] is True
+    assert "cancelled" in _text(result)
     assert duration < 1.5
 
 
@@ -320,14 +316,12 @@ async def test_read_tool_image_file_returns_base64(tmp_path: Path) -> None:
     img_path.write_bytes(_minimal_png_bytes())
     tool = create_read_tool(cwd=tmp_path)
     result = await tool.execute({"path": "test.png"})
-    assert result.ok is True
-    assert result.name == "read"
-    assert result.data is not None
-    assert result.data["mime_type"] == "image/png"
-    assert result.data["bytes"] > 0
-    assert "image_base64" in result.data
-    assert isinstance(result.data["image_base64"], str)
-    assert len(result.data["image_base64"]) > 0
+    assert result.details is not None
+    assert result.details["mime_type"] == "image/png"
+    assert result.details["bytes"] > 0
+    assert "image_base64" in result.details
+    assert isinstance(result.details["image_base64"], str)
+    assert len(result.details["image_base64"]) > 0
 
 
 @pytest.mark.anyio
@@ -346,10 +340,9 @@ async def test_read_tool_first_line_exceeds_limit(tmp_path: Path) -> None:
     path.write_text("x" * 60_000 + "\nrest\n")
     tool = create_read_tool(cwd=tmp_path)
     result = await tool.execute({"path": "big.txt"})
-    assert result.ok is True
-    assert "exceeds" in result.content
-    assert "sed" in result.content
-    assert "50.0KB" in result.content
+    assert "exceeds" in _text(result)
+    assert "sed" in _text(result)
+    assert "50.0KB" in _text(result)
 
 
 # ── edit tool edge cases ────────────────────────────────────────────
@@ -399,11 +392,9 @@ async def test_bash_tool_precancelled_raises(tmp_path: Path) -> None:
 async def test_bash_tool_exit_code_reported(tmp_path: Path) -> None:
     tool = create_bash_tool(cwd=tmp_path)
     result = await tool.execute({"command": 'python -c "exit(42)"'})
-    assert result.ok is False
-    assert result.data is not None
-    assert result.data["exit_code"] == 42
-    assert "exited with code 42" in result.content
-    assert result.error == "Command exited with code 42"
+    assert result.details is not None
+    assert result.details["exit_code"] == 42
+    assert "exited with code 42" in _text(result)
 
 
 # ── web_search tool tests ───────────────────────────────────────────
@@ -478,9 +469,7 @@ class _ErrorClient:
 async def test_web_search_empty_query_returns_error() -> None:
     tool = create_web_search_tool()
     result = await tool.execute({"query": ""})
-    assert result.ok is False
-    assert "No search query" in result.content
-    assert result.error == "Missing query"
+    assert "No search query" in _text(result)
 
 
 @pytest.mark.anyio
@@ -488,8 +477,7 @@ async def test_web_search_no_results(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("httpx.AsyncClient", _NoResultsClient)
     tool = create_web_search_tool()
     result = await tool.execute({"query": "something"})
-    assert result.ok is True
-    assert result.content == "No results found."
+    assert _text(result) == "No results found."
 
 
 @pytest.mark.anyio
@@ -499,11 +487,10 @@ async def test_web_search_returns_formatted_results(
     monkeypatch.setattr("httpx.AsyncClient", _ResultsClient)
     tool = create_web_search_tool()
     result = await tool.execute({"query": "test"})
-    assert result.ok is True
-    assert "Example Title" in result.content
-    assert "https://example.com" in result.content
-    assert "Test Site" in result.content
-    assert "https://test.org" in result.content
+    assert "Example Title" in _text(result)
+    assert "https://example.com" in _text(result)
+    assert "Test Site" in _text(result)
+    assert "https://test.org" in _text(result)
 
 
 @pytest.mark.anyio
@@ -513,18 +500,22 @@ async def test_web_search_network_error(
     monkeypatch.setattr("httpx.AsyncClient", _ErrorClient)
     tool = create_web_search_tool()
     result = await tool.execute({"query": "test"})
-    assert result.ok is False
-    assert "Search failed" in result.content
-    assert "Connection failed unexpectedly" in result.content
+    assert "Search failed" in _text(result)
+    assert "Connection failed unexpectedly" in _text(result)
 
 
 # ── subagent tool tests ─────────────────────────────────────────────
 
 
 class _ContentEndEvent(AgentEndEvent):
-    """AgentEndEvent with a content field so the subagent can extract it."""
+    """AgentEndEvent with a assistant message so the subagent can extract it."""
 
-    content: str = ""
+    def __init__(self, content: str = "", **kwargs: object) -> None:
+        from tau_agent.messages import AssistantMessage, TextContent
+        super().__init__(
+            messages=[AssistantMessage(content=[TextContent(text=content)])],
+            **kwargs,
+        )
 
 
 class _MockProvider:
@@ -571,8 +562,7 @@ class _ErrorHarness:
 async def test_subagent_empty_task_returns_error() -> None:
     tool = create_subagent_tool()
     result = await tool.execute({"task": ""})
-    assert result.ok is False
-    assert "No task provided" in result.content
+    assert "No task provided" in _text(result)
 
 
 @pytest.mark.anyio
@@ -585,8 +575,7 @@ async def test_subagent_no_provider_returns_error(
     )
     tool = create_subagent_tool()
     result = await tool.execute({"task": "do work"})
-    assert result.ok is False
-    assert "No provider configured" in result.content
+    assert "No provider configured" in _text(result)
 
 
 @pytest.mark.anyio
@@ -613,8 +602,7 @@ async def test_subagent_success_path(
 
     tool = create_subagent_tool()
     result = await tool.execute({"task": "do work"})
-    assert result.ok is True
-    assert result.content == "Hello from sub-agent!"
+    assert _text(result) == "Hello from sub-agent!"
 
 
 @pytest.mark.anyio
@@ -650,7 +638,6 @@ async def test_subagent_with_agent_file_overrides_system_prompt(
 
     tool = create_subagent_tool()
     result = await tool.execute({"task": "do work", "agent": "helper"})
-    assert result.ok is True
     assert len(_RecordingHarness.instances) == 1
     system = getattr(_RecordingHarness.instances[0], "system", "")
     assert "helpful assistant" in system
@@ -689,7 +676,6 @@ async def test_subagent_instructions_override_agent_file(
 
     tool = create_subagent_tool()
     result = await tool.execute({"task": "do work", "agent": "helper", "instructions": "Be brief."})
-    assert result.ok is True
     assert len(_RecordingHarness.instances) == 1
     system = getattr(_RecordingHarness.instances[0], "system", "")
     # instructions must override the agent file's system_prompt
@@ -721,9 +707,8 @@ async def test_subagent_error_event(
 
     tool = create_subagent_tool()
     result = await tool.execute({"task": "do work"})
-    assert result.ok is False
-    assert "Sub-agent error" in result.content
-    assert "Something broke" in result.content
+    assert "Sub-agent error" in _text(result)
+    assert "Something broke" in _text(result)
 
 
 @pytest.mark.anyio
@@ -737,9 +722,8 @@ async def test_subagent_top_level_exception_handler(
     )
     tool = create_subagent_tool()
     result = await tool.execute({"task": "do work"})
-    assert result.ok is False
-    assert "Sub-agent failed" in result.content
-    assert "Boom" in result.content
+    assert "Sub-agent failed" in _text(result)
+    assert "Boom" in _text(result)
 
 
 # ── web_search: max-eighth-results branch ───────────────────────────
@@ -777,13 +761,12 @@ async def test_web_search_limits_to_eight_results(
     monkeypatch.setattr("httpx.AsyncClient", _EightPlusResultsClient)
     tool = create_web_search_tool()
     result = await tool.execute({"query": "test"})
-    assert result.ok is True
     # Should contain exactly 8 results, not 10
-    assert result.content.count("Result ") == 8
-    assert "Result 0" in result.content
-    assert "Result 7" in result.content
-    assert "Result 8" not in result.content
-    assert "Result 9" not in result.content
+    assert _text(result).count("Result ") == 8
+    assert "Result 0" in _text(result)
+    assert "Result 7" in _text(result)
+    assert "Result 8" not in _text(result)
+    assert "Result 9" not in _text(result)
 
 
 # ── read tool: remaining branches ───────────────────────────────────
@@ -796,9 +779,8 @@ async def test_read_tool_no_offset_limit_small_file(tmp_path: Path) -> None:
     path.write_text("hello\nworld\n")
     tool = create_read_tool(cwd=tmp_path)
     result = await tool.execute({"path": "small.txt"})
-    assert result.ok is True
     # The trailing newline is preserved from the file content
-    assert result.content == "hello\nworld\n"
+    assert _text(result) == "hello\nworld\n"
 
 
 @pytest.mark.anyio
@@ -808,10 +790,9 @@ async def test_read_tool_truncation_by_lines(tmp_path: Path) -> None:
     path.write_text("\n".join(f"line{i}" for i in range(2010)))
     tool = create_read_tool(cwd=tmp_path)
     result = await tool.execute({"path": "manylines.txt"})
-    assert result.ok is True
-    assert "Showing lines" in result.content
-    assert "Use offset=" in result.content
-    assert "2010" in result.content  # total lines mentioned
+    assert "Showing lines" in _text(result)
+    assert "Use offset=" in _text(result)
+    assert "2010" in _text(result)  # total lines mentioned
 
 
 @pytest.mark.anyio
@@ -822,9 +803,8 @@ async def test_read_tool_truncation_by_bytes(tmp_path: Path) -> None:
     path.write_text("\n".join("x" * 30 for _ in range(1800)))
     tool = create_read_tool(cwd=tmp_path)
     result = await tool.execute({"path": "bigfile.txt"})
-    assert result.ok is True
-    assert "Showing lines" in result.content
-    assert "limit)" in result.content or "50.0KB" in result.content
+    assert "Showing lines" in _text(result)
+    assert "limit)" in _text(result) or "50.0KB" in _text(result)
 
 
 # ── bash tool: truncation messages ─────────────────────────────────
@@ -835,11 +815,11 @@ async def test_bash_tool_truncation_line_count(tmp_path: Path) -> None:
     """Bash output > 2000 lines triggers line-count truncation message."""
     tool = create_bash_tool(cwd=tmp_path)
     result = await tool.execute({"command": 'python -c "for i in range(2100): print(i)"'})
-    assert result.data is not None
-    trunc = result.data["truncation"]
+    assert result.details is not None
+    trunc = result.details["truncation"]
     assert trunc["truncated"] is True
     assert trunc["total_lines"] > 2000
-    assert "Full output:" in result.content
+    assert "Full output:" in _text(result)
 
 
 @pytest.mark.anyio
@@ -847,12 +827,12 @@ async def test_bash_tool_truncation_last_line_partial(tmp_path: Path) -> None:
     """Single large output line > 50KB triggers last_line_partial message."""
     tool = create_bash_tool(cwd=tmp_path)
     result = await tool.execute({"command": "python -c \"print('x'*60000)\""})
-    assert result.data is not None
-    trunc = result.data["truncation"]
+    assert result.details is not None
+    trunc = result.details["truncation"]
     assert trunc["truncated"] is True
     assert trunc["last_line_partial"] is True
-    assert "Showing last" in result.content
-    assert "Full output:" in result.content
+    assert "Showing last" in _text(result)
+    assert "Full output:" in _text(result)
 
 
 @pytest.mark.anyio
@@ -860,9 +840,9 @@ async def test_bash_tool_truncation_byte_limit(tmp_path: Path) -> None:
     """Multiple small lines totalling > 50KB triggers byte-limit message."""
     tool = create_bash_tool(cwd=tmp_path)
     result = await tool.execute({"command": "python -c \"for i in range(1800): print('x'*30)\""})
-    assert result.data is not None
-    trunc = result.data["truncation"]
+    assert result.details is not None
+    trunc = result.details["truncation"]
     assert trunc["truncated"] is True
     assert trunc["last_line_partial"] is False
-    assert "limit)" in result.content
-    assert "Full output:" in result.content
+    assert "limit)" in _text(result)
+    assert "Full output:" in _text(result)

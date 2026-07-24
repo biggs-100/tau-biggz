@@ -7,48 +7,53 @@ from pathlib import Path
 import pytest
 
 from tau_agent import AssistantMessage
+from tau_agent.provider_events import (
+    AssistantDoneEvent,
+    AssistantMessageEvent,
+    AssistantStartEvent,
+    TextDeltaEvent,
+    ToolCallDeltaEvent,
+)
 from tau_agent.tools import ToolCall
-from tau_ai import ProviderResponseEndEvent, ProviderResponseStartEvent, ProviderTextDeltaEvent
+from tau_ai import FakeProvider
 from tau_coding.cli import run_print_mode
 
 
 @pytest.mark.anyio
 async def test_print_mode_text_only(
-    fake_provider,
     tmp_path: Path,
     capsys,
 ) -> None:
     """Pattern A: text-only stream prints output and returns True."""
-    fake_provider._streams = [
+    provider = FakeProvider([
         [
-            ProviderResponseStartEvent(model="fake"),
-            ProviderTextDeltaEvent(delta="Hello, "),
-            ProviderTextDeltaEvent(delta="world!"),
-            ProviderResponseEndEvent(
+            AssistantStartEvent(partial=AssistantMessage(content="")),
+            TextDeltaEvent(content_index=0, delta="Hello, "),
+            TextDeltaEvent(content_index=0, delta="world!"),
+            AssistantDoneEvent(
                 message=AssistantMessage(content="Hello, world!"),
-                finish_reason="stop",
+                reason="stop",
             ),
         ]
-    ]
+    ])
 
     result = await run_print_mode(
         prompt="Say hello",
         model="fake",
         cwd=tmp_path,
-        provider=fake_provider,
+        provider=provider,
     )
 
     assert result is True
     captured = capsys.readouterr()
     assert "Hello, world!" in captured.out
-    assert len(fake_provider.calls) == 1
-    model, system, messages, tools = fake_provider.calls[0]
+    assert len(provider.calls) == 1
+    model, system, messages, tools, signal = provider.calls[0]
     assert model == "fake"
 
 
 @pytest.mark.anyio
 async def test_print_mode_with_tool_call(
-    fake_provider,
     tmp_path: Path,
     capsys,
 ) -> None:
@@ -58,23 +63,24 @@ async def test_print_mode_with_tool_call(
         name="write",
         arguments={"path": "out.txt", "content": "data"},
     )
-    fake_provider._streams = [
+    provider = FakeProvider([
         [
-            ProviderResponseStartEvent(model="fake"),
-            ProviderResponseEndEvent(
+            AssistantStartEvent(partial=AssistantMessage(content="")),
+            ToolCallDeltaEvent(content_index=0, partial=tool_call),
+            AssistantDoneEvent(
                 message=AssistantMessage(content="", tool_calls=[tool_call]),
-                finish_reason="tool_calls",
+                reason="tool_calls",
             ),
         ],
         [
-            ProviderResponseStartEvent(model="fake"),
-            ProviderTextDeltaEvent(delta="File written."),
-            ProviderResponseEndEvent(
+            AssistantStartEvent(partial=AssistantMessage(content="")),
+            TextDeltaEvent(content_index=0, delta="File written."),
+            AssistantDoneEvent(
                 message=AssistantMessage(content="File written."),
-                finish_reason="stop",
+                reason="stop",
             ),
         ],
-    ]
+    ])
 
     from tau_agent.session import JsonlSessionStorage
 
@@ -84,7 +90,7 @@ async def test_print_mode_with_tool_call(
         prompt="Write out.txt",
         model="fake",
         cwd=tmp_path,
-        provider=fake_provider,
+        provider=provider,
         storage=storage,
     )
 

@@ -30,7 +30,7 @@ from tau_agent import (
     QueueUpdateEvent,
     ToolExecutionEndEvent,
 )
-from tau_agent.messages import AgentMessage, UserMessage
+from tau_agent.messages import AgentMessage, TextContent, UserMessage
 from tau_agent.session import (
     BranchSummaryEntry,
     LeafEntry,
@@ -817,19 +817,23 @@ class CodingSession(_ProviderMixin, _ReloadResumeMixin, _CompactionMixin):
 
         exit_code = None
 
-        if result.data is not None:
-            raw_exit_code = result.data.get("exit_code")
+        if result.details is not None:
+            raw_exit_code = result.details.get("exit_code")
 
             exit_code = raw_exit_code if isinstance(raw_exit_code, int) else None
 
         if add_to_context:
             before_count = len(self._harness.messages)
 
+            output_text = "".join(
+                b.text for b in result.content if isinstance(b, TextContent)
+            ) if isinstance(result.content, list) else str(result.content)
+
             self._harness.append_message(
                 UserMessage(
                     content=_terminal_command_context_message(
                         normalized_command,
-                        result.content,
+                        output_text,
                     )
                 )
             )
@@ -838,11 +842,15 @@ class CodingSession(_ProviderMixin, _ReloadResumeMixin, _CompactionMixin):
 
             await self._persist_messages_since(before_count)
 
+        output_str = "".join(
+            b.text for b in result.content if isinstance(b, TextContent)
+        ) if isinstance(result.content, list) else str(result.content)
+
         return TerminalCommandResult(
             command=normalized_command,
-            output=result.content,
+            output=output_str,
             exit_code=exit_code,
-            ok=result.ok,
+            ok=exit_code == 0 if exit_code is not None else True,
             added_to_context=add_to_context,
         )
 
@@ -875,13 +883,17 @@ class CodingSession(_ProviderMixin, _ReloadResumeMixin, _CompactionMixin):
 
         if self._harness.is_running:
             if streaming_behavior == "steer":
-                yield self._harness.steer(expanded_content)
-
+                queued = self._harness.steer(expanded_content)
+                yield QueueUpdateEvent(
+                    steering=tuple(m.content if isinstance(m.content, str) else m.text for m in queued.steering),
+                )
                 return
 
             if streaming_behavior == "follow_up":
-                yield self._harness.follow_up(expanded_content)
-
+                queued = self._harness.follow_up(expanded_content)
+                yield QueueUpdateEvent(
+                    follow_up=tuple(m.content if isinstance(m.content, str) else m.text for m in queued.follow_up),
+                )
                 return
 
             raise RuntimeError(

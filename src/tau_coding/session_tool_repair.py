@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tau_agent.messages import AgentMessage, AssistantMessage, ToolResultMessage
+from tau_agent.messages import AgentMessage, AssistantMessage, TextContent, ToolResultMessage
 
 
 def _interrupted_tool_repair_plan(
@@ -26,10 +26,9 @@ def _interrupted_tool_repair_plan(
             repaired.append(
                 ToolResultMessage(
                     tool_call_id=tool_call.id,
-                    name=tool_call.name,
-                    content=content,
-                    ok=False,
-                    error=content,
+                    tool_name=tool_call.name,
+                    content=[TextContent(text=content)],
+                    is_error=True,
                 )
             )
 

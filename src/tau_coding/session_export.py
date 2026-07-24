@@ -527,10 +527,21 @@ def _render_entry_body(entry: SessionEntry) -> str:
     return f"<pre>{_escape(entry.model_dump_json(indent=2))}</pre>"
 
 
+def _msg_text(m: AgentMessage) -> str:
+    from tau_agent.messages import AssistantMessage, TextContent, ToolResultMessage, UserMessage
+    if isinstance(m, (AssistantMessage, ToolResultMessage)):
+        return "".join(b.text for b in m.content if isinstance(b, TextContent))
+    if isinstance(m, UserMessage):
+        if isinstance(m.content, list):
+            return "".join(b.text for b in m.content if isinstance(b, TextContent))
+        return m.content
+    return str(getattr(m, "content", ""))
+
+
 def _render_message_entry(entry: MessageEntry) -> str:
     message = entry.message
     if isinstance(message, UserMessage):
-        return f'<p class="message-role">user</p><pre>{_escape(message.content)}</pre>'
+        return f'<p class="message-role">user</p><pre>{_escape(_msg_text(message))}</pre>'
     if isinstance(message, AssistantMessage):
         tool_calls = ""
         if message.tool_calls:
@@ -547,20 +558,18 @@ def _render_message_entry(entry: MessageEntry) -> str:
                 )
                 + "</ul>"
             )
-        content = message.content or "(no assistant text)"
+        content = _msg_text(message) or "(no assistant text)"
         return f'<p class="message-role">assistant</p><pre>{_escape(content)}</pre>{tool_calls}'
     if isinstance(message, ToolResultMessage):
         metadata = [
-            ("tool", message.name),
+            ("tool", message.tool_name if hasattr(message, "tool_name") else getattr(message, "name", "?")),
             ("tool_call_id", message.tool_call_id),
-            ("ok", str(message.ok)),
+            ("ok", str(not message.is_error if hasattr(message, "is_error") else True)),
         ]
-        if message.error:
-            metadata.append(("error", message.error))
         body = (
             '<p class="message-role">tool result</p>'
             f"{_render_metadata(metadata)}"
-            f"<pre>{_escape(message.content)}</pre>"
+            f"<pre>{_escape(_msg_text(message))}</pre>"
         )
         if message.data is not None:
             body += f"<h4>Data</h4><pre>{_escape(_json_dump(message.data))}</pre>"
@@ -621,12 +630,12 @@ def _entry_summary(entry: SessionEntry) -> str:
     if isinstance(entry, MessageEntry):
         message = entry.message
         if isinstance(message, ToolResultMessage):
-            return f"{message.name}: {_summarize_text(message.content)}"
+            return f"{message.name or message.tool_name or '?'}: {_summarize_text(_msg_text(message))}"
         if isinstance(message, AssistantMessage) and message.tool_calls:
             tool_names = ", ".join(call.name for call in message.tool_calls)
-            text = _summarize_text(message.content) or "tool call"
+            text = _summarize_text(_msg_text(message)) or "tool call"
             return f"{text} [{tool_names}]"
-        return _summarize_text(message.content)
+        return _summarize_text(_msg_text(message))
     if isinstance(entry, ModelChangeEntry):
         return entry.model
     if isinstance(entry, ThinkingLevelChangeEntry):

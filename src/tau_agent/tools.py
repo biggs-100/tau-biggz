@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+import json
 from collections.abc import Awaitable, Mapping
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -17,6 +19,9 @@ class ToolCall:
     name: str
     arguments: dict[str, JSONValue] = field(default_factory=dict)
     thought_signature: str | None = None
+
+    def model_dump(self) -> dict:
+        return dataclasses.asdict(self)
 
 
 class ToolCancellationToken(Protocol):
@@ -47,6 +52,16 @@ class AgentToolResult:
     details: JSONValue = None
     added_tool_names: tuple[str, ...] = ()
     terminate: bool = False
+    tool_call_id: str = ""
+    name: str = ""
+    ok: bool = True
+    error: str | None = None
+
+    def model_dump(self) -> dict:
+        return dataclasses.asdict(self)
+
+    def model_dump_json(self) -> str:
+        return json.dumps(dataclasses.asdict(self), default=str)
 
 
 @dataclass(frozen=True, slots=True)

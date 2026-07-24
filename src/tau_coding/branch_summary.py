@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 
-from tau_agent.messages import AgentMessage, AssistantMessage, ToolResultMessage, UserMessage
+from tau_agent.messages import AgentMessage, AssistantMessage, TextContent, ToolResultMessage, UserMessage
+from tau_agent.provider_events import AssistantDoneEvent
 from tau_ai import ModelProvider, ProviderErrorEvent, ProviderResponseEndEvent
 
 BRANCH_SUMMARY_SYSTEM_PROMPT = (
@@ -85,12 +86,12 @@ async def summarize_branch_messages_with_model(
     ):
         if isinstance(event, ProviderErrorEvent):
             return None
-        if isinstance(event, ProviderResponseEndEvent):
-            response = event.message
+        if isinstance(event, (ProviderResponseEndEvent, AssistantDoneEvent)):
+            response = getattr(event, "message", None)
 
     if response is None:
         return None
-    summary = response.content.strip()
+    summary = response.text.strip()
     if not summary:
         return None
     return _add_branch_summary_context(summary, messages)
@@ -131,21 +132,33 @@ def _serialize_branch_conversation(messages: Sequence[AgentMessage]) -> str:
     return "\n\n".join(parts)
 
 
+def _msg_text(m: AgentMessage) -> str:
+    if isinstance(m, (AssistantMessage, ToolResultMessage)):
+        return "".join(b.text for b in m.content if isinstance(b, TextContent))
+    if isinstance(m, UserMessage):
+        if isinstance(m.content, list):
+            return "".join(b.text for b in m.content if isinstance(b, TextContent))
+        return m.content
+    return str(getattr(m, "content", ""))
+
+
 def _format_summary_source_message(message: AgentMessage) -> str:
     match message:
         case UserMessage():
-            return f"[User]: {_trim_summary_source_text(message.content)}"
+            return f"[User]: {_trim_summary_source_text(_msg_text(message))}"
         case AssistantMessage():
             return _format_assistant_summary_source(message)
         case ToolResultMessage():
-            status = "ok" if message.ok else "failed"
-            content = _trim_summary_source_text(message.content, max_chars=TOOL_RESULT_MAX_CHARS)
-            return f"[Tool result: {message.name} ({status})]: {content}"
+            ok = not message.is_error if hasattr(message, "is_error") else True
+            status = "ok" if ok else "failed"
+            name = message.tool_name if hasattr(message, "tool_name") else getattr(message, "name", "?")
+            content = _trim_summary_source_text(_msg_text(message), max_chars=TOOL_RESULT_MAX_CHARS)
+            return f"[Tool result: {name} ({status})]: {content}"
 
 
 def _format_assistant_summary_source(message: AssistantMessage) -> str:
     parts: list[str] = []
-    content = _trim_summary_source_text(message.content)
+    content = _trim_summary_source_text(_msg_text(message))
     if content != "(empty)":
         parts.append(f"[Assistant]: {content}")
     if message.tool_calls:

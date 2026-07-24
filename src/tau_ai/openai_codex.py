@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 
-from tau_agent.messages import AgentMessage, AssistantMessage, ToolResultMessage, UserMessage
+from tau_agent.messages import AgentMessage, AssistantContent, AssistantMessage, TextContent, ToolResultMessage, UserMessage
 from tau_agent.tools import AgentTool, ToolCall
 from tau_agent.types import JSONValue
 from tau_ai.env import (
@@ -311,6 +311,17 @@ def _build_codex_payload(
     return payload
 
 
+def _msg_text(m: AgentMessage) -> str:
+    from tau_agent.messages import AssistantMessage, TextContent, ToolResultMessage, UserMessage
+    if isinstance(m, (AssistantMessage, ToolResultMessage)):
+        return "".join(b.text for b in m.content if isinstance(b, TextContent))
+    if isinstance(m, UserMessage):
+        if isinstance(m.content, list):
+            return "".join(b.text for b in m.content if isinstance(b, TextContent))
+        return m.content
+    return str(getattr(m, "content", ""))
+
+
 def _messages_to_responses_input(messages: list[AgentMessage]) -> list[JSONValue]:
     items: list[JSONValue] = []
     assistant_index = 0
@@ -319,11 +330,12 @@ def _messages_to_responses_input(messages: list[AgentMessage]) -> list[JSONValue
             items.append(
                 {
                     "role": "user",
-                    "content": [{"type": "input_text", "text": message.content}],
+                    "content": [{"type": "input_text", "text": _msg_text(message)}],
                 }
             )
         elif isinstance(message, AssistantMessage):
-            if message.content:
+            text = _msg_text(message)
+            if text:
                 items.append(
                     {
                         "type": "message",
@@ -331,7 +343,7 @@ def _messages_to_responses_input(messages: list[AgentMessage]) -> list[JSONValue
                         "content": [
                             {
                                 "type": "output_text",
-                                "text": message.content,
+                                "text": text,
                                 "annotations": [],
                             }
                         ],
@@ -357,7 +369,7 @@ def _messages_to_responses_input(messages: list[AgentMessage]) -> list[JSONValue
                 {
                     "type": "function_call_output",
                     "call_id": call_id,
-                    "output": message.content,
+                    "output": _msg_text(message),
                 }
             )
     return items
@@ -510,8 +522,12 @@ async def _codex_provider_events(
             finish_reason = _finish_reason_from_response(event)
             break
 
+    content_blocks: list[AssistantContent] = []
+    if content_parts:
+        content_blocks.append(TextContent(text="".join(content_parts)))
+    content_blocks.extend(tool_calls)
     yield ProviderResponseEndEvent(
-        message=AssistantMessage(content="".join(content_parts), tool_calls=tool_calls),
+        message=AssistantMessage(content=content_blocks),
         finish_reason=finish_reason,
     )
 

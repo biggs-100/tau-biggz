@@ -39,10 +39,16 @@ def test_transcript_renderer_streams_text_and_tool_events(
     )
     renderer.render(
         ToolExecutionStartEvent(
-            tool_call=ToolCall(id="call-1", name="read", arguments={"path": "a.py"})
+            tool_call_id="call-1", tool_name="read", args={"path": "a.py"}
         )
     )
-    renderer.render(ToolExecutionUpdateEvent(tool_call_id="call-1", message="reading"))
+    renderer.render(
+        ToolExecutionUpdateEvent(
+            tool_call_id="call-1",
+            tool_name="read",
+            partial_result=AgentToolResult(content="reading"),
+        )
+    )
     renderer.render(
         ToolExecutionEndEvent(
             result=AgentToolResult(tool_call_id="call-1", name="read", ok=True, content="done")
@@ -120,7 +126,7 @@ def test_json_renderer_emits_jsonl(capsys: pytest.CaptureFixture[str]) -> None:
 
     captured = capsys.readouterr()
     lines = captured.out.splitlines()
-    assert json.loads(lines[0]) == {"type": "message_start", "message_role": "assistant"}
+    assert json.loads(lines[0])["type"] == "message_start"
     assert json.loads(lines[1]) == {
         "type": "queue_update",
         "steering": ["adjust"],

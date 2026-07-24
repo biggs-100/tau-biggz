@@ -112,7 +112,7 @@ async def canonicalize_provider_stream(
                 blocks.append(tc)
 
             msg = AssistantMessage(content=blocks)
-            yield AssistantDoneEvent(reason="end_turn", message=msg)
+            yield AssistantDoneEvent(reason=event.finish_reason or "end_turn", message=msg)
 
         elif isinstance(event, ProviderErrorEvent):
             if current_thinking:

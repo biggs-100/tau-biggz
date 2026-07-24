@@ -7,7 +7,12 @@ from pathlib import Path
 import pytest
 
 from tau_agent import AssistantMessage, ToolResultMessage, UserMessage
+from tau_agent.messages import TextContent
 from tests.integration.helpers import tool_call_stream
+
+
+def _msg_text(m: ToolResultMessage) -> str:
+    return "".join(b.text for b in m.content if isinstance(b, TextContent))
 
 
 @pytest.mark.anyio
@@ -39,7 +44,7 @@ async def test_write_tool_creates_file(
     # Tool result has matching ID
     result = [m for m in session.messages if isinstance(m, ToolResultMessage)][0]
     assert result.tool_call_id == "call-1"
-    assert "success" in result.content.lower() or result.content.strip()
+    assert "success" in _msg_text(result).lower() or _msg_text(result).strip()
 
 
 @pytest.mark.anyio
@@ -61,7 +66,7 @@ async def test_read_tool_reads_existing_file(
         pass
 
     result = [m for m in session.messages if isinstance(m, ToolResultMessage)][0]
-    assert "world" in result.content
+    assert "world" in _msg_text(result)
 
 
 @pytest.mark.anyio
@@ -103,4 +108,4 @@ async def test_bash_tool_prints_output(
         pass
 
     result = [m for m in session.messages if isinstance(m, ToolResultMessage)][0]
-    assert "hello" in result.content
+    assert "hello" in _msg_text(result)

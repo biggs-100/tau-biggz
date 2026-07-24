@@ -55,7 +55,7 @@ def calculate_session_stats(
         if isinstance(msg, UserMessage):
             turns += 1
         elif isinstance(msg, AssistantMessage):
-            output_text += msg.content
+            output_text += msg.text
             tool_calls += len(msg.tool_calls)
 
     estimated_output = estimate_text_tokens(output_text)

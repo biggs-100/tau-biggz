@@ -127,24 +127,30 @@ def _event_to_dict(event: AgentEvent) -> dict[str, Any]:
     if isinstance(event, AgentStartEvent):
         payload["session_id"] = event.session_id  # type: ignore[attr-defined]
     elif isinstance(event, MessageStartEvent):
-        payload["role"] = event.message_role
+        payload["role"] = event.message.role if event.message else "assistant"
     elif isinstance(event, MessageDeltaEvent):
         payload["delta"] = event.delta
     elif isinstance(event, MessageEndEvent):
         payload["role"] = event.message.role if event.message else None
-        payload["content"] = str(event.message.content)[:500] if event.message else None
+        if event.message is not None:
+            from tau_agent.messages import TextContent
+            content_text = "".join(b.text for b in event.message.content if isinstance(b, TextContent))
+            payload["content"] = content_text[:500]
     elif isinstance(event, ToolExecutionStartEvent):
         payload["tool_name"] = event.tool_name  # type: ignore[attr-defined]
-        payload["tool_input"] = str(event.tool_input)[:200] if event.tool_input else None  # type: ignore[attr-defined]
+        payload["tool_input"] = str(event.args)[:200] if event.args else None  # type: ignore[attr-defined]
     elif isinstance(event, ToolExecutionEndEvent):
         payload["tool_name"] = event.tool_name  # type: ignore[attr-defined]
-        payload["ok"] = event.ok  # type: ignore[attr-defined]
-        payload["result"] = str(event.content)[:200] if event.content else None  # type: ignore[attr-defined]
+        payload["ok"] = not event.is_error  # type: ignore[attr-defined]
+        result_str = ""
+        if event.result is not None and hasattr(event.result, "content"):
+            from tau_agent.messages import TextContent
+            result_str = "".join(b.text for b in event.result.content if isinstance(b, TextContent))
+        payload["result"] = result_str[:200] if result_str else None
     elif isinstance(event, ThinkingDeltaEvent):
         payload["delta"] = event.delta[:200] if event.delta else None
     elif isinstance(event, AgentEndEvent):
-        payload["ok"] = event.ok if hasattr(event, "ok") else None
-        payload["error"] = str(event.error) if hasattr(event, "error") and event.error else None
+        payload["ok"] = True
 
     return {k: v for k, v in payload.items() if v is not None}
 

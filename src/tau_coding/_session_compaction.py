@@ -127,16 +127,19 @@ class _CompactionMixin(_PersistenceMixin):
         text_parts: list[str] = []
         final_text: str | None = None
         summary_messages: list[AgentMessage] = [UserMessage(content=prompt)]
+        from tau_agent.provider_events import AssistantDoneEvent, TextDeltaEvent
         async for event in self._harness.config.provider.stream_response(
             model=self.model,
             system=SUMMARIZATION_SYSTEM_PROMPT,
             messages=summary_messages,
             tools=[],
         ):
-            if isinstance(event, ProviderTextDeltaEvent):
-                text_parts.append(event.delta)
-            elif isinstance(event, ProviderResponseEndEvent):
-                final_text = event.message.content
+            if isinstance(event, (ProviderTextDeltaEvent, TextDeltaEvent)):
+                text_parts.append(getattr(event, "delta", ""))
+            elif isinstance(event, (ProviderResponseEndEvent, AssistantDoneEvent)):
+                msg = getattr(event, "message", getattr(event, "error", None))
+                if msg is not None:
+                    final_text = msg.text
             elif isinstance(event, ProviderErrorEvent):
                 details = f": {event.data}" if event.data is not None else ""
                 raise RuntimeError(f"Compaction summarization failed: {event.message}{details}")

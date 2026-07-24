@@ -20,6 +20,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from time import monotonic
 
+from tau_agent.messages import TextContent
 from tau_agent.tools import AgentTool, AgentToolResult, ToolCancellationToken
 from tau_agent.types import JSONValue
 from tau_coding.extensions import ToolRegistration
@@ -173,11 +174,8 @@ def create_read_tool_definition(
         if mime_type is not None:
             data = path.read_bytes()
             return AgentToolResult(
-                tool_call_id="",
-                name="read",
-                ok=True,
-                content=f"Read image file [{mime_type}]",
-                data={
+                content=[TextContent(text=f"Read image file [{mime_type}]")],
+                details={
                     "path": str(path),
                     "mime_type": mime_type,
                     "bytes": len(data),
@@ -239,11 +237,8 @@ def create_read_tool_definition(
             output = truncation.content
 
         return AgentToolResult(
-            tool_call_id="",
-            name="read",
-            ok=True,
-            content=output,
-            data=details,
+            content=[TextContent(text=output)],
+            details=details,
         )
 
     return ToolDefinition(
@@ -315,11 +310,8 @@ def create_write_tool_definition(
             path.write_text(content, encoding="utf-8")
 
         return AgentToolResult(
-            tool_call_id="",
-            name="write",
-            ok=True,
-            content=f"Successfully wrote to {path}.",
-            data={"path": str(path), "characters": len(content)},
+            content=[TextContent(text=f"Successfully wrote to {path}.")],
+            details={"path": str(path), "characters": len(content)},
         )
 
     return ToolDefinition(
@@ -407,11 +399,8 @@ def create_edit_tool_definition(
         diff_text, first_changed_line = generate_diff_string(base_content, new_content)
         patch = generate_unified_patch(str(path), base_content, new_content)
         return AgentToolResult(
-            tool_call_id="",
-            name="edit",
-            ok=True,
-            content=f"Successfully replaced {len(edits)} block(s) in {path}.",
-            data={
+            content=[TextContent(text=f"Successfully replaced {len(edits)} block(s) in {path}.")],
+            details={
                 "path": str(path),
                 "edits": len(edits),
                 "diff": diff_text,
@@ -578,12 +567,8 @@ def create_bash_tool_definition(
 
         ok = exit_code == 0 and not timed_out and not cancelled
         return AgentToolResult(
-            tool_call_id="",
-            name="bash",
-            ok=ok,
-            content=output_text,
-            error=None if ok else status,
-            data={
+            content=[TextContent(text=output_text)],
+            details={
                 "command": command,
                 "exit_code": exit_code,
                 "timed_out": timed_out,
@@ -659,11 +644,7 @@ def create_web_search_tool() -> AgentTool:
         query = str(arguments.get("query", ""))
         if not query:
             return AgentToolResult(
-                tool_call_id="web",
-                name="web_search",
-                ok=False,
-                content="No search query provided.",
-                error="Missing query",
+                content=[TextContent(text="No search query provided.")],
             )
         try:
             url = "https://html.duckduckgo.com/html/"
@@ -686,25 +667,15 @@ def create_web_search_tool() -> AgentTool:
 
             if not results:
                 return AgentToolResult(
-                    tool_call_id="web",
-                    name="web_search",
-                    ok=True,
-                    content="No results found.",
+                    content=[TextContent(text="No results found.")],
                 )
 
             return AgentToolResult(
-                tool_call_id="web",
-                name="web_search",
-                ok=True,
-                content="\n\n---\n\n".join(results),
+                content=[TextContent(text="\n\n---\n\n".join(results))],
             )
         except Exception as exc:
             return AgentToolResult(
-                tool_call_id="web",
-                name="web_search",
-                ok=False,
-                content=f"Search failed: {exc}",
-                error=str(exc),
+                content=[TextContent(text=f"Search failed: {exc}")],
             )
 
     return AgentTool(
@@ -751,7 +722,7 @@ def create_subagent_tool() -> AgentTool:
         instructions = str(arguments.get("instructions", "")) or None
         if not task:
             return AgentToolResult(
-                tool_call_id="sub", name="subagent_run", ok=False, content="No task provided."
+                content=[TextContent(text="No task provided.")]
             )
 
         try:
@@ -773,10 +744,7 @@ def create_subagent_tool() -> AgentTool:
             settings = load_provider_settings()
             if not settings or not settings.providers:
                 return AgentToolResult(
-                    tool_call_id="sub",
-                    name="subagent_run",
-                    ok=False,
-                    content="No provider configured. Login with /login first.",
+                    content=[TextContent(text="No provider configured. Login with /login first.")],
                 )
 
             first = settings.providers[0]
@@ -791,30 +759,30 @@ def create_subagent_tool() -> AgentTool:
                 from tau_agent import AgentEndEvent, ErrorEvent
 
                 if isinstance(event, AgentEndEvent):
-                    text_parts.append(getattr(event, "message", event).content or "")  # type: ignore[union-attr]
+                    for msg in event.messages:
+                        if hasattr(msg, "text"):
+                            text_parts.append(msg.text)
+                        elif hasattr(msg, "content"):
+                            c = msg.content
+                            if isinstance(c, str):
+                                text_parts.append(c)
+                            elif isinstance(c, list):
+                                text_parts.append("".join(
+                                    b.text for b in c if isinstance(b, TextContent)
+                                ))
                 elif isinstance(event, ErrorEvent) and not event.recoverable:
                     await provider.aclose()
                     return AgentToolResult(
-                        tool_call_id="sub",
-                        name="subagent_run",
-                        ok=False,
-                        content=f"Sub-agent error: {event.message}",
+                        content=[TextContent(text=f"Sub-agent error: {event.message}")],
                     )
             result_text = "".join(text_parts).strip()
             await provider.aclose()
             return AgentToolResult(
-                tool_call_id="sub",
-                name="subagent_run",
-                ok=True,
-                content=result_text or "(no response)",
+                content=[TextContent(text=result_text or "(no response)")],
             )
         except Exception as exc:
             return AgentToolResult(
-                tool_call_id="sub",
-                name="subagent_run",
-                ok=False,
-                content=f"Sub-agent failed: {exc}",
-                error=str(exc),
+                content=[TextContent(text=f"Sub-agent failed: {exc}")],
             )
 
     return AgentTool(

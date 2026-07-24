@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from tau_agent.messages import AgentMessage
+from tau_agent.messages import AgentMessage, AssistantMessage, TextContent, ToolResultMessage, UserMessage
 from tau_agent.tools import AgentTool
 
 CHARS_PER_TOKEN = 4
@@ -219,6 +219,16 @@ def build_compaction_summary_prompt(
     return f"{prompt}{base_prompt}"
 
 
+def _msg_text(m: AgentMessage) -> str:
+    if isinstance(m, (AssistantMessage, ToolResultMessage)):
+        return "".join(b.text for b in m.content if isinstance(b, TextContent))
+    if isinstance(m, UserMessage):
+        if isinstance(m.content, list):
+            return "".join(b.text for b in m.content if isinstance(b, TextContent))
+        return m.content
+    return str(getattr(m, "content", ""))
+
+
 def serialize_messages_for_compaction(messages: tuple[AgentMessage, ...]) -> str:
     """Serialize provider-neutral messages for the compaction summarizer."""
     if not messages:
@@ -229,12 +239,13 @@ def serialize_messages_for_compaction(messages: tuple[AgentMessage, ...]) -> str
         match message.role:
             case "user":
                 lines.append(f"<message index={index} role=user>")
-                lines.append(message.content)
+                lines.append(_msg_text(message))
                 lines.append("</message>")
             case "assistant":
                 lines.append(f"<message index={index} role=assistant>")
-                if message.content:
-                    lines.append(message.content)
+                text = _msg_text(message)
+                if text:
+                    lines.append(text)
                 if message.tool_calls:
                     lines.append("<tool-calls>")
                     for call in message.tool_calls:
@@ -242,10 +253,12 @@ def serialize_messages_for_compaction(messages: tuple[AgentMessage, ...]) -> str
                     lines.append("</tool-calls>")
                 lines.append("</message>")
             case "tool":
+                ok = not message.is_error if hasattr(message, "is_error") else True
+                name = message.name or message.tool_name or "?"
                 lines.append(
-                    f"<message index={index} role=tool name={message.name} ok={message.ok}>"
+                    f"<message index={index} role=tool name={name} ok={ok}>"
                 )
-                lines.append(message.content)
+                lines.append(_msg_text(message))
                 lines.append("</message>")
     return "\n".join(lines)
 
@@ -253,16 +266,18 @@ def serialize_messages_for_compaction(messages: tuple[AgentMessage, ...]) -> str
 def _message_text(message: AgentMessage) -> str:
     match message.role:
         case "user":
-            return _truncate_summary_text(message.content)
+            return _truncate_summary_text(_msg_text(message))
         case "assistant":
             suffix = ""
             if message.tool_calls:
                 names = ", ".join(call.name for call in message.tool_calls)
                 suffix = f" [tool calls: {names}]"
-            return _truncate_summary_text(f"{message.content}{suffix}")
+            return _truncate_summary_text(f"{_msg_text(message)}{suffix}")
         case "tool":
-            prefix = f"{message.name} {'ok' if message.ok else 'failed'}: "
-            return _truncate_summary_text(f"{prefix}{message.content}")
+            name = message.name or message.tool_name or "?"
+            ok = "ok" if not message.is_error else "failed"
+            prefix = f"{name} {ok}: "
+            return _truncate_summary_text(f"{prefix}{_msg_text(message)}")
 
 
 def _truncate_summary_text(text: str) -> str:
@@ -279,7 +294,8 @@ def _split_previous_compaction_summary(
         return None, messages
 
     first = messages[0]
-    if first.role != "user" or not first.content.startswith(COMPACTION_SUMMARY_PREFIX):
+    first_text = _msg_text(first)
+    if first.role != "user" or not first_text.startswith(COMPACTION_SUMMARY_PREFIX):
         return None, messages
 
-    return first.content.removeprefix(COMPACTION_SUMMARY_PREFIX), messages[1:]
+    return first_text.removeprefix(COMPACTION_SUMMARY_PREFIX), messages[1:]

@@ -8,7 +8,12 @@ from typing import Any
 
 import httpx
 
-from tau_agent.messages import AgentMessage, AssistantMessage, ToolResultMessage, UserMessage
+from tau_agent.messages import AgentMessage, AssistantContent, AssistantMessage, TextContent, ToolResultMessage, UserMessage
+
+def _format_tool_result_content(message: ToolResultMessage) -> str:
+    if isinstance(message.content, list):
+        return "".join(b.text for b in message.content if isinstance(b, TextContent))
+    return str(message.content)
 from tau_agent.provider import CancellationToken, ModelProvider
 from tau_agent.provider_events import AssistantMessageEvent
 from tau_agent.tools import AgentTool, ToolCall
@@ -223,11 +228,12 @@ class AnthropicProvider:
                         for tool_call in tool_calls:
                             yield ProviderToolCallEvent(tool_call=tool_call)
 
+                        content_blocks: list[AssistantContent] = []
+                        if content_parts:
+                            content_blocks.append(TextContent(text="".join(content_parts)))
+                        content_blocks.extend(tool_calls)
                         yield ProviderResponseEndEvent(
-                            message=AssistantMessage(
-                                content="".join(content_parts),
-                                tool_calls=tool_calls,
-                            ),
+                            message=AssistantMessage(content=content_blocks),
                             finish_reason=finish_reason,
                         )
                         return
@@ -346,8 +352,8 @@ def _anthropic_message(message: AgentMessage) -> dict[str, JSONValue]:
                 {
                     "type": "tool_result",
                     "tool_use_id": message.tool_call_id,
-                    "content": message.content,
-                    "is_error": not message.ok,
+            "content": _format_tool_result_content(message),
+            "is_error": message.is_error if hasattr(message, "is_error") else False,
                 }
             ],
         }

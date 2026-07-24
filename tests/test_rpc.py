@@ -78,7 +78,8 @@ class TestRpcResponse:
 
 class TestEventToDict:
     def test_message_start_event(self) -> None:
-        event = MessageStartEvent(message_role="user")
+        from tau_agent.messages import UserMessage
+        event = MessageStartEvent(message=UserMessage(content="hello"))
         result = _event_to_dict(event)
         assert result["type"] == "event"
         # removesuffix("Event").lower() produces "messagestart" (no underscore)
@@ -128,10 +129,7 @@ class TestEventToDict:
         event = AgentEndEvent()
         result = _event_to_dict(event)
         assert result["event"] == "agentend"
-        # AgentEndEvent has no ok/error fields; _event_to_dict uses
-        # hasattr which returns False, so these keys are filtered out
-        assert "ok" not in result
-        assert "error" not in result
+        assert result.get("ok") is True
 
 
 # ── _write_json ────────────────────────────────────────────────────────

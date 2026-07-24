@@ -22,8 +22,10 @@ from tau_ai.events import (
     ProviderToolCallEvent,
 )
 from tau_ai.http_errors import provider_http_error_message
-from tau_ai.provider import CancellationToken
+from tau_agent.provider import CancellationToken, ModelProvider
+from tau_agent.provider_events import AssistantMessageEvent
 from tau_ai.retry import provider_retry_event, retry_delay_seconds, wait_for_retry
+from tau_ai.stream import canonicalize_provider_stream
 
 
 class MistralConversationsProvider:
@@ -45,7 +47,27 @@ class MistralConversationsProvider:
             await self._client.aclose()
             self._client = None
 
-    def stream_response(
+    async def stream_response(
+        self,
+        *,
+        model: str,
+        system: str,
+        messages: list[AgentMessage],
+        tools: list[AgentTool],
+        signal: CancellationToken | None = None,
+    ) -> AsyncIterator[AssistantMessageEvent]:
+        """Stream one Mistral response as Pi-compatible assistant events."""
+        raw = self._stream_provider_events(
+            model=model,
+            system=system,
+            messages=messages,
+            tools=tools,
+            signal=signal,
+        )
+        async for event in canonicalize_provider_stream(raw):
+            yield event
+
+    def _stream_provider_events(
         self,
         *,
         model: str,

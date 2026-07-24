@@ -27,7 +27,6 @@ from tau_agent import (
     ErrorEvent,
     MessageEndEvent,
     QueuedMessages,
-    QueueUpdateEvent,
     ToolExecutionEndEvent,
 )
 from tau_agent.messages import AgentMessage, TextContent, UserMessage
@@ -727,8 +726,8 @@ class CodingSession(_ProviderMixin, _ReloadResumeMixin, _CompactionMixin):
 
         self._harness.cancel()
 
-    def queue_update_event(self) -> QueueUpdateEvent:
-        """Return the current queue state as an agent event."""
+    def queue_update_event(self) -> QueuedMessages:
+        """Return the current queue state as a portable snapshot."""
 
         return self._harness.queue_update_event()
 
@@ -737,7 +736,7 @@ class CodingSession(_ProviderMixin, _ReloadResumeMixin, _CompactionMixin):
 
         return self._harness.clear_queues()
 
-    def steer(self, content: str) -> QueueUpdateEvent:
+    def steer(self, content: str) -> QueuedMessages:
         """Queue a steering message while the session is already running."""
 
         return self._harness.steer(content)
@@ -883,17 +882,11 @@ class CodingSession(_ProviderMixin, _ReloadResumeMixin, _CompactionMixin):
 
         if self._harness.is_running:
             if streaming_behavior == "steer":
-                queued = self._harness.steer(expanded_content)
-                yield QueueUpdateEvent(
-                    steering=tuple(m.content if isinstance(m.content, str) else m.text for m in queued.steering),
-                )
+                self._harness.steer(expanded_content)
                 return
 
             if streaming_behavior == "follow_up":
-                queued = self._harness.follow_up(expanded_content)
-                yield QueueUpdateEvent(
-                    follow_up=tuple(m.content if isinstance(m.content, str) else m.text for m in queued.follow_up),
-                )
+                self._harness.follow_up(expanded_content)
                 return
 
             raise RuntimeError(

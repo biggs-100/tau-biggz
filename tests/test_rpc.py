@@ -12,12 +12,12 @@ import pytest
 
 from tau_agent.events import (
     AgentEndEvent,
-    MessageDeltaEvent,
     MessageEndEvent,
     MessageStartEvent,
-    ThinkingDeltaEvent,
+    MessageUpdateEvent,
 )
-from tau_agent.messages import AssistantMessage
+from tau_agent.messages import AssistantMessage, TextContent
+from tau_agent.provider_events import TextDeltaEvent, ThinkingDeltaEvent
 from tau_coding.rpc import (
     RpcCommand,
     RpcResponse,
@@ -91,27 +91,36 @@ class TestEventToDict:
         result = _event_to_dict(event)
         assert result["role"] == "assistant"
 
-    def test_message_delta_event(self) -> None:
-        event = MessageDeltaEvent(delta="Hello ")
+    def test_message_update_event(self) -> None:
+        event = MessageUpdateEvent(
+            message=AssistantMessage(content=[TextContent(text="Hello ")]),
+            assistant_message_event=TextDeltaEvent(content_index=0, delta="Hello "),
+        )
         result = _event_to_dict(event)
-        # removesuffix("Event").lower() -> "messagedelta"
-        assert result["event"] == "messagedelta"
+        # removesuffix("Event").lower() -> "messageupdate"
+        assert result["event"] == "messageupdate"
         assert result["delta"] == "Hello "
 
-    def test_thinking_delta_event(self) -> None:
-        event = ThinkingDeltaEvent(delta="reasoning...")
+    def test_thinking_delta_via_message_update(self) -> None:
+        event = MessageUpdateEvent(
+            message=AssistantMessage(content=[TextContent(text="")]),
+            assistant_message_event=ThinkingDeltaEvent(content_index=0, delta="reasoning..."),
+        )
         result = _event_to_dict(event)
-        assert result["event"] == "thinkingdelta"
+        assert result["event"] == "messageupdate"
         assert result["delta"] == "reasoning..."
 
     def test_thinking_delta_long_truncated(self) -> None:
         long_delta = "x" * 500
-        event = ThinkingDeltaEvent(delta=long_delta)
+        event = MessageUpdateEvent(
+            message=AssistantMessage(content=[TextContent(text="")]),
+            assistant_message_event=ThinkingDeltaEvent(content_index=0, delta=long_delta),
+        )
         result = _event_to_dict(event)
         assert len(result["delta"]) == 200
 
     def test_message_end_event(self) -> None:
-        message = AssistantMessage(content="Final answer")
+        message = AssistantMessage(content=[TextContent(text="Final answer")])
         event = MessageEndEvent(message=message)
         result = _event_to_dict(event)
         assert result["event"] == "messageend"
@@ -120,7 +129,7 @@ class TestEventToDict:
 
     def test_message_end_event_long_content_truncated(self) -> None:
         long_content = "x" * 1000
-        message = AssistantMessage(content=long_content)
+        message = AssistantMessage(content=[TextContent(text=long_content)])
         event = MessageEndEvent(message=message)
         result = _event_to_dict(event)
         assert len(result["content"]) == 500
@@ -268,8 +277,11 @@ class TestReadStdin:
 
 async def _mock_prompt_stream(message: str) -> AsyncIterator:
     """Async generator that yields a simple message stream for tests."""
-    yield MessageDeltaEvent(delta="Hello ")
-    yield MessageEndEvent(message=AssistantMessage(content="World"))
+    yield MessageUpdateEvent(
+        message=AssistantMessage(content=[TextContent(text="Hello ")]),
+        assistant_message_event=TextDeltaEvent(content_index=0, delta="Hello "),
+    )
+    yield MessageEndEvent(message=AssistantMessage(content=[TextContent(text="World")]))
 
 
 class TestRunPrompt:
@@ -289,7 +301,7 @@ class TestRunPrompt:
 
         evt1 = json.loads(lines[0])
         assert evt1["type"] == "event"
-        assert evt1["event"] == "messagedelta"
+        assert evt1["event"] == "messageupdate"
         assert evt1["delta"] == "Hello "
 
         evt2 = json.loads(lines[1])

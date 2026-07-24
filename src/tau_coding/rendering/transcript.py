@@ -10,17 +10,16 @@ from tau_agent import (
     AgentEndEvent,
     AgentEvent,
     ErrorEvent,
-    MessageDeltaEvent,
     MessageEndEvent,
     MessageStartEvent,
     MessageUpdateEvent,
-    RetryEvent,
     ToolExecutionEndEvent,
     ToolExecutionStartEvent,
     ToolExecutionUpdateEvent,
 )
 
 from tau_agent.messages import TextContent
+from tau_agent.provider_events import TextDeltaEvent
 from tau_agent.tools import ToolCall
 from tau_coding.tui.state import format_tool_call_block
 
@@ -47,13 +46,10 @@ class TranscriptRenderer:
             self._assistant_ended = False
             return
 
-        if isinstance(event, (MessageDeltaEvent, MessageUpdateEvent)):
+        if isinstance(event, MessageUpdateEvent):
             self._assistant_started = True
-            if hasattr(event, "assistant_message_event") and event.assistant_message_event is not None:
-                delta = getattr(event.assistant_message_event, "delta", "")
-            else:
-                delta = getattr(event, "delta", "")
-            typer.echo(delta, nl=False)
+            if isinstance(event.assistant_message_event, TextDeltaEvent):
+                typer.echo(event.assistant_message_event.delta, nl=False)
             return
 
         if isinstance(event, ToolExecutionStartEvent):
@@ -66,11 +62,6 @@ class TranscriptRenderer:
             self._ensure_assistant_newline()
             msg = _result_text(event.partial_result.content) if event.partial_result and event.partial_result.content else ""
             self._console.print(Text(f"… {msg}", style="bright_black"))
-            return
-
-        if isinstance(event, RetryEvent):
-            self._ensure_assistant_newline()
-            self._console.print(Text(f"… {event.message}", style="bright_black"))
             return
 
         if isinstance(event, ToolExecutionEndEvent):

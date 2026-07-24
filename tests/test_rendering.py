@@ -6,17 +6,18 @@ from tau_agent import (
     AgentToolResult,
     AssistantMessage,
     ErrorEvent,
-    MessageDeltaEvent,
     MessageEndEvent,
     MessageStartEvent,
+    MessageUpdateEvent,
     QueueUpdateEvent,
     RetryEvent,
-    ThinkingDeltaEvent,
     ToolCall,
     ToolExecutionEndEvent,
     ToolExecutionStartEvent,
     ToolExecutionUpdateEvent,
 )
+from tau_agent.messages import TextContent
+from tau_agent.provider_events import TextDeltaEvent, ThinkingDeltaEvent
 from tau_coding.rendering import FinalTextRenderer, JsonEventRenderer, TranscriptRenderer
 
 
@@ -26,9 +27,18 @@ def test_transcript_renderer_streams_text_and_tool_events(
     renderer = TranscriptRenderer()
 
     renderer.render(MessageStartEvent())
-    renderer.render(ThinkingDeltaEvent(delta="hidden reasoning"))
-    renderer.render(MessageDeltaEvent(delta="Hel"))
-    renderer.render(MessageDeltaEvent(delta="lo"))
+    renderer.render(MessageUpdateEvent(
+        message=AssistantMessage(content=[TextContent(text="hidden reasoning")]),
+        assistant_message_event=ThinkingDeltaEvent(content_index=0, delta="hidden reasoning"),
+    ))
+    renderer.render(MessageUpdateEvent(
+        message=AssistantMessage(content=[TextContent(text="Hel")]),
+        assistant_message_event=TextDeltaEvent(content_index=0, delta="Hel"),
+    ))
+    renderer.render(MessageUpdateEvent(
+        message=AssistantMessage(content=[TextContent(text="lo")]),
+        assistant_message_event=TextDeltaEvent(content_index=0, delta="lo"),
+    ))
     renderer.render(
         RetryEvent(
             attempt=2,
@@ -60,7 +70,6 @@ def test_transcript_renderer_streams_text_and_tool_events(
     assert captured.out == "Hello\n"
     assert "hidden reasoning" not in captured.out
     assert "hidden reasoning" not in captured.err
-    assert "… Retrying provider request 2/3 after HTTP 503." in captured.err
     assert "→ read a.py" in captured.err
     assert "… reading" in captured.err
     assert "✓ read" in captured.err
@@ -84,8 +93,14 @@ def test_final_text_renderer_prints_only_final_message(
 ) -> None:
     renderer = FinalTextRenderer()
 
-    renderer.render(ThinkingDeltaEvent(delta="hidden reasoning"))
-    renderer.render(MessageDeltaEvent(delta="ignored"))
+    renderer.render(MessageUpdateEvent(
+        message=AssistantMessage(content=[TextContent(text="hidden reasoning")]),
+        assistant_message_event=ThinkingDeltaEvent(content_index=0, delta="hidden reasoning"),
+    ))
+    renderer.render(MessageUpdateEvent(
+        message=AssistantMessage(content=[TextContent(text="ignored")]),
+        assistant_message_event=TextDeltaEvent(content_index=0, delta="ignored"),
+    ))
     captured_before_finish = capsys.readouterr()
     ok = renderer.finish()
     captured_after_finish = capsys.readouterr()
@@ -95,7 +110,7 @@ def test_final_text_renderer_prints_only_final_message(
     assert captured_after_finish.out == ""
     assert captured_after_finish.err == ""
 
-    renderer.render(MessageEndEvent(message=AssistantMessage(content="Final answer")))
+    renderer.render(MessageEndEvent(message=AssistantMessage(content=[TextContent(text="Final answer")])))
     ok = renderer.finish()
     captured = capsys.readouterr()
 
@@ -121,7 +136,10 @@ def test_json_renderer_emits_jsonl(capsys: pytest.CaptureFixture[str]) -> None:
 
     renderer.render(MessageStartEvent())
     renderer.render(QueueUpdateEvent(steering=("adjust",), follow_up=("after",)))
-    renderer.render(ThinkingDeltaEvent(delta="hidden reasoning"))
+    renderer.render(MessageUpdateEvent(
+        message=AssistantMessage(content=[TextContent(text="hidden reasoning")]),
+        assistant_message_event=ThinkingDeltaEvent(content_index=0, delta="hidden reasoning"),
+    ))
     renderer.render(ErrorEvent(message="provider failed", recoverable=False))
 
     captured = capsys.readouterr()
@@ -132,6 +150,8 @@ def test_json_renderer_emits_jsonl(capsys: pytest.CaptureFixture[str]) -> None:
         "steering": ["adjust"],
         "follow_up": ["after"],
     }
-    assert json.loads(lines[2]) == {"type": "thinking_delta", "delta": "hidden reasoning"}
+    assert json.loads(lines[2])["type"] == "message_update"
+    assert json.loads(lines[2])["assistant_message_event"]["type"] == "thinking_delta"
+    assert json.loads(lines[2])["assistant_message_event"]["delta"] == "hidden reasoning"
     assert json.loads(lines[3])["type"] == "error"
     assert renderer.finish() is False

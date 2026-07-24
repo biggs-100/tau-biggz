@@ -28,17 +28,18 @@ from tau_agent import (
     AgentEvent,
     AgentStartEvent,
     ErrorEvent,
-    MessageDeltaEvent,
     MessageEndEvent,
     MessageStartEvent,
-    QueueUpdateEvent,
-    RetryEvent,
-    ThinkingDeltaEvent,
+    MessageUpdateEvent,
     ToolExecutionEndEvent,
     ToolExecutionStartEvent,
     ToolExecutionUpdateEvent,
 )
 from tau_agent.messages import AgentMessage, UserMessage
+from tau_agent.provider_events import (
+    TextDeltaEvent,
+    ThinkingDeltaEvent as ProviderThinkingDeltaEvent,
+)
 from tau_agent.tools import AgentTool
 from tau_ai import ProviderErrorEvent, ProviderEvent
 from tau_ai.provider import CancellationToken
@@ -1071,24 +1072,38 @@ class TauTuiApp(App[None]):
             return
         if isinstance(event, MessageStartEvent):
             return
-        if isinstance(event, MessageDeltaEvent):
-            await transcript.append_assistant_delta(event.delta, theme=theme)
-            self._sync_activity_indicator()
-            return
-        if isinstance(event, ThinkingDeltaEvent):
-            await transcript.append_thinking_delta(
-                event.delta,
-                theme=theme,
-                show_thinking=self.state.show_thinking,
-            )
-            self._sync_activity_indicator()
+        if isinstance(event, MessageUpdateEvent):
+            ae = event.assistant_message_event
+            if isinstance(ae, TextDeltaEvent):
+                await transcript.append_assistant_delta(ae.delta, theme=theme)
+                self._sync_activity_indicator()
+                return
+            if isinstance(ae, ProviderThinkingDeltaEvent):
+                await transcript.append_thinking_delta(
+                    ae.delta,
+                    theme=theme,
+                    show_thinking=self.state.show_thinking,
+                )
+                self._sync_activity_indicator()
+                return
             return
         if isinstance(event, MessageEndEvent):
             if event.message.role == "user":
                 await self._append_confirmed_user_message(event.message)
                 return
             if event.message.role == "assistant":
-                await transcript.finish_assistant_message(event.message.content)
+                content = event.message.content
+                if isinstance(content, list):
+                    from tau_agent.messages import TextContent, ThinkingContent
+                    text = "".join(
+                        block.text if isinstance(block, TextContent)
+                        else block.thinking if isinstance(block, ThinkingContent)
+                        else str(block)
+                        for block in content
+                    )
+                else:
+                    text = str(content)
+                await transcript.finish_assistant_message(text)
                 self._refresh_chrome()
                 return
             return
@@ -1101,7 +1116,7 @@ class TauTuiApp(App[None]):
             )
             self._refresh_chrome()
             return
-        if isinstance(event, ToolExecutionUpdateEvent | RetryEvent | ErrorEvent):
+        if isinstance(event, ToolExecutionUpdateEvent | ErrorEvent):
             await transcript.finish_assistant_message()
             if self.state.items:
                 await transcript.append_item(
@@ -1113,9 +1128,6 @@ class TauTuiApp(App[None]):
             return
         if isinstance(event, ToolExecutionEndEvent):
             self._refresh()
-            return
-        if isinstance(event, QueueUpdateEvent):
-            self._refresh_chrome()
             return
         self._refresh_chrome()
 
@@ -1875,10 +1887,11 @@ class TauTuiApp(App[None]):
         self._refresh_footer_bindings()
 
     def _sync_queue_state(self) -> None:
-        queue_event = getattr(self.session, "queue_update_event", None)
-        if not callable(queue_event):
-            return
-        self.adapter.apply(queue_event())
+        qm = self.session.queued_messages
+        self.state.update_queue(
+            steering=tuple(m.content for m in qm.steering),
+            follow_up=tuple(m.content for m in qm.follow_up),
+        )
 
     def _sync_activity_indicator(self) -> None:
         if self.state.running:

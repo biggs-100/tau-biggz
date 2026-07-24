@@ -27,13 +27,13 @@ from tau_agent.events import (
     AgentEndEvent,
     AgentEvent,
     AgentStartEvent,
-    MessageDeltaEvent,
     MessageEndEvent,
     MessageStartEvent,
-    ThinkingDeltaEvent,
+    MessageUpdateEvent,
     ToolExecutionEndEvent,
     ToolExecutionStartEvent,
 )
+from tau_agent.provider_events import TextDeltaEvent, ThinkingDeltaEvent
 from tau_coding.provider_config import (
     load_provider_settings,
     resolve_provider_selection,
@@ -128,8 +128,12 @@ def _event_to_dict(event: AgentEvent) -> dict[str, Any]:
         payload["session_id"] = event.session_id  # type: ignore[attr-defined]
     elif isinstance(event, MessageStartEvent):
         payload["role"] = event.message.role if event.message else "assistant"
-    elif isinstance(event, MessageDeltaEvent):
-        payload["delta"] = event.delta
+    elif isinstance(event, MessageUpdateEvent):
+        ae = event.assistant_message_event
+        if isinstance(ae, TextDeltaEvent):
+            payload["delta"] = ae.delta
+        elif isinstance(ae, ThinkingDeltaEvent):
+            payload["delta"] = ae.delta[:200] if ae.delta else None
     elif isinstance(event, MessageEndEvent):
         payload["role"] = event.message.role if event.message else None
         if event.message is not None:
@@ -147,8 +151,6 @@ def _event_to_dict(event: AgentEvent) -> dict[str, Any]:
             from tau_agent.messages import TextContent
             result_str = "".join(b.text for b in event.result.content if isinstance(b, TextContent))
         payload["result"] = result_str[:200] if result_str else None
-    elif isinstance(event, ThinkingDeltaEvent):
-        payload["delta"] = event.delta[:200] if event.delta else None
     elif isinstance(event, AgentEndEvent):
         payload["ok"] = True
 
